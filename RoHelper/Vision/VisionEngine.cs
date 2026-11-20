@@ -72,6 +72,20 @@ public sealed class VisionEngine : IAutomation, IDisposable
     private const long BannerEvery = 1000;
     private long _bannerAt = long.MinValue / 2;
     private BannerReader? _bannerReader;
+
+    /// <summary>
+    /// 多久 OCR 一次計時器的遊戲時間（約 50～100 ms；讀之間由 <see cref="GameClock"/> 推算）。
+    /// 遊戲時間給 preMvp（MVP 前先選完升級）、面板的下一隻王、對局紀錄的 gt 用。
+    /// </summary>
+    private const long ClockEvery = 1000;
+    private long _clockAt = long.MinValue / 2;
+    private readonly GameClock _clock = new();
+
+    /// <summary>累積升級按 B（autoUpgrade、preMvp）</summary>
+    private readonly BankPresser _bank = new();
+
+    /// <summary>面板「下一隻」那一行（不在野外時空字串）</summary>
+    private string _next = "";
     private VisionKit? _kit;
     private ScreenReader? _reader;
     private PickerReader? _pickerReader;
@@ -125,6 +139,10 @@ public sealed class VisionEngine : IAutomation, IDisposable
 
     /// <summary>躲鐘的狀態（給開發介面看：躲到什麼時候、最近找到的鐘）</summary>
     public BellDodger Bell => _planner.Bell;
+
+    /// <summary>引擎推算的遊戲時間（秒；null＝還沒讀到或計時器已經變成倒數）與這一局讀到的地名（給開發介面看）</summary>
+    public int? GameSecs => _clock.Now(Environment.TickCount64);
+    public string Stage => _stage;
 
     public event Action<EngineSchema>? SchemaReceived;
     public event Action<JsonObject>? StatusReceived;
@@ -194,7 +212,11 @@ public sealed class VisionEngine : IAutomation, IDisposable
             {
                 var (handled, note) = await PickAsync(frame, dpr);
                 if (handled)
+                {
+                    // 按 B 打開的選卡出現了（同 JS 選卡時清 bankTry）
+                    _bank.PickerSeen();
                     return;
+                }
                 unreadable = note;
             }
             else
@@ -231,11 +253,13 @@ public sealed class VisionEngine : IAutomation, IDisposable
             // 步驟 4：在野外、畫面上沒有大廳按鈕時走位。
             // 看起來像選卡但讀不到卡名時（unreadable）不走位：點地面可能點到卡片
             var action = unreadable is not null && decision.Action == "待機" ? unreadable : decision.Action;
+            if (!_gate.InField)
+                _next = "";
             if (_gate.InField && decision.Click is null && unreadable is null && !FieldGate.LobbyVisible(screen))
             {
                 var walk = await FieldStepAsync(frame, dpr, now);
                 if (decision.Action == "待機" && walk.Length > 0)
-                    action = "走位：" + walk;
+                    action = walk;
             }
             if (_gate.InField && now - _sampleAt >= SampleEvery)
             {
@@ -345,6 +369,10 @@ public sealed class VisionEngine : IAutomation, IDisposable
         _infoTries = 0;
         _stage = "";
         _jobRead = false;
+        _clock.Reset();
+        _clockAt = long.MinValue / 2;
+        _bank.NewRun();
+        _next = "";
     }
 
     /// <summary>
@@ -355,7 +383,9 @@ public sealed class VisionEngine : IAutomation, IDisposable
     /// seekBall 開著、不在撿取倒數時每輪掃一次畫面找扭蛋（<see cref="BallFinder"/>，實測一張約 4～6 ms；JS 每 0.5 秒掃一次，這裡夠便宜就每輪掃，看到的位置比較新）。
     /// bellDodge 開著時每 <see cref="BannerEvery"/> OCR 一次公告（<see cref="BellAsync"/>），躲鐘中每輪掃一次畫面找鐘（約 1 ms），這時不找扭蛋。
     /// 進野外滿 ZoomDelay 後也讀地名與職業（<see cref="ReadInfoAsync"/>，讀到為止）。
-    /// 回傳面板文字（空字串＝走位的開關都關了）。
+    /// 每 <see cref="ClockEvery"/> OCR 一次遊戲時間（<see cref="GameClock"/>）。
+    /// 不在躲鐘時先看累積升級（<see cref="BankAsync"/>，同 JS 順序：躲鐘 → 升級 → 走位）：這一輪要按 B 或等選卡畫面時不走位。
+    /// 回傳面板文字：走位的狀態前面加「走位：」，升級的狀態照 JS 原文；升級打不開的附註接在最後（同 JS bankNote）。空字串＝什麼都沒做。
     /// </summary>
     private async Task<string> FieldStepAsync(Frame frame, double dpr, long now)
     {
@@ -375,8 +405,18 @@ public sealed class VisionEngine : IAutomation, IDisposable
             _hud = await _hudReader.ReadAsync(frame, dpr);
             _hudAt = now;
         }
-        var lootPhase = TimerReader.Read(frame, dpr) == TimerPhase.Loot;
+        var timer = TimerReader.Read(frame, dpr);
+        var lootPhase = timer == TimerPhase.Loot;
+        await ClockAsync(frame, dpr, now, timer);
         var bell = await BellAsync(frame, dpr, now, s, lootPhase);
+        var note = "";
+        if (bell is null)
+        {
+            var bank = await BankAsync(frame, dpr, now, s, lootPhase);
+            if (bank.Status.Length > 0)
+                return bank.Status;
+            note = bank.Note;
+        }
         // 躲鐘中不做別的走位，不用找扭蛋
         var balls = s.SeekBall && !lootPhase && bell is null ? BallFinder.Find(frame, dpr) : null;
         var d = _planner.Step(MinimapReader.Read(frame, dpr), s, now, s.CanAffordChest(_hud), HpReader.Read(frame, dpr), lootPhase, balls, bell);
@@ -385,7 +425,38 @@ public sealed class VisionEngine : IAutomation, IDisposable
             var (x, y) = kit.Viewport.ToCss(c.X * frame.Width, c.Y * frame.Height);
             await kit.Input.ClickAsync(x, y);
         }
-        return d.Status;
+        var walk = d.Status.Length > 0 ? "走位：" + d.Status : "";
+        return note.Length == 0 ? walk : walk.Length == 0 ? note : walk + " " + note;
+    }
+
+    /// <summary>
+    /// 遊戲時間：撿取倒數（紅字）時計時器已經不是遊戲時間；平常每 <see cref="ClockEvery"/> OCR 一次（沒有繁中 OCR 時沒有遊戲時間）。
+    /// 順便更新面板「下一隻」那一行（同 JS render 的 nx）。
+    /// </summary>
+    private async Task ClockAsync(Frame frame, double dpr, long now, TimerPhase? timer)
+    {
+        if (timer == TimerPhase.Loot)
+            _clock.Loot();
+        else if (timer == TimerPhase.Normal && _kit!.Ocr is { } ocr && now - _clockAt >= ClockEvery)
+        {
+            _clockAt = now;
+            _clock.Read(await TimerReader.ReadClockAsync(ocr, frame, dpr), now);
+        }
+        _next = StageBosses.NextText(_stage, _clock.Now(now), timer == TimerPhase.Loot, _clock.Countdown);
+    }
+
+    /// <summary>
+    /// 累積升級：看「升級 N [B]」標籤（<see cref="BankReader.Look"/>，純像素）→ <see cref="BankPresser"/> 決定 → 要按就按 B。
+    /// MVP 還有幾秒用地名（<see cref="ReadInfoAsync"/> 讀到的）查 <see cref="StageBosses"/> 減遊戲時間。
+    /// </summary>
+    private async Task<BankStep> BankAsync(Frame frame, double dpr, long now, FieldSettings s, bool lootPhase)
+    {
+        var ready = BankReader.Look(frame, dpr) == BankLook.Ready;
+        var mvpLeft = StageBosses.MvpLeft(_stage, _clock.Now(now));
+        var step = _bank.Step(ready, mvpLeft, lootPhase, s.AutoUpgrade, s.PreMvp, s.PreMvpN, now);
+        if (step.Press)
+            await _kit!.Input.KeyAsync('b');
+        return step;
     }
 
     /// <summary>
@@ -474,7 +545,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
         }
         if (action.Decision is { } d)
         {
-            _recorder.Pick(d, info);
+            _recorder.Pick(d, info, _clock.Text(Environment.TickCount64));
             if (s.DebugLog)
                 LogPick(info, s, action.Status, d);
         }
@@ -501,7 +572,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
         });
     }
 
-    /// <summary>送狀態給面板（格式同 JS 的 status 訊息；尋寶率、下一隻王要等計畫 3、4）</summary>
+    /// <summary>送狀態給面板（格式同 JS 的 status 訊息；尋寶率還沒做，下一隻王見 <see cref="ClockAsync"/>）</summary>
     private void Report(string action)
     {
         History.Add(DateTime.Now, action);
@@ -511,7 +582,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
             ["runs"] = s.Runs,
             ["runLimit"] = s.RunLimit ? s.RunLimitN : 0,
             ["treasure"] = 0,
-            ["next"] = "",
+            ["next"] = _next,
             ["action"] = "［視覺］" + action,
             ["paused"] = s.Paused,
         };

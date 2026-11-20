@@ -30,7 +30,7 @@ public class RunRecorderTests
         rec.SetInfo("洛陽", "");
         var info = new PickerInfo(true, [Card(0, "火箭術", isNew: true), Card(1, "思想之神 +1", text: "神祇")], null);
         rec.Pick(new PickDecision(PickDo.Pick, 0, "技能順序"), info);
-        rec.Pick(new PickDecision(PickDo.Banish, 1, "放逐"), info);
+        rec.Pick(new PickDecision(PickDo.Banish, 1, "放逐"), info, "02:17");
         rec.Pick(new PickDecision(PickDo.Reroll, null, "沒有想要的"), info);
         rec.Sample(1.0, "走位：繞圈", paused: false);
         rec.Sample(0.42, "走位：前往寶箱", paused: false);
@@ -68,6 +68,7 @@ public class RunRecorderTests
         Assert.True((bool)picks[0]!["isNew"]!);
         Assert.False((bool)picks[0]!["deity"]!);
         Assert.True((bool)picks[1]!["deity"]!);
+        Assert.Equal("02:17", (string?)picks[1]!["gt"]);
         Assert.Null(picks[2]!["name"]);
         Assert.Equal("{\"pick\":1,\"banish\":1,\"reroll\":1,\"focus\":0}", run["counts"]!.ToJsonString());
     }

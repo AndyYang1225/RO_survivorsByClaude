@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace RoHelper.Vision.Field;
 
 /// <summary>畫面正上方計時器的狀態：平常（深藍字，倒數到下一隻王）或 MVP 死後的撿取倒數（紅字，同 JS 的 #timer.loot）</summary>
@@ -14,8 +16,9 @@ public enum TimerPhase
 /// 撿取倒數是紅字 (192,58,44)～(196,76,64)，反鋸齒邊緣 (211,122,115)（撿取倒數量到 624 點紅字、深藍字 0 點）。
 /// 白底（三色都 &gt; 235）在野外量到 355～940 點（字越多白底越少；野外7 有技能光圈蓋到框的上緣也有 564）；
 /// 結算、首頁、選角色畫面在這一塊 0 點，選卡畫面 29 點。
+/// 遊戲時間（「mm:ss」，平常往上數）用 OCR 讀（<see cref="ReadClockAsync"/>）。
 /// </summary>
-public static class TimerReader
+public static partial class TimerReader
 {
     /// <summary>掃描範圍（dpr 1）：畫面水平中央左右各 70 px、y 4～48，把框包進來並留一點餘裕</summary>
     private const int HalfWidth = 70;
@@ -60,4 +63,33 @@ public static class TimerReader
     /// 門檻取 B−R ≥ 80 把外框排除（外框兩種狀態都有，算進去會沖淡紅字）
     /// </summary>
     private static bool IsBlue((byte R, byte G, byte B) c) => c.B >= 120 && c.B - c.R >= 80 && c.R <= 120;
+
+    /// <summary>
+    /// OCR 計時器的「mm:ss」回傳秒數（讀不到回 null）。約 100 ms，呼叫端每 1 秒讀一次就好。
+    /// 實測（2026-11-21，野外1～8、撿取倒數、升級累積0／3，dpr 1）：範圍 W/2 ± 60、y 8～38，放大 2 倍直接讀全部正確（「02 : 17」）；
+    /// 不放大什麼都讀不到；紅色通道前處理反而會漏字（「: 43」），所以不做前處理。
+    /// 撿取倒數（紅字）和 MVP 出現後也是「mm:ss」但是倒數，呼叫端要自己排除（見 <see cref="GameClock"/>）。
+    /// </summary>
+    public static async Task<int?> ReadClockAsync(OcrReader ocr, Frame f, double dpr)
+    {
+        var half = (int)(60 * dpr);
+        var area = Rectangle.Intersect(new Rectangle(f.Width / 2 - half, (int)(8 * dpr), half * 2, (int)(30 * dpr)), new Rectangle(0, 0, f.Width, f.Height));
+        if (area.Width == 0 || area.Height == 0)
+            return null;
+        var lines = await ocr.ReadAsync(f, area, 2);
+        return ParseClock(string.Join(" ", lines.Select(l => l.Text)));
+    }
+
+    /// <summary>「mm:ss」→ 秒數：冒號可能讀成全形、分號、點；O、o 當 0；秒數要 00～59；讀不到回 null</summary>
+    internal static int? ParseClock(string text)
+    {
+        var m = ClockRe().Match(text.Replace('O', '0').Replace('o', '0'));
+        if (!m.Success)
+            return null;
+        int min = int.Parse(m.Groups[1].Value), sec = int.Parse(m.Groups[2].Value);
+        return sec < 60 ? min * 60 + sec : null;
+    }
+
+    [GeneratedRegex(@"(\d{1,2})\s*[:：;.]\s*(\d{2})(?!\d)")]
+    private static partial Regex ClockRe();
 }

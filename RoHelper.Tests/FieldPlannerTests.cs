@@ -314,8 +314,10 @@ public sealed class FieldPlannerTests : IDisposable
             ["seekLoot"] = true, ["seekMagnet"] = true, ["seekChest"] = false, ["autoWander"] = true,
             ["stayCenter"] = true, ["zoomOut"] = true, ["tSeekN"] = 800, ["tWanderN"] = 1400, ["chestMoney"] = false,
             ["lowHpStop"] = true, ["lowHpStopN"] = 45, ["farLimit"] = false, ["bossSpot"] = false, ["seekBall"] = false,
+            ["autoUpgrade"] = false, ["preMvp"] = false, ["preMvpN"] = 30,
         });
-        Assert.Equal(new FieldSettings(true, true, false, true, true, true, 800, 1400, false, LowHpStop: true, LowHpStopN: 45, FarLimit: false, BossSpot: false, SeekBall: false), FieldSettings.From(store));
+        Assert.Equal(new FieldSettings(true, true, false, true, true, true, 800, 1400, false, LowHpStop: true, LowHpStopN: 45, FarLimit: false, BossSpot: false, SeekBall: false,
+            AutoUpgrade: false, PreMvp: false, PreMvpN: 30), FieldSettings.From(store));
     }
 
     [Fact]

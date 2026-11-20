@@ -11,7 +11,7 @@ namespace RoHelper.Vision;
 /// 格式盡量相同（v: 1），結算時由 VisionEngine 寫進 runs.jsonl（同 JS 送給 exe 的 run 訊息，同一個檔案）。
 ///
 /// 跟 JS 不同的地方（視覺模式讀不到、或讀法不同）：
-/// - picks 的 gt（遊戲時間）一律空字串：視覺模式不讀計時器。
+/// - picks 的 gt（遊戲時間）是 OCR 計時器推算的「mm:ss」（<see cref="GameClock"/>），讀不到時空字串。
 /// - last 只有 hp、action：JS 的 gt、phase（計時器顏色）、nextBoss 視覺模式讀不到。
 /// - 刻意沒有 diff、loot、cards、serverLoot、got、treasure、deity、items：遠征難度、戰利品圖示（要認圖）、撿到幾個、尋寶率、道具欄都還沒讀。
 /// - result／exp／dps／dpsTotal 來自 <see cref="ResultReader"/> 的 OCR（dps 每一筆只有 text，沒有 JS 的 key、name：那兩個是網頁屬性）。
@@ -58,14 +58,14 @@ public sealed class RunRecorder
             _rec["job"] = job;
     }
 
-    /// <summary>一次選卡動作（同 JS recPick）：kind＝pick／banish／reroll／focus／gameAuto，有卡片時附卡片資訊</summary>
-    public void Pick(PickDecision d, PickerInfo info)
+    /// <summary>一次選卡動作（同 JS recPick）：kind＝pick／banish／reroll／focus／gameAuto，有卡片時附卡片資訊；gt＝遊戲時間「mm:ss」</summary>
+    public void Pick(PickDecision d, PickerInfo info, string gt = "")
     {
         if (_rec is null)
             return;
         var p = new JsonObject
         {
-            ["gt"] = "",
+            ["gt"] = gt,
             ["kind"] = Kind(d.Do),
             ["chest"] = info.IsChest,
         };

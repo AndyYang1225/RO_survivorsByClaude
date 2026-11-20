@@ -156,6 +156,10 @@ public sealed class DevApiHost(Control ui, VisionKit kit, VisionEngine engine, P
         // 公告與鐘：每次都讀、都掃（不管有沒有在躲鐘），校正用
         var banner = kit.Ocr is null ? null : await new BannerReader(kit.Ocr).ReadAsync(frame, dpr);
         var bell = BellFinder.Find(frame, dpr, engine.Bell.Seen);
+        // 累積升級標籤與遊戲時間：每次都讀（校正用）
+        var bankLook = BankReader.Look(frame, dpr);
+        int? bankN = kit.Ocr is null ? null : await new BankReader(kit.Ocr).ReadAsync(frame, dpr);
+        int? clock = kit.Ocr is null ? null : await TimerReader.ReadClockAsync(kit.Ocr, frame, dpr);
         var now = Environment.TickCount64;
         var s = FieldSettings.From(config);
         // 只預覽：用一個新的走位決策（沒有上次移動時間、卡住紀錄），不動引擎的走位狀態（也不會在躲鐘），也不點
@@ -182,6 +186,20 @@ public sealed class DevApiHost(Control ui, VisionKit kit, VisionEngine engine, P
                 ["dodgeMs"] = banner is null ? null : BannerReader.DodgeMs(banner),
                 ["found"] = Bell(bell),
                 ["seen"] = Bell(engine.Bell.Seen),
+            },
+            // 累積升級：look＝ready（白，N > 0，會按 B）／empty（灰，N＝0）／null（沒有標籤＝立即模式）；n＝OCR 到的 N
+            ["bank"] = new JsonObject
+            {
+                ["look"] = bankLook switch { BankLook.Ready => "ready", BankLook.Empty => "empty", _ => null },
+                ["n"] = bankN,
+            },
+            // 遊戲時間：read＝這張截圖 OCR 到的秒數；engine＝引擎推算的秒數、stage＝引擎讀到的地名、mvpLeft＝MVP 還有幾秒（null＝查不到）
+            ["clock"] = new JsonObject
+            {
+                ["read"] = clock,
+                ["engine"] = engine.GameSecs,
+                ["stage"] = engine.Stage,
+                ["mvpLeft"] = StageBosses.MvpLeft(engine.Stage, engine.GameSecs),
             },
             // 畫面上像扭蛋的色塊（離畫面中心近的在前面；截圖像素）
             ["balls"] = new JsonArray(balls.Select(b => (JsonNode?)new JsonObject
