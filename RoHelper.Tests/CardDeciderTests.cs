@@ -43,6 +43,15 @@ public class CardDeciderTests
     }
 
     [Fact]
+    public void EmptyListEntries_AreIgnored()
+    {
+        var d = CardDecider.Decide(Picker(false, Card(0, "火箭術")), Settings(Skills(ban: [""], after: [""])), new RunPickState());
+
+        Assert.Equal(PickDo.Pick, d.Do);
+        Assert.Equal(0, d.Index);
+    }
+
+    [Fact]
     public void BanList_IsBanishedFirst()
     {
         var d = CardDecider.Decide(Picker(false, Card(0, "雷爆術"), Card(1, "火箭術")), Settings(Skills(order: ["雷爆術"], ban: ["火箭術"])), new RunPickState());

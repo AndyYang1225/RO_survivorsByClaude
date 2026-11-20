@@ -57,6 +57,21 @@ public sealed class PickSettingsTests : IDisposable
     }
 
     [Fact]
+    public void From_NoJob_DisablesSkillRules()
+    {
+        var s = PickSettings.From(Store(new JsonObject
+        {
+            ["jobSel"] = "auto",
+            ["curJob"] = "",
+            ["skillOn"] = true,
+            ["skills"] = new JsonObject { ["巫師"] = new JsonObject { ["order"] = new JsonArray("雷爆術") } },
+        }));
+
+        Assert.False(s.SkillOn);
+        Assert.Empty(s.Skills.Order);
+    }
+
+    [Fact]
     public void From_SkillOff_UsesEmptySkills()
     {
         var s = PickSettings.From(Store(new JsonObject

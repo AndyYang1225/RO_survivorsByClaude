@@ -29,7 +29,7 @@ public static partial class CardDecider
         {
             foreach (var w in s.DeityList)
             {
-                var i = all.FirstOrDefault(i => IsDeity(cards[i]) && cards[i].Name.Contains(w), -1);
+                var i = all.FirstOrDefault(i => IsDeity(cards[i]) && w.Length > 0 && cards[i].Name.Contains(w), -1);
                 if (i < 0)
                     continue;
                 deityPick = new(PickDo.Pick, i, "神祇優先：" + w);
@@ -74,7 +74,7 @@ public static partial class CardDecider
         // 道具專注：勾了 ★ 的道具出現時先按「專注」（升級卡、寶箱卡都適用；每個道具每局只專注一次）
         if (s.AutoFocus && s.ItemFocus.Count > 0)
         {
-            string? ItemOf(CardInfo c) => s.ItemFocus.FirstOrDefault(x => Squash(c.Name).Contains(Squash(x)));
+            string? ItemOf(CardInfo c) => s.ItemFocus.FirstOrDefault(x => x.Length > 0 && Squash(c.Name).Contains(Squash(x)));
             var f = all.FirstOrDefault(i => ItemOf(cards[i]) is { } w && !st.Focused.Contains("item:" + w) && Usable(cards[i], ActKind.Focus), -1);
             if (f >= 0)
             {
@@ -100,7 +100,7 @@ public static partial class CardDecider
         if (!p.IsChest)
         {
             var order = s.Skills.Order;
-            int Rank(int i) => order.ToList().FindIndex(w => cards[i].Name.Contains(w));
+            int Rank(int i) => order.ToList().FindIndex(w => w.Length > 0 && cards[i].Name.Contains(w));
 
             // 4. 技能優先：第一個有出現就選；其餘的看稀有度，同稀有度照順序
             var first = pool.FirstOrDefault(i => Rank(i) == 0, -1);
@@ -155,7 +155,7 @@ public static partial class CardDecider
     public static string DeityName(string name) => PlusLevel().Replace(name, "").Trim();
 
     /// <summary>卡名裡有沒有清單裡的某個技能（同 JS skillOfCard：卡名可能是「雷爆術」或「攻擊：屬性附加」）</summary>
-    public static string? SkillOf(CardInfo c, IReadOnlyList<string> list) => list.FirstOrDefault(w => c.Name.Contains(w));
+    public static string? SkillOf(CardInfo c, IReadOnlyList<string> list) => list.FirstOrDefault(w => w.Length > 0 && c.Name.Contains(w));
 
     private static bool Usable(CardInfo c, ActKind kind) => c.Button(kind) is { Usable: true };
 
@@ -178,14 +178,14 @@ public static partial class CardDecider
 
     /// <summary>強制不選：技能「不選」、道具 ✕（神祇不算，神祇另有 IsBannedDeity）</summary>
     private static bool IsSkipped(CardInfo c, PickSettings s)
-        => !IsDeity(c) && (SkillOf(c, s.Skills.Skip) is not null || s.ItemBan.Any(x => Squash(c.Name).Contains(Squash(x))));
+        => !IsDeity(c) && (SkillOf(c, s.Skills.Skip) is not null || s.ItemBan.Any(x => x.Length > 0 && Squash(c.Name).Contains(Squash(x))));
 
     private static bool IsBannedDeity(CardInfo c, PickSettings s) => IsDeity(c) && s.DeityBan.Any(n => SameDeity(c.Name, n));
 
     private static bool IsFavItem(CardInfo c, PickSettings s)
     {
         var n = Squash(c.Name);
-        return n.Length > 0 && s.ItemPrio.Any(w => n.Contains(Squash(w)));
+        return n.Length > 0 && s.ItemPrio.Any(w => w.Length > 0 && n.Contains(Squash(w)));
     }
 
     /// <summary>神祇名稱比對（卡片可能寫「雷爆術 Deity」、道具欄寫「雷爆術 Deity +3」）</summary>

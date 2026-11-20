@@ -95,6 +95,21 @@ public class PickerFlowTests
     }
 
     [Fact]
+    public void PickKeyIgnored_EmptyName_DoesNotClickCard()
+    {
+        var flow = new PickerFlow();
+        var picker = Upgrade(Card(0, ""), Card(1, ""));
+        flow.Waiting(0, 350);
+        flow.Act(picker, Settings(Mage), 400);
+        flow.Waiting(2000, 350);
+
+        var retry = flow.Act(picker, Settings(Mage), 2000);
+
+        Assert.Null(retry.Click);
+        Assert.Equal('1', retry.Key);
+    }
+
+    [Fact]
     public void PickKeyIgnored_ButNextPickerAlreadyShown_DecidesAgain()
     {
         var flow = new PickerFlow();

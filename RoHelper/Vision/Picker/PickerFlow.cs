@@ -48,11 +48,11 @@ public sealed class PickerFlow
             return new("等你選卡");
 
         // 選卡的數字鍵沒反應（同一張卡還在原位）：改點那張卡（同 JS 按鍵後 250 ms 補一次 click）。
-        // 要比對卡名：連續升級時下一個選卡畫面可能已經出現（主迴圈間隔長時看不到中間沒有選卡的那一刻），那時不能點舊位置
+        // 卡名讀不到（空字串）時無法確認是同一張卡，不點。要比對卡名：連續升級時下一個選卡畫面可能已經出現（主迴圈間隔長時看不到中間沒有選卡的那一刻），那時不能點舊位置
         if (_pendingPick is { } pending)
         {
             _pendingPick = null;
-            if (pending.Index < p.Cards.Count && p.Cards[pending.Index].Name == pending.Name)
+            if (pending.Name.Length > 0 && pending.Index < p.Cards.Count && p.Cards[pending.Index].Name == pending.Name)
             {
                 _readyAt = now + Settle;
                 var card = pending.Card;

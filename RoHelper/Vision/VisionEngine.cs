@@ -86,6 +86,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
             if (settings.Paused)
             {
                 _flow.Reset();
+                _picker.Gone();
                 Report("已暫停");
                 return;
             }
@@ -94,12 +95,17 @@ public sealed class VisionEngine : IAutomation, IDisposable
             var dpr = _kit.Viewport.Dpr;
 
             // 步驟 1：選卡畫面優先（選卡會擋住整局，大廳流程的按鈕這時也不會出現）
+            // 讀不到任何卡名時（其實不是選卡畫面）不動作，這一輪照常走大廳流程
+            string? unreadable = null;
             if (CardLayout.FindCards(frame, dpr).Count >= 2)
             {
-                await PickAsync(frame, dpr);
-                return;
+                var (handled, note) = await PickAsync(frame, dpr);
+                if (handled)
+                    return;
+                unreadable = note;
             }
-            _picker.Gone();
+            else
+                _picker.Gone();
 
             // 步驟 2：辨識
             var screen = _reader.Read(frame, dpr, lobby: settings.AutoEvent);
@@ -115,7 +121,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
                 var (x, y) = _kit.Viewport.ToCss(p.X, p.Y);
                 await _kit.Input.ClickAsync(x, y);
             }
-            Report(decision.Action);
+            Report(unreadable is not null && decision.Action == "待機" ? unreadable : decision.Action);
         }
         catch (Exception ex)
         {
@@ -146,22 +152,28 @@ public sealed class VisionEngine : IAutomation, IDisposable
     /// <summary>
     /// 選卡：等 tPick（剛出現、或動作後畫面還沒更新時不做 OCR）→ 讀卡 → 決定 → 按數字鍵或點按鈕。
     /// 沒有繁中 OCR 時只顯示「等你選卡」，不亂點。
+    /// 回傳 Handled＝這一輪已處理完（不再走大廳流程）；所有卡名都讀不到時回 false 並附說明（多半不是選卡畫面，不能按鍵或點擊）。
     /// </summary>
-    private async Task PickAsync(Frame frame, double dpr)
+    private async Task<(bool Handled, string? Note)> PickAsync(Frame frame, double dpr)
     {
         var s = PickSettings.From(_config);
         if (_pickerReader is null)
         {
             Report("等你選卡（沒有繁中 OCR）");
-            return;
+            return (true, null);
         }
         if (_picker.Waiting(Environment.TickCount64, s.PickDelay))
         {
             Report("選卡中…");
-            return;
+            return (true, null);
         }
         if (await _pickerReader.ReadAsync(frame, dpr) is not { } info)
-            return;
+            return (true, null);
+        if (info.Cards.All(c => c.Name.Length == 0))
+        {
+            _picker.Gone();
+            return (false, "看起來像選卡但讀不到卡名，不動作");
+        }
         var action = _picker.Act(info, s, Environment.TickCount64);
         if (action.Key is { } key)
             await _kit!.Input.KeyAsync(key);
@@ -172,7 +184,10 @@ public sealed class VisionEngine : IAutomation, IDisposable
         }
         if (s.DebugLog && action.Decision is { } d)
             LogPick(info, s, action.Status, d);
-        Report(action.Status);
+        // 視覺模式還不能偵測職業：沒選職業時技能規則不生效，提醒使用者
+        var status = s.Job.Length == 0 ? action.Status + "（沒選職業：技能規則不生效，請在面板選職業）" : action.Status;
+        Report(status);
+        return (true, null);
     }
 
     /// <summary>選卡紀錄（面板「除錯」勾選時）：格式同 JS 的 logPick，exe 寫進 picklog.json</summary>
