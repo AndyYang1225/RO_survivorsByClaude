@@ -153,9 +153,13 @@ public sealed class DevApiHost(Control ui, VisionKit kit, VisionEngine engine, P
         var hp = HpReader.Read(frame, dpr);
         var timer = TimerReader.Read(frame, dpr);
         var balls = BallFinder.Find(frame, dpr);
+        // 公告與鐘：每次都讀、都掃（不管有沒有在躲鐘），校正用
+        var banner = kit.Ocr is null ? null : await new BannerReader(kit.Ocr).ReadAsync(frame, dpr);
+        var bell = BellFinder.Find(frame, dpr, engine.Bell.Seen);
+        var now = Environment.TickCount64;
         var s = FieldSettings.From(config);
-        // 只預覽：用一個新的走位決策（沒有上次移動時間、卡住紀錄），不動引擎的走位狀態，也不點
-        var d = new FieldPlanner(Random.Shared.NextDouble).Step(mm, s, Environment.TickCount64, s.CanAffordChest(hud), hp, timer == TimerPhase.Loot, balls);
+        // 只預覽：用一個新的走位決策（沒有上次移動時間、卡住紀錄），不動引擎的走位狀態（也不會在躲鐘），也不點
+        var d = new FieldPlanner(Random.Shared.NextDouble).Step(mm, s, now, s.CanAffordChest(hud), hp, timer == TimerPhase.Loot, balls);
         return new JsonObject
         {
             ["width"] = frame.Width,
@@ -167,8 +171,18 @@ public sealed class DevApiHost(Control ui, VisionKit kit, VisionEngine engine, P
             ["timer"] = timer is { } t ? (t == TimerPhase.Loot ? "loot" : "normal") : null,
             // 引擎的走位狀態（預覽用的新決策沒有追蹤紀錄）；ageMs＝判定死掉到現在多久
             ["bossSpot"] = engine.BossSpot is { } spot
-                ? new JsonObject { ["x"] = Math.Round(spot.X, 1), ["y"] = Math.Round(spot.Y, 1), ["ageMs"] = Environment.TickCount64 - spot.At }
+                ? new JsonObject { ["x"] = Math.Round(spot.X, 1), ["y"] = Math.Round(spot.Y, 1), ["ageMs"] = now - spot.At }
                 : null,
+            // 躲鐘：remainMs＝引擎還要躲多久（0＝沒在躲）；banner＝這次 OCR 到的公告、dodgeMs＝這段公告會躲多久（null＝不會）；
+            // found＝這張截圖上找到的鐘、seen＝引擎躲鐘中最近找到的鐘（截圖像素）
+            ["bell"] = new JsonObject
+            {
+                ["remainMs"] = Math.Max(0, engine.Bell.Until - now),
+                ["banner"] = banner,
+                ["dodgeMs"] = banner is null ? null : BannerReader.DodgeMs(banner),
+                ["found"] = Bell(bell),
+                ["seen"] = Bell(engine.Bell.Seen),
+            },
             // 畫面上像扭蛋的色塊（離畫面中心近的在前面；截圖像素）
             ["balls"] = new JsonArray(balls.Select(b => (JsonNode?)new JsonObject
             {
@@ -311,6 +325,20 @@ public sealed class DevApiHost(Control ui, VisionKit kit, VisionEngine engine, P
         ["x"] = Math.Round(b.X, 1),
         ["y"] = Math.Round(b.Y, 1),
         ["n"] = b.N,
+    };
+
+    private static JsonObject? Bell(BellBlob? b) => b is null ? null : new JsonObject
+    {
+        ["x"] = b.X,
+        ["y"] = b.Y,
+        ["x0"] = b.X0,
+        ["y0"] = b.Y0,
+        ["w"] = b.Width,
+        ["h"] = b.Height,
+        ["n"] = b.N,
+        ["gold"] = b.Gold,
+        ["red"] = b.Red,
+        ["fill"] = Math.Round(b.Fill, 2),
     };
 
     private static JsonArray Blobs(IEnumerable<MinimapBlob> items) => new(items.Select(Blob).ToArray());

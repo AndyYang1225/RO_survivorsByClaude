@@ -64,6 +64,14 @@ public sealed class VisionEngine : IAutomation, IDisposable
     private Hud? _hud;
     private long _hudAt = long.MinValue / 2;
     private HudReader? _hudReader;
+
+    /// <summary>
+    /// 躲鐘開著時多久 OCR 一次畫面上方的公告（王的喊話）：OCR 一次約 100～200 ms，每輪都讀太慢；
+    /// JS 每輪讀（讀網頁文字很便宜），公告會掛在畫面上好幾秒，1 秒讀一次來得及
+    /// </summary>
+    private const long BannerEvery = 1000;
+    private long _bannerAt = long.MinValue / 2;
+    private BannerReader? _bannerReader;
     private VisionKit? _kit;
     private ScreenReader? _reader;
     private PickerReader? _pickerReader;
@@ -115,6 +123,9 @@ public sealed class VisionEngine : IAutomation, IDisposable
     /// <summary>走位判定的王死掉地點（給開發介面看；null＝沒有）</summary>
     public BossSpot? BossSpot => _planner.BossSpot;
 
+    /// <summary>躲鐘的狀態（給開發介面看：躲到什麼時候、最近找到的鐘）</summary>
+    public BellDodger Bell => _planner.Bell;
+
     public event Action<EngineSchema>? SchemaReceived;
     public event Action<JsonObject>? StatusReceived;
 
@@ -125,6 +136,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
         _reader = new ScreenReader(kit.Templates);
         _pickerReader = kit.Ocr is { } ocr ? new PickerReader(ocr) : null;
         _hudReader = kit.Ocr is null ? null : new HudReader(kit.Ocr);
+        _bannerReader = kit.Ocr is null ? null : new BannerReader(kit.Ocr);
         var jobs = Schema.JobSkills.Select(j => j.Key).ToList();
         _resultReader = kit.Ocr is null ? null : new ResultReader(kit.Ocr, jobs);
         _infoReader = kit.Ocr is null ? null : new FieldInfoReader(kit.Ocr, jobs, Schema.Stages);
@@ -328,6 +340,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
         _zoomed = false;
         _hud = null;
         _hudAt = long.MinValue / 2;
+        _bannerAt = long.MinValue / 2;
         _infoAt = long.MinValue / 2;
         _infoTries = 0;
         _stage = "";
@@ -340,6 +353,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
     /// chestMoney 開著時每 <see cref="HudEvery"/> 讀一次金錢與寶箱價格，錢不夠就不追寶箱；沒有繁中 OCR 時一律當買得起。
     /// HP 與計時器顏色（MVP 死後的撿取倒數）每輪都讀（純像素，很便宜），lowHpStop、撿取倒數用。
     /// seekBall 開著、不在撿取倒數時每輪掃一次畫面找扭蛋（<see cref="BallFinder"/>，實測一張約 4～6 ms；JS 每 0.5 秒掃一次，這裡夠便宜就每輪掃，看到的位置比較新）。
+    /// bellDodge 開著時每 <see cref="BannerEvery"/> OCR 一次公告（<see cref="BellAsync"/>），躲鐘中每輪掃一次畫面找鐘（約 1 ms），這時不找扭蛋。
     /// 進野外滿 ZoomDelay 後也讀地名與職業（<see cref="ReadInfoAsync"/>，讀到為止）。
     /// 回傳面板文字（空字串＝走位的開關都關了）。
     /// </summary>
@@ -362,14 +376,34 @@ public sealed class VisionEngine : IAutomation, IDisposable
             _hudAt = now;
         }
         var lootPhase = TimerReader.Read(frame, dpr) == TimerPhase.Loot;
-        var balls = s.SeekBall && !lootPhase ? BallFinder.Find(frame, dpr) : null;
-        var d = _planner.Step(MinimapReader.Read(frame, dpr), s, now, s.CanAffordChest(_hud), HpReader.Read(frame, dpr), lootPhase, balls);
+        var bell = await BellAsync(frame, dpr, now, s, lootPhase);
+        // 躲鐘中不做別的走位，不用找扭蛋
+        var balls = s.SeekBall && !lootPhase && bell is null ? BallFinder.Find(frame, dpr) : null;
+        var d = _planner.Step(MinimapReader.Read(frame, dpr), s, now, s.CanAffordChest(_hud), HpReader.Read(frame, dpr), lootPhase, balls, bell);
         if (d.Click is { } c)
         {
             var (x, y) = kit.Viewport.ToCss(c.X * frame.Width, c.Y * frame.Height);
             await kit.Input.ClickAsync(x, y);
         }
         return d.Status;
+    }
+
+    /// <summary>
+    /// 躲鐘：每 <see cref="BannerEvery"/> OCR 一次公告交給走位決策（沒有繁中 OCR 時讀不到公告，不會躲鐘）；
+    /// 躲鐘中掃畫面找鐘，回傳這一輪看到的鐘（沒在躲鐘回 null）。撿取倒數中（MVP 死了）不讀，走位決策會結束躲鐘。
+    /// </summary>
+    private async Task<BellView?> BellAsync(Frame frame, double dpr, long now, FieldSettings s, bool lootPhase)
+    {
+        if (!s.BellDodge || lootPhase)
+            return null;
+        if (_bannerReader is not null && now - _bannerAt >= BannerEvery)
+        {
+            _bannerAt = now;
+            _planner.Bell.Announce(await _bannerReader.ReadAsync(frame, dpr), now);
+        }
+        if (!_planner.Bell.Active(now))
+            return null;
+        return new BellView(BellFinder.Find(frame, dpr, _planner.Bell.Seen), frame.Width, frame.Height, dpr);
     }
 
     /// <summary>

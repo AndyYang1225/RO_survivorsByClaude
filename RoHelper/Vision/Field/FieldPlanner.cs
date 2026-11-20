@@ -4,11 +4,11 @@ namespace RoHelper.Vision.Field;
 public sealed record FieldDecision(string Status, PointF? Click);
 
 /// <summary>
-/// 野外走位決策（移植 engine.js fieldStep 的「小地圖模式」、wanderStep、checkStuck）：
-/// 王死掉的地點（bossSpot）→ 撿王的掉落物 → 節慶扭蛋（畫面顏色，見 <see cref="BallFinder"/>）→ 磁鐵 → 寶箱（farLimit：太遠的先不追）→ 回地圖中間／繞圈；一直下指令但小地圖上的自己沒動就繞路；站在掉落物上 3 秒還在就忽略它。
+/// 野外走位決策（移植 engine.js fieldStep 的「小地圖模式」、wanderStep、checkStuck、bellStep）：
+/// 躲到鐘下（最優先，見 <see cref="BellDodger"/>）→ 王死掉的地點（bossSpot）→ 撿王的掉落物 → 節慶扭蛋（畫面顏色，見 <see cref="BallFinder"/>）→ 磁鐵 → 寶箱（farLimit：太遠的先不追）→ 回地圖中間／繞圈；一直下指令但小地圖上的自己沒動就繞路；站在掉落物上 3 秒還在就忽略它。
 /// MVP 死後的撿取倒數（lootPhase，見 <see cref="TimerReader"/>）只撿掉落物，沒有掉落物就在附近小範圍繞圈找。
 /// 純邏輯：時間與亂數由呼叫端傳入（亂數注入才能寫測試），不截圖、不送輸入。
-/// 刻意不做（第二批）：精確模式（JS 讀遊戲資料）、吃肉、躲鐘。
+/// 刻意不做（第二批）：精確模式（JS 讀遊戲資料）、吃肉。
 /// 小地圖座標用截圖像素：假設 dpr 1 時跟 JS 的小地圖畫布像素同尺度，所以 JS 以像素為單位的門檻（0.8、3、len·0.03）直接沿用。
 /// </summary>
 public sealed class FieldPlanner(Func<double> random)
@@ -35,6 +35,10 @@ public sealed class FieldPlanner(Func<double> random)
     private long _ballMute;
     private readonly BossTracker _bosses = new();
     private long _bossArrive;
+    private readonly BellDodger _bell = new();
+
+    /// <summary>躲鐘的狀態（呼叫端把公告文字交給它、問它要不要掃鐘；開發介面看剩幾秒）</summary>
+    public BellDodger Bell => _bell;
 
     /// <summary>最近判定的王死掉地點（給開發介面看；null＝沒有）</summary>
     public BossSpot? BossSpot => _bosses.Spot;
@@ -56,6 +60,7 @@ public sealed class FieldPlanner(Func<double> random)
         _ballMute = 0;
         _bosses.Reset();
         _bossArrive = 0;
+        _bell.End();
     }
 
     /// <summary>
@@ -64,17 +69,28 @@ public sealed class FieldPlanner(Func<double> random)
     /// hp＝HP 比例（0～1，見 <see cref="HpReader"/>；null＝讀不到，不檢查）：lowHpStop 開著而且低於 lowHpStopN% 就不走位（同 JS）。
     /// lootPhase＝MVP 死後的撿取倒數中（計時器變紅字，見 <see cref="TimerReader"/>）：只撿掉落物，不追扭蛋、寶箱、磁鐵（同 JS 1126～1148 行）。
     /// balls＝畫面上像扭蛋的色塊（<see cref="BallFinder.Find"/>，離畫面中心近的在前面；null 或空＝沒看到）。
+    /// bell＝躲鐘中這一輪掃到的鐘（<see cref="BellFinder.Find"/>；null＝沒掃）。公告由呼叫端交給 <see cref="Bell"/>。
     /// </summary>
     public FieldDecision Step(MinimapInfo? mm, FieldSettings s, long now, bool chestAffordable = true, double? hp = null, bool lootPhase = false,
-        IReadOnlyList<BallBlob>? balls = null)
+        IReadOnlyList<BallBlob>? balls = null, BellView? bell = null)
     {
+        // 刻意每輪都追蹤王（JS 只在 SeekEvery 之後才追蹤）：王的標記會閃，視覺模式一輪又比較久，
+        // 被 SeekEvery 跳過的那幾輪也要記到「最後看到的時間」，才不會把閃爍誤判成死掉。
+        // 躲鐘、HP 過低不走位時也照樣追蹤，免得那段時間看不到王、之後把王誤判成死掉
+        if (mm is not null)
+            _bosses.Update(mm, now);
+        // 躲鐘最優先（同 JS fieldStep：在 HP 過低、SeekEvery 之前）；MVP 死了（撿取倒數）立刻結束（同 JS：鐘只在 MVP 戰鬥中出現）
+        if (!s.BellDodge || lootPhase)
+            _bell.End();
+        if (_bell.Step(bell, now) is { } dodge)
+        {
+            if (dodge.Click is not null)
+                _lastMove = now;
+            return dodge;
+        }
         // 同 JS：在「走位開關都關了」和 SeekEvery 之前檢查
         if (s.LowHpStop && hp < s.LowHpStopN / 100.0)
             return new("HP 過低，停止走位", null);
-        // 刻意每輪都追蹤王（JS 只在 SeekEvery 之後才追蹤）：王的標記會閃，視覺模式一輪又比較久，
-        // 被 SeekEvery 跳過的那幾輪也要記到「最後看到的時間」，才不會把閃爍誤判成死掉
-        if (mm is not null)
-            _bosses.Update(mm, now);
         if (!s.SeekLoot && !s.SeekBall && !s.SeekMagnet && !s.SeekChest && !s.AutoWander)
             return new("", null);
         if (now - _lastMove < s.SeekEvery)
