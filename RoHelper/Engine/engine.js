@@ -108,6 +108,7 @@
     { k: 'avoidNew',     label: '技能欄還沒滿時，不學清單外的新技能', def: true },
     { k: 'banishKeep',   label: '避開新技能時可放逐，但至少留 N 次放逐', def: true, num: 2, min: 0, max: 4 },
     { k: 'autoFocus',    label: '自動用「專注」（技能分頁設成「優先＋專注」的；都沒設就用前 N 個優先技能）', def: true, num: 1, min: 1, max: 2 },
+    { k: 'autoAfterBan', label: '「學到後放逐」和「一出現就放逐」的卡都放逐過後，改按遊戲的「自動」（這局之後交給遊戲選）', def: true },
 
     { tab: '技能', group: '技能優先（依職業）' },
     { k: 'skillOn',      label: '使用下面的技能設定', def: true },

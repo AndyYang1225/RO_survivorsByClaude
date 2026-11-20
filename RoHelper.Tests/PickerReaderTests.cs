@@ -58,6 +58,44 @@ public class PickerReaderTests
         Assert.Equal(5, p.RerollAll!.Left);
     }
 
+    /// <summary>遊戲改版後「重抽全部」右邊多了「自動」按鈕：重抽全部的範圍不能連到自動按鈕（自動按鈕左緣實測約 x=970）</summary>
+    [Fact]
+    public async Task ReadAsync_RerollAllNotMergedWithAutoButton()
+    {
+        var p = (await Reader.ReadAsync(CardLayoutTests.Fixture("升級選卡自動鈕"), 1.0))!;
+
+        Assert.Equal("冰箭術|火箭術|雷擊術", string.Join("|", p.Cards.Select(c => c.Name)));
+        Assert.True(p.RerollAll!.Usable);
+        Assert.Equal(5, p.RerollAll.Left);
+        Assert.True(p.RerollAll.Bounds.Right < 970);
+        Assert.False(p.Cards[0].Button(ActKind.Focus)!.Usable);
+
+        // 「自動」按鈕實測約 x 970～1026、y 647～681
+        Assert.NotNull(p.Auto);
+        Assert.True(p.Auto.Usable);
+        Assert.InRange(p.Auto.Bounds.X + p.Auto.Bounds.Width / 2, 975, 1020);
+        Assert.InRange(p.Auto.Bounds.Y + p.Auto.Bounds.Height / 2, 650, 678);
+    }
+
+    /// <summary>升級選卡2 的截圖也有「自動」（實測約 x 386～442、y 455～488）</summary>
+    [Fact]
+    public async Task ReadAsync_SmallWindow_FindsAutoButton()
+    {
+        var p = (await Reader.ReadAsync(CardLayoutTests.Fixture("升級選卡2"), 1.0))!;
+
+        Assert.NotNull(p.Auto);
+        Assert.InRange(p.Auto.Bounds.X + p.Auto.Bounds.Width / 2, 395, 435);
+        Assert.InRange(p.Auto.Bounds.Y + p.Auto.Bounds.Height / 2, 458, 486);
+    }
+
+    [Fact]
+    public async Task ReadAsync_ChestScreenshot_NoAutoButton()
+    {
+        var p = (await Reader.ReadAsync(CardLayoutTests.Fixture("寶箱選卡3"), 1.0))!;
+
+        Assert.Null(p.Auto);
+    }
+
     [Fact]
     public async Task ReadAsync_NotAPicker_ReturnsNull()
     {

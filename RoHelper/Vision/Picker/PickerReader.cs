@@ -16,6 +16,7 @@ namespace RoHelper.Vision.Picker;
 ///    按鈕剩餘次數：按鈕右上角的藍色小圓圈裡的白色數字。實測 Windows OCR 讀不了這種 5×8 px 的單一數字，所以改成找圓、切出數字、跟系統字型畫的 0～9 比字形。
 ///    讀不到時，能按就當 99、不能按就當 0（同 JS 的 actLeft），避免因為讀不準而誤以為次數用完。
 /// 6. 「重抽全部」：卡片下緣以下、文字含「全部」的 OCR 行（OCR 常讀成「重擒全部」，但一定含「全部」），按鈕範圍由該行往外擴；沒有這一行就是 null。
+/// 7. 「自動」：「重抽全部」右邊同一列的按鈕色塊（<see cref="CardLayout.FindAutoButton"/>；OCR 讀不到這兩個字）。
 /// </summary>
 public sealed partial class PickerReader(OcrReader ocr)
 {
@@ -74,7 +75,12 @@ public sealed partial class PickerReader(OcrReader ocr)
             rerollAll = new ActButton(ActKind.Reroll, rect, enabled, ReadLeft(f, rect.Right, rect.Top, enabled, dpr));
         }
 
-        return new PickerInfo(isChest, infos, rerollAll);
+        // 步驟 7：「自動」（重抽全部右邊，像素判讀）
+        ActButton? auto = null;
+        if (rerollAll is not null && CardLayout.FindAutoButton(f, rerollAll.Bounds, dpr) is { } ab)
+            auto = new ActButton(ActKind.Reroll, ab, CardLayout.IsEnabled(f, ab), 99);
+
+        return new PickerInfo(isChest, infos, rerollAll, auto);
     }
 
     // 讀按鈕右上角小圓圈的數字；讀不到時能按＝99、不能按＝0。

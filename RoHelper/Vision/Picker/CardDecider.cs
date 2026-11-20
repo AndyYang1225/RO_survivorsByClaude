@@ -148,6 +148,23 @@ public static partial class CardDecider
         return new(PickDo.Pick, RarestIndex(cards, pool), "最稀有");
     }
 
+    /// <summary>
+    /// 放逐清單的字詞：學到後放逐、直接放逐、一出現就放逐（勾選時）。放逐時記下是哪一個，全部放逐過後就能改按遊戲「自動」。
+    /// </summary>
+    public static IReadOnlyList<string> BanTargets(PickSettings s)
+        => [.. s.Skills.After.Concat(s.Skills.Ban).Concat(s.BanExtra ? s.BanExtraWords : []).Where(w => w.Length > 0).Distinct()];
+
+    /// <summary>
+    /// 可以改按遊戲「自動」了：有勾這條規則、放逐清單不是空的（空的話一開局就交給遊戲，不是使用者要的）、清單裡每一項這局都放逐過。
+    /// </summary>
+    public static bool ReadyForGameAuto(PickSettings s, RunPickState st)
+    {
+        if (!s.AutoAfterBan)
+            return false;
+        var targets = BanTargets(s);
+        return targets.Count > 0 && targets.All(st.Banished.Contains);
+    }
+
     /// <summary>神祇卡（同 JS isDeity：卡片文字有 Deity／之神／神祇）</summary>
     public static bool IsDeity(CardInfo c) => DeityWord().IsMatch(c.Name + " " + c.Text);
 

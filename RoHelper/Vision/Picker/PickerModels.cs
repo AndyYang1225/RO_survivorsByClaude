@@ -25,8 +25,11 @@ public sealed record CardInfo(int Index, Rectangle Bounds, string Name, string T
     public ActButton? Button(ActKind kind) => Buttons.FirstOrDefault(b => b.Kind == kind);
 }
 
-/// <summary>一個選卡畫面：升級或寶箱、各張卡、下方的「重抽全部」（沒有這顆按鈕時是 null）</summary>
-public sealed record PickerInfo(bool IsChest, IReadOnlyList<CardInfo> Cards, ActButton? RerollAll);
+/// <summary>
+/// 一個選卡畫面：升級或寶箱、各張卡、下方的「重抽全部」和「自動」（沒有這顆按鈕時是 null）。
+/// 「自動」是遊戲改版新加的開關：按下後這局剩下的選卡由遊戲自己選。它沒有次數圓圈，Left 固定 99。
+/// </summary>
+public sealed record PickerInfo(bool IsChest, IReadOnlyList<CardInfo> Cards, ActButton? RerollAll, ActButton? Auto = null);
 
 /// <summary>選卡的動作種類（同 JS decide() 回傳的 do）</summary>
 public enum PickDo
@@ -35,6 +38,8 @@ public enum PickDo
     Banish,
     Focus,
     Reroll,
+    /// <summary>按遊戲的「自動」，這局之後交給遊戲選</summary>
+    GameAuto,
 }
 
 /// <summary>
@@ -46,10 +51,14 @@ public sealed record PickDecision(PickDo Do, int? Index, string Why, string? Foc
 /// <summary>
 /// 一局內的選卡狀態（同 JS 的 st.picked／st.focused／st.deityLock），每局開始時換一個新的。
 /// Picked＝已經學過的「學到後放逐」技能；Focused＝已經專注過的技能或道具；DeityLock＝這局選定的神祇（空字串＝還沒選）。
+/// Banished＝放逐過的清單項目（學到後放逐、直接放逐、一出現就放逐的字詞），判斷何時改按遊戲「自動」用（exe 新增，JS 沒有）。
+/// GameAuto＝這局已經按過遊戲的「自動」。
 /// </summary>
 public sealed class RunPickState
 {
     public HashSet<string> Picked { get; } = [];
+    public HashSet<string> Banished { get; } = [];
+    public bool GameAuto { get; set; }
     public HashSet<string> Focused { get; } = [];
     public string DeityLock { get; set; } = "";
 }

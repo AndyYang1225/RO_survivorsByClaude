@@ -17,6 +17,9 @@ public sealed class PickerFlow
     /// <summary>按了選卡數字鍵之後，畫面還在就改點卡片的等待時間</summary>
     private const long KeyTimeout = 1_500;
 
+    /// <summary>按了遊戲「自動」之後，選卡畫面還停這麼久沒被選走，就當沒按到</summary>
+    private const long GameAutoTimeout = 5_000;
+
     private long? _seenAt;
     private long _readyAt;
     private (int Index, string Name, Rectangle Card)? _pendingPick;
@@ -60,11 +63,28 @@ public sealed class PickerFlow
             }
         }
 
+        // 已經按過遊戲「自動」：交給遊戲選。同一個選卡畫面停超過 GameAutoTimeout 都沒被選走，代表沒按到（或被關掉），再按一次
+        if (State.GameAuto)
+        {
+            if (now - (_seenAt ?? now) < GameAutoTimeout)
+                return new("交給遊戲自動選卡");
+            State.GameAuto = false;
+        }
+        if (p.Auto is { Usable: true } auto && CardDecider.ReadyForGameAuto(s, State))
+        {
+            State.GameAuto = true;
+            _seenAt = now;
+            var why = "放逐清單都放逐過了：" + string.Join("、", CardDecider.BanTargets(s));
+            return new($"按遊戲「自動」（{why}）", Click: Center(auto.Bounds), Decision: new(PickDo.GameAuto, null, why));
+        }
+
         var d = CardDecider.Decide(p, s, State);
         var name = d.Index is { } i ? p.Cards[i].Name : "";
         switch (d.Do)
         {
             case PickDo.Banish:
+                if (CardDecider.SkillOf(p.Cards[d.Index!.Value], CardDecider.BanTargets(s)) is { } bw)
+                    State.Banished.Add(bw);
                 _readyAt = now + Settle;
                 return new($"放逐：{name}（{d.Why}）", Click: Center(p.Cards[d.Index!.Value].Button(ActKind.Banish)!.Bounds), Decision: d);
             case PickDo.Focus:

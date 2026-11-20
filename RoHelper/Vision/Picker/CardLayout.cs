@@ -150,6 +150,21 @@ public static class CardLayout
         return found.Select((rect, i) => (order[skip + i], rect, IsEnabled(f, rect))).ToList();
     }
 
+    /// <summary>
+    /// 「重抽全部」右邊的「自動」按鈕：在同一列往右 110 px 內找按鈕大小的亮色低飽和色塊（同 <see cref="FindButtons"/> 的條件）。
+    /// 為什麼不用 OCR：實測 Windows OCR 讀不到這顆按鈕的「自動」兩字（整區、單獨框、放大 3 倍都讀不到）。
+    /// 舊版遊戲沒有這顆按鈕，右邊是暗色背景，找不到回 null。
+    /// </summary>
+    public static Rectangle? FindAutoButton(Frame f, Rectangle rerollAll, double dpr)
+    {
+        var region = new Rectangle(rerollAll.Right + (int)(2 * dpr), rerollAll.Top, (int)(110 * dpr), rerollAll.Height);
+        var blob = ColorBlobs.Find(f, region, (r, g, b) => Luma(r, g, b) > 90 && Saturation(r, g, b) < 60, 1, 1)
+            .Where(b => b.Width >= 30 * dpr && b.Width <= 80 * dpr && b.Height >= 10 * dpr)
+            .OrderBy(b => b.X0)
+            .FirstOrDefault();
+        return blob is null ? null : new Rectangle(blob.X0, blob.Y0, blob.Width, blob.Height);
+    }
+
     /// <summary>按鈕能不能按：能按是白底（平均亮度高），不能按是灰底</summary>
     public static bool IsEnabled(Frame f, Rectangle button)
     {

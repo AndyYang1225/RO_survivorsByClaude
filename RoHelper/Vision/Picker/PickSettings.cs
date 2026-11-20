@@ -24,7 +24,7 @@ public sealed partial record PickSettings(
     bool DeityPrio, string DeityOrder, bool DeityLock, IReadOnlyList<string> DeityList, IReadOnlyList<string> DeityBan,
     bool AutoFocus, int AutoFocusN, IReadOnlyList<string> ItemFocus, IReadOnlyList<string> ItemPrio, IReadOnlyList<string> ItemBan,
     bool RerollAll, bool AvoidNew, bool BanishKeep, int BanishKeepN, string PickOrder,
-    bool PickSkill, bool PickChest, int PickDelay, bool DebugLog)
+    bool PickSkill, bool PickChest, int PickDelay, bool DebugLog, bool AutoAfterBan = false)
 {
     public static PickSettings From(ConfigStore c)
     {
@@ -45,7 +45,8 @@ public sealed partial record PickSettings(
             c.GetStringList("itemFocus"), c.GetStringList("itemPrio"), c.GetStringList("itemBan"),
             c.GetBool("rerollAll"), c.GetBool("avoidNew"), c.GetBool("banishKeep"), c.GetInt("banishKeepN", 2),
             c.GetString("pickOrder", "treasure"),
-            c.GetBool("pickSkill"), c.GetBool("pickChest"), c.GetInt("tPickN", 350), c.GetBool("debugLog"));
+            c.GetBool("pickSkill"), c.GetBool("pickChest"), c.GetInt("tPickN", 350), c.GetBool("debugLog"),
+            c.GetBool("autoAfterBan"));
     }
 
     private static List<string> List(JsonNode? node) => ConfigStore.ToStringList(node);
