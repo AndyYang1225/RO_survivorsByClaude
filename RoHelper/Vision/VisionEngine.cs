@@ -24,6 +24,12 @@ public sealed class VisionEngine : IAutomation, IDisposable
     private readonly PickerFlow _picker = new();
     private readonly FieldGate _gate = new();
     private readonly FieldPlanner _planner = new(Random.Shared.NextDouble);
+    private readonly RunStore _runs;
+    private readonly RunRecorder _recorder = new();
+
+    /// <summary>對局紀錄多久取樣一次血量與狀態（同 JS 每 1 秒 recSample）</summary>
+    private const long SampleEvery = 1000;
+    private long _sampleAt = long.MinValue / 2;
 
     /// <summary>進野外多久後才拉遠鏡頭（等野外畫面載入；JS 是 1.2 秒，截圖辨識比較慢，多等一點）</summary>
     private const long ZoomDelay = 3000;
@@ -61,6 +67,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
     private VisionKit? _kit;
     private ScreenReader? _reader;
     private PickerReader? _pickerReader;
+    private ResultReader? _resultReader;
 
     /// <summary>自動存證據（<c>--dev-api</c> 啟動時才有；null＝不存）</summary>
     private readonly EvidenceStore? _evidence;
@@ -72,10 +79,11 @@ public sealed class VisionEngine : IAutomation, IDisposable
     /// <summary>上次送給面板的狀態；沒變就不送，避免每 250 ms 重畫一次面板</summary>
     private string _lastStatus = "";
 
-    public VisionEngine(ConfigStore config, LogStore log, EngineSchema schema, EvidenceStore? evidence = null)
+    public VisionEngine(ConfigStore config, LogStore log, RunStore runs, EngineSchema schema, EvidenceStore? evidence = null)
     {
         _config = config;
         _log = log;
+        _runs = runs;
         Schema = schema;
         _evidence = evidence;
         _evidencePolicy = evidence is null ? null : new EvidencePolicy();
@@ -106,6 +114,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
         _reader = new ScreenReader(kit.Templates);
         _pickerReader = kit.Ocr is { } ocr ? new PickerReader(ocr) : null;
         _hudReader = kit.Ocr is null ? null : new HudReader(kit.Ocr);
+        _resultReader = kit.Ocr is null ? null : new ResultReader(kit.Ocr, Schema.JobSkills.Select(j => j.Key).ToList());
         _config.Replace(ConfigDefaults.Apply(ConfigDefaults.Build(Schema), _config.Current, Schema, reset: false));
         SchemaReceived?.Invoke(Schema);
         _timer.Interval = TickMs();
@@ -144,6 +153,8 @@ public sealed class VisionEngine : IAutomation, IDisposable
             {
                 _flow.Reset();
                 _picker.Gone();
+                // 暫停時也要記「這局暫停過」（同 JS：使用者可能暫停小幫手自己玩）
+                _recorder.Sample(null, "", paused: true);
                 Report("已暫停");
                 return;
             }
@@ -176,12 +187,14 @@ public sealed class VisionEngine : IAutomation, IDisposable
             // 步驟 3：決定並執行（點擊座標是截圖像素，換成網頁 CSS 座標再送）
             var now = Environment.TickCount64;
             var decision = _flow.Decide(screen, settings, now);
+            // 結算：先讀結算畫面再記錄（同一輪；第一次確認結算的這一輪不會按返回角色，要等 tReturn，結算畫面還在）
             if (decision.CountRun)
-                CountRun();
+                await CountRunAsync(frame, dpr);
             if (decision.StartsRun)
             {
                 _picker.NewRun();
                 NewFieldRun();
+                _recorder.Start(DateTime.Now, PickSettings.From(_config).Job, paused: false);
             }
             _gate.Update(screen, decision, now);
             if (decision.Click is { } p)
@@ -198,6 +211,11 @@ public sealed class VisionEngine : IAutomation, IDisposable
                 var walk = await FieldStepAsync(frame, dpr, now);
                 if (decision.Action == "待機" && walk.Length > 0)
                     action = "走位：" + walk;
+            }
+            if (_gate.InField && now - _sampleAt >= SampleEvery)
+            {
+                _sampleAt = now;
+                _recorder.Sample(HpReader.Read(frame, dpr), action, paused: false);
             }
             Report(action);
         }
@@ -243,11 +261,42 @@ public sealed class VisionEngine : IAutomation, IDisposable
         }
     }
 
-    /// <summary>結算畫面第一次出現：局數 +1（同 JS）。戰績的地圖、撿到的東西要等計畫 4、5 才讀得到，先只記局數</summary>
-    private void CountRun()
+    /// <summary>
+    /// 結算畫面第一次出現（同 JS）：局數 +1、讀結算畫面、對局紀錄寫進 runs.jsonl（這局有開始記錄才寫，同 JS recFinish）、
+    /// 面板戰績（cfg.stats）加一筆（最多 50 筆）。沒有繁中 OCR 時結算內容讀不到，紀錄照寫（outcome 是 unknown）。
+    /// 讀結算或寫檔失敗不影響局數與後面的流程。
+    /// </summary>
+    private async Task CountRunAsync(Frame frame, double dpr)
     {
+        RunResult? result = null;
+        try
+        {
+            if (_resultReader is not null)
+                result = await _resultReader.ReadAsync(frame, dpr);
+        }
+        catch
+        {
+            // 為什麼吞掉：結算畫面讀不到只是紀錄少了內容，局數、返回角色照常
+        }
+        var now = DateTime.Now;
+        var run = _recorder.Finish(result, now);
+        if (run is not null)
+        {
+            try
+            {
+                _runs.Append(run);
+            }
+            catch
+            {
+                // 為什麼吞掉：磁碟滿、檔案被占用時不能讓主迴圈掛掉；這局的紀錄就算了
+            }
+        }
+        var wall = run?["wallSecs"]?.GetValue<int>() ?? 0;
+        var stage = (string?)run?["stage"] ?? "";
+
         var cfg = (JsonObject)_config.Current.DeepClone();
         cfg["runs"] = (int)Math.Min((long)_config.GetInt("runs") + 1, int.MaxValue);
+        cfg["stats"] = RunRecorder.AppendStat(cfg["stats"], RunRecorder.Stat(now, stage, result?.Secs, wall));
         _config.Replace(cfg);
         _picker.NewRun();
         NewFieldRun();
@@ -327,8 +376,12 @@ public sealed class VisionEngine : IAutomation, IDisposable
             var (x, y) = _kit!.Viewport.ToCss(p.X, p.Y);
             await _kit.Input.ClickAsync(x, y);
         }
-        if (s.DebugLog && action.Decision is { } d)
-            LogPick(info, s, action.Status, d);
+        if (action.Decision is { } d)
+        {
+            _recorder.Pick(d, info);
+            if (s.DebugLog)
+                LogPick(info, s, action.Status, d);
+        }
         // 視覺模式還不能偵測職業：沒選職業時技能規則不生效，提醒使用者
         var status = s.Job.Length == 0 ? action.Status + "（沒選職業：技能規則不生效，請在面板選職業）" : action.Status;
         Report(status);
@@ -339,7 +392,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
     private void LogPick(PickerInfo info, PickSettings s, string status, PickDecision d)
     {
         var cards = new JsonArray(info.Cards.Select(c => (JsonNode?)JsonValue.Create(
-            string.Join(" | ", new[] { c.Name, c.SkillBadge ? "技能" : RarityName(c.Rarity), c.IsNew ? "新！" : "", c.Text }.Where(x => x.Length > 0)))).ToArray());
+            string.Join(" | ", new[] { c.Name, c.SkillBadge ? "技能" : RunRecorder.RarityName(c.Rarity), c.IsNew ? "新！" : "", c.Text }.Where(x => x.Length > 0)))).ToArray());
         _log.Add(new JsonObject
         {
             ["t"] = DateTime.Now.ToString("HH:mm:ss"),
@@ -351,8 +404,6 @@ public sealed class VisionEngine : IAutomation, IDisposable
             ["why"] = d.Why,
         });
     }
-
-    private static string RarityName(int r) => r is >= 0 and <= 5 ? new[] { "普通", "優良", "稀有", "史詩", "傳說", "神話" }[r] : "";
 
     /// <summary>送狀態給面板（格式同 JS 的 status 訊息；尋寶率、下一隻王要等計畫 3、4）</summary>
     private void Report(string action)
