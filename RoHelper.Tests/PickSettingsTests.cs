@@ -97,4 +97,21 @@ public sealed class PickSettingsTests : IDisposable
         Assert.Equal(350, s.PickDelay);
         Assert.True(s.DebugLog);
     }
+
+    [Fact]
+    public void From_MalformedJobMaps_UsesEmpty()
+    {
+        var s = PickSettings.From(Store(new JsonObject
+        {
+            ["jobSel"] = "巫師",
+            ["skillOn"] = true,
+            ["skills"] = new JsonArray(),
+            ["deity"] = "x",
+            ["deityBan"] = 3,
+        }));
+
+        Assert.Empty(s.Skills.Order);
+        Assert.Empty(s.DeityList);
+        Assert.Empty(s.DeityBan);
+    }
 }

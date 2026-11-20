@@ -29,10 +29,9 @@ public sealed partial record PickSettings(
     public static PickSettings From(ConfigStore c)
     {
         // 目前職業：面板選「自動」時用上次偵測到的職業（視覺模式不偵測職業，沿用設定裡的 curJob）
-        var sel = c.GetString("jobSel", "auto");
-        var job = sel == "auto" ? c.GetString("curJob") : sel;
+        var job = c.CurrentJob();
         var skillOn = c.GetBool("skillOn");
-        var skills = skillOn && c.Current["skills"]?[job] is JsonObject o
+        var skills = skillOn && JobNode(c, "skills", job) is JsonObject o
             ? new SkillCfg(List(o["order"]), List(o["after"]), List(o["ban"]), List(o["focus"]), List(o["skip"]))
             : SkillCfg.Empty;
 
@@ -40,7 +39,7 @@ public sealed partial record PickSettings(
             job, skillOn, skills,
             c.GetBool("banExtra"), Words(c.GetString("banExtraT")),
             c.GetBool("deityPrio"), c.GetString("deityOrder", "none"), c.GetBool("deityLock"),
-            List(c.Current["deity"]?[job]), List(c.Current["deityBan"]?[job]),
+            List(JobNode(c, "deity", job)), List(JobNode(c, "deityBan", job)),
             c.GetBool("autoFocus"), c.GetInt("autoFocusN", 1),
             c.GetStringList("itemFocus"), c.GetStringList("itemPrio"), c.GetStringList("itemBan"),
             c.GetBool("rerollAll"), c.GetBool("avoidNew"), c.GetBool("banishKeep"), c.GetInt("banishKeepN", 2),
@@ -49,6 +48,13 @@ public sealed partial record PickSettings(
     }
 
     private static List<string> List(JsonNode? node) => ConfigStore.ToStringList(node);
+
+    /// <summary>
+    /// 取出設定裡某個鍵下、某職業的節點。鍵的值不是物件（例如匯入壞掉的設定把 skills 存成陣列）就當沒有。
+    /// 匯入壞掉的設定不能讓選卡掛掉，同 JS 讀不到就當沒有（cfg.skills[職業] 是 undefined）。
+    /// </summary>
+    private static JsonNode? JobNode(ConfigStore c, string key, string job)
+        => c.Current[key] is JsonObject o ? o[job] : null;
 
     /// <summary>同 JS 的 words()：用逗號、頓號、分號、空白切開</summary>
     private static List<string> Words(string text) => [.. WordSplit().Split(text).Where(w => w.Length > 0)];
