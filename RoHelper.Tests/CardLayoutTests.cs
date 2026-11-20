@@ -76,4 +76,49 @@ public class CardLayoutTests
         Assert.Equal(enabled, string.Concat(buttons.Select(b => b.Enabled ? "1" : "0")));
         Assert.All(buttons, b => Assert.True(b.Bounds.Y > c.Bottom, "按鈕要在卡片下方"));
     }
+
+    /// <summary>複製一份截圖，把每張卡下方按鈕列裡「亮的」像素塗成不能按的灰，背景（暗）不動：模擬按鈕全部不能按的畫面</summary>
+    private static Frame WithAllButtonsDisabled(Frame f, IReadOnlyList<Rectangle> cards)
+    {
+        var px = (byte[])f.Pixels.Clone();
+        foreach (var c in cards)
+            // 卡片本體實測到上緣 + 312 結束、按鈕從 + 322 開始，所以從 + 318 起塗（用上緣定位，不依賴 FindCards 的下緣）
+            for (var y = c.Y + 318; y < c.Y + 360 && y < f.Height; y++)
+                for (var x = Math.Max(0, c.X - 25); x < Math.Min(f.Width, c.Right + 25); x++)
+                {
+                    var i = (y * f.Width + x) * 4;
+                    if (px[i + 2] > 200 && px[i + 1] > 200 && px[i] > 200)
+                    {
+                        px[i + 2] = 120;
+                        px[i + 1] = 125;
+                        px[i] = 135;
+                    }
+                }
+        return new Frame(f.Width, f.Height, px);
+    }
+
+    [Theory]
+    [InlineData("升級選卡3")]
+    [InlineData("寶箱選卡3")]
+    public void AllButtonsDisabled_CardsStayAndButtonsStillFound(string fixture)
+    {
+        var f = Fixture(fixture);
+        var cards = CardLayout.FindCards(f, 1.0);
+        var gray = WithAllButtonsDisabled(f, cards);
+
+        var cards2 = CardLayout.FindCards(gray, 1.0);
+
+        Assert.Equal(cards.Count, cards2.Count);
+        for (var i = 0; i < cards.Count; i++)
+        {
+            Assert.InRange(cards2[i].X, cards[i].X - 2, cards[i].X + 2);
+            Assert.InRange(cards2[i].Y, cards[i].Y - 2, cards[i].Y + 2);
+            Assert.InRange(cards2[i].Width, cards[i].Width - 2, cards[i].Width + 2);
+            Assert.InRange(cards2[i].Height, cards[i].Height - 2, cards[i].Height + 2);
+
+            var buttons = CardLayout.FindButtons(gray, cards2[i], 1.0);
+            Assert.Equal(3, buttons.Count);
+            Assert.All(buttons, b => Assert.False(b.Enabled));
+        }
+    }
 }

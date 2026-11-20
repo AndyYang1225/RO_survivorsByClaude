@@ -7,9 +7,12 @@ namespace RoHelper.Vision.Picker;
 /// </summary>
 public static class CardLayout
 {
-    // 卡片本體下面接著一排按鈕（約 32 px），按鈕的白底會跟卡片的亮色塊連在一起（量到的色塊高 352～355 ＝ 本體 + 按鈕列）。
-    // 實測按鈕上緣在色塊上緣 + 322～324，所以切掉 30（色塊高 352 → 322，傾斜時 355 → 325），卡片矩形才不會蓋到按鈕，高度也維持在 320～380 的範圍內。
-    private const int ButtonStrip = 30;
+    // 卡片本體底緣（亮列結束處）再往下取的像素：把邊框和陰影也算進卡片，高度才落在 320～380（實測本體含標籤約 311～313）。
+    // 按鈕上緣實測在本體底緣 + 10 左右，所以卡片下緣會略蓋到按鈕上緣，掃按鈕時要往下跳（見 FindButtons）。
+    private const int CardBottomPad = 10;
+
+    // 一列裡亮像素佔卡片寬度的比例 ≥ 這個值才算「卡片本體」：實測本體列 ≈ 100%，3 顆按鈕最多佔約 70%，按鈕列過不了這關。
+    private const double BodyRowCoverage = 0.85;
 
     // 校正：標籤底色參考值（實測 dpr 1）。優良 ≈ (72,218,98)、稀有 ≈ (65,132,249)、技能 ≈ (132,178,250)；
     // 史詩／傳說／神話還沒有真實截圖，先用紫／橘／紅的估計值。
@@ -29,13 +32,14 @@ public static class CardLayout
     // 校正：粉紅像素 ≥ 這個數才算有「新！」（實測有 ≈ 1500～1600 個，沒有 0 個）
     private const int RibbonMinPixels = 200;
 
-    // 校正：按鈕平均亮度 ≥ 這個值算能按（實測能按是白底 ≈ 220 以上，不能按是灰底 ≈ 120）
+    // 校正：按鈕平均亮度 ≥ 這個值算能按（實測（下半截區域的平均）能按 ≈ 199～208，不能按 ≈ 102～107）
     private const int EnabledMinLuma = 170;
 
     /// <summary>
     /// 找卡片：很亮（r、g、b 都 > 215）的大色塊，寬 180～260、高 300～400（× dpr），而且至少 2 張、上緣差不到 25 px。
     /// 少於 2 張回空清單＝不是選卡畫面（大廳的對話框也是亮的，但只有一塊、大小也不同）。
-    /// 回傳的矩形已切掉底部的按鈕列（見 <see cref="ButtonStrip"/>）。
+    /// 色塊底部可能連著白色的按鈕列（按鈕能按時），所以不直接用色塊高度：從色塊底往上找亮像素佔滿卡片寬度的最後一列當本體底緣，再加 <see cref="CardBottomPad"/>。
+    /// 按鈕全灰（不能按）時色塊本來就只有本體，兩種情況得到同樣的矩形。
     /// </summary>
     public static IReadOnlyList<Rectangle> FindCards(Frame f, double dpr)
     {
@@ -51,8 +55,27 @@ public static class CardLayout
         if (best is null || best.Count < 2)
             return [];
 
-        var strip = (int)Math.Round(ButtonStrip * dpr);
-        return best.Select(b => new Rectangle(b.X0, b.Y0, b.Width, b.Height - strip)).ToList();
+        var pad = (int)Math.Round(CardBottomPad * dpr);
+        return best.Select(b => new Rectangle(b.X0, b.Y0, b.Width, BodyBottom(f, b) + pad - b.Y0)).ToList();
+    }
+
+    // 卡片本體的下緣（不含）：從色塊底往上，第一個亮像素佔滿寬度的列 + 1；找不到就退回色塊下緣
+    private static int BodyBottom(Frame f, Blob b)
+    {
+        var need = b.Width * BodyRowCoverage / 2;
+        for (var y = b.Y1; y >= b.Y0; y--)
+        {
+            var bright = 0;
+            for (var x = b.X0; x <= b.X1; x += 2)
+            {
+                var (r, g, bl) = f.At(x, y);
+                if (r > 215 && g > 215 && bl > 215)
+                    bright++;
+            }
+            if (bright >= need)
+                return y + 1;
+        }
+        return b.Y1 + 1;
     }
 
     /// <summary>
@@ -82,6 +105,7 @@ public static class CardLayout
         var ar = (int)(sr / n);
         var ag = (int)(sg / n);
         var ab = (int)(sb / n);
+        // 刻意不設距離上限：史詩／傳說／神話還沒有真實截圖，參考色只是估計值，寧可歸到最接近的一級，也不要讀不到；有真實截圖後再校正或加上限
         var near = BadgeRefs.OrderBy(t => Dist2(ar, ag, ab, t.R, t.G, t.B)).First();
         return (near.Rarity, near.Skill);
     }
@@ -102,7 +126,8 @@ public static class CardLayout
     }
 
     /// <summary>
-    /// 卡片下方的動作按鈕：亮度 > 90、飽和度低的色塊（藍色的次數小圓圈飽和度高，會被排除），寬 30～70、高 10～45（× dpr），由左到右。只量按鈕的下半截（避開右上角的圓圈），詳見程式內註解。
+    /// 卡片下方的動作按鈕：亮度 > 90、飽和度低的色塊（藍色的次數小圓圈飽和度高，會被排除），寬 30～70、高 10～45（× dpr），由左到右。
+    /// 高度下限 10 偏離計畫書的 20：右上角的次數圓圈會跟按鈕連成一塊，所以只掃按鈕的下半截（高約 15～18），詳見程式內註解。
     /// 種類看順序：3 顆＝重抽、專注、放逐；2 顆＝專注、放逐（新技能卡沒有重抽）；1 顆＝放逐。能不能按看 <see cref="IsEnabled"/>。
     /// </summary>
     public static IReadOnlyList<(ActKind Kind, Rectangle Bounds, bool Enabled)> FindButtons(Frame f, Rectangle card, double dpr)
