@@ -53,16 +53,34 @@ public class LobbyFlowTests
     }
 
     [Fact]
-    public void Return_GoneThenBack_CountsAgain()
+    public void Return_AfterLobbyScreen_CountsAgain()
     {
         var flow = new LobbyFlow();
 
         flow.Decide(Screen() with { Return = Btn }, Cfg(), -300);
         flow.Decide(Screen() with { Return = Btn }, Cfg(), 0);
-        flow.Decide(Screen(), Cfg(), 2000);
+        flow.Decide(Screen() with { Solo = Btn }, Cfg(), 2000);
 
-        flow.Decide(Screen() with { Return = Btn }, Cfg(), 2700);
-        Assert.True(flow.Decide(Screen() with { Return = Btn }, Cfg(), 3000).CountRun);
+        flow.Decide(Screen() with { Return = Btn }, Cfg(), 900_000);
+        Assert.True(flow.Decide(Screen() with { Return = Btn }, Cfg(), 900_300).CountRun);
+    }
+
+    /// <summary>
+    /// 實測（2026-11-21）：主迴圈 1500 ms＋結算時讀畫面，兩次看到「返回角色」相隔超過 2 秒，同一局被記兩次。
+    /// 沒看到大廳畫面之前，結算畫面消失多久再出現都不能重記
+    /// </summary>
+    [Fact]
+    public void Return_GoneLongWithoutLobby_DoesNotCountAgain()
+    {
+        var flow = new LobbyFlow();
+
+        flow.Decide(Screen() with { Return = Btn }, Cfg(), -300);
+        Assert.True(flow.Decide(Screen() with { Return = Btn }, Cfg(), 0).CountRun);
+        flow.Decide(Screen(), Cfg(), 1500);
+        flow.Decide(Screen(), Cfg(), 3000);
+
+        Assert.False(flow.Decide(Screen() with { Return = Btn }, Cfg(), 4500).CountRun);
+        Assert.False(flow.Decide(Screen() with { Return = Btn }, Cfg(), 6000).CountRun);
     }
 
     /// <summary>實測野外畫面偶爾有一格讓「返回角色」範本誤判：只看到一格不能記一局、不能點</summary>

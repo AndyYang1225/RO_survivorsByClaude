@@ -52,12 +52,6 @@ public sealed class LobbyFlow
     private const int EdgeMargin = 20;
 
     /// <summary>
-    /// 「返回角色」消失超過多久才算結算畫面真的結束（才允許下一次記局）。
-    /// 範本比對在單一畫面可能因雜訊漏判一次（JS 看 DOM 不會），不寬限的話漏一格就會重複記一局
-    /// </summary>
-    private const long ReturnGrace = 2_000;
-
-    /// <summary>
     /// 「返回角色」要連續幾輪都看到才當成結算畫面（記一局、按按鈕）。
     /// 實測（2026-11-20）野外畫面偶爾有一格讓範本誤判，只看一格就會多記一局、讓野外走位以為離開野外。
     /// </summary>
@@ -67,9 +61,13 @@ public sealed class LobbyFlow
     private long? _discardAt;
     private long? _titleAt;
     private long? _charSelectAt;
+    /// <summary>
+    /// 這次結算畫面第一次確認的時間；null＝還沒記過這一局。
+    /// 刻意不用「消失多久」來判斷結算結束：實測（2026-11-21）主迴圈 1500 ms、加上結算時 OCR 讀畫面，兩次看到「返回角色」相隔超過 2 秒，
+    /// 同一局被記了兩次。改成看到任何大廳畫面（首頁、選角色、單人大廳、節慶主持人…）才算這次結算結束。
+    /// </summary>
     private long? _returnAt;
     private int _returnHits;
-    private long _returnSeenAt;
     private long? _startAt;
     private long? _talkedAt;
     private long _festAt = long.MinValue / 2;
@@ -77,7 +75,7 @@ public sealed class LobbyFlow
 
     /// <summary>
     /// 只清等待中的計時（_soloAt／_discardAt／_titleAt／_charSelectAt／_startAt／_talkedAt／_lastWalk），改了設定或暫停後重新開始等待（同 JS：set 只重設 npcDone／npcTalked）。
-    /// 刻意保留 _returnAt 和最後看到返回角色的時間：結算畫面上暫停或切分頁就清掉的話，恢復後會把同一局再記一次（JS 的 returnSeenAt 也不清）。
+    /// 刻意保留 _returnAt：結算畫面上暫停或切分頁就清掉的話，恢復後會把同一局再記一次（JS 的 returnSeenAt 也不清）。
     /// 刻意保留 _festAt：按完開始遊戲 10 秒內改設定或暫停就清掉的話，之後的「前往野外」會被當成遠征而不按（JS 的 festAt 也不清）。
     /// </summary>
     public void Reset()
@@ -90,6 +88,11 @@ public sealed class LobbyFlow
     {
         if (c.Paused)
             return new("已暫停");
+
+        // 看到結算以外的大廳畫面＝上一次結算已經結束，之後再看到「返回角色」就是新的一局
+        if (s.Solo is not null || s.Start is not null || s.GoField is not null || s.FestivalHost is not null || s.TalkPrompt is not null
+            || s.Title is not null || s.CharSelect is not null || s.Discard is not null || s.DiscardOk is not null)
+            _returnAt = null;
 
         // 步驟 0：遊戲 0.7.8 起，被中斷的局再上線會先跳「未完成的一局（捨棄／繼續）」，按捨棄後再跳「已捨棄本局（OK）」，兩個都會擋住大廳。
         // 刻意選「捨棄」不選「繼續」：繼續的話會直接回到野外、不經過「前往野外」，視覺模式不知道已在野外（FieldGate 只信自己按的前往野外），不會走位。
@@ -142,26 +145,20 @@ public sealed class LobbyFlow
         // 步驟 2：結算畫面 → 第一次看到時記一局；等 tReturn 後按「返回角色」
         if (s.Return is { } back)
         {
-            // 消失太久才當成新的一次結算（惰性判斷，Decide 沒被呼叫的期間也算）
-            if (_returnAt is not null && now - _returnSeenAt > ReturnGrace)
-                _returnAt = null;
-            // 還沒確認過的結算畫面：連續看到 ReturnConfirmHits 輪才算（已確認的漏判一格不受影響，靠上面的寬限）
+            // 還沒確認過的結算畫面：連續看到 ReturnConfirmHits 輪才算（已確認的結算畫面漏判幾格都不會重記，見 _returnAt）
             if (_returnAt is null && ++_returnHits < ReturnConfirmHits)
                 return new("確認結算畫面");
             _returnHits = 0;
             var first = _returnAt is null;
             _returnAt ??= now;
-            _returnSeenAt = now;
             if (first)
                 _talkedAt = null;
             if (!c.AutoReturn)
                 return new("結算中", CountRun: first);
             return new("準備返回角色", now - _returnAt > c.TReturn ? Center(back) : null, first);
         }
-        // 沒看到「返回角色」：寬限期內不清 _returnAt（可能只是漏判一格），其餘步驟照常往下走
+        // 沒看到「返回角色」：不清 _returnAt（可能只是漏判幾格；要看到大廳畫面才清，見開頭），其餘步驟照常往下走
         _returnHits = 0;
-        if (_returnAt is not null && now - _returnSeenAt > ReturnGrace)
-            _returnAt = null;
 
         // 步驟 3：「開始遊戲」／活動的「前往野外」→ 等 tStart 後按
         var limit = c.RunLimit && c.Runs >= c.RunLimitN;
