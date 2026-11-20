@@ -31,7 +31,7 @@ public class BallFinderTests
         Assert.Empty(BallFinder.Find(CardLayoutTests.Fixture(fixture), 1.0));
     }
 
-    /// <summary>預設不找「白」：閃電火花會被當成白色扭蛋（見 BallFinder.Find 的說明）</summary>
+    /// <summary>預設只找粉紅：閃電火花會被當成白色扭蛋（見 BallFinder.VerifiedKinds 的說明）</summary>
     [Fact]
     public void Find_Field2_WhiteOffByDefault_NoSparkles()
         => Assert.Empty(BallFinder.Find(CardLayoutTests.Fixture("野外2寶箱"), 1.0));
@@ -40,7 +40,7 @@ public class BallFinderTests
     public void Find_Field2_OnlyLightningSparklesAsWhite()
     {
         // 已知限制：野外2寶箱 右側的閃電火花大小形狀跟扭蛋一樣，會被當成「白」；燈籠色、HUD、經驗寶石、傷害數字都不會
-        var balls = BallFinder.Find(CardLayoutTests.Fixture("野外2寶箱"), 1.0, includeWhite: true);
+        var balls = BallFinder.Find(CardLayoutTests.Fixture("野外2寶箱"), 1.0, BallFinder.AllKinds);
 
         Assert.All(balls, b =>
         {
@@ -60,7 +60,7 @@ public class BallFinderTests
         var f = TestFrames.Solid(1904, 682, 30, 30, 40);
         TestFrames.Fill(f, new Rectangle(1300, 400, 18, 18), r, g, b);
 
-        var ball = Assert.Single(BallFinder.Find(f, 1.0, includeWhite: true));
+        var ball = Assert.Single(BallFinder.Find(f, 1.0, BallFinder.AllKinds));
 
         Assert.Equal(kind, ball.Kind);
         Assert.InRange(ball.X, 1305, 1313);
@@ -74,9 +74,19 @@ public class BallFinderTests
         TestFrames.Fill(f, new Rectangle(1500, 400, 18, 18), 221, 142, 119);
         TestFrames.Fill(f, new Rectangle(1100, 400, 18, 18), 60, 200, 80);
 
-        var balls = BallFinder.Find(f, 1.0);
+        var balls = BallFinder.Find(f, 1.0, BallFinder.AllKinds);
 
         Assert.Equal(["綠", "粉紅"], balls.Select(b => b.Kind));
+    }
+
+    /// <summary>實測（2026-11-21）：寶箱的紅褐色外殼會被「紅」規則當成扭蛋；預設只找粉紅就不會</summary>
+    [Fact]
+    public void Find_ChestNotRedBall_ByDefault()
+    {
+        var f = CardLayoutTests.Fixture("野外8寶箱像紅球");
+
+        // 這張是實機回報「紅」扭蛋之後馬上存的截圖（鏡頭已經稍微移動），畫面上有好幾個寶箱
+        Assert.Empty(BallFinder.Find(f, 1.0));
     }
 
     [Fact]

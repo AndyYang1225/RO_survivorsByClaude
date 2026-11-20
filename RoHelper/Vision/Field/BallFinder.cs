@@ -48,12 +48,21 @@ public static class BallFinder
     private const double MaxAspect = 1.7;
 
     /// <summary>
-    /// 找出所有像扭蛋的色塊，離畫面中心近的在前面（同 JS 的排序）。
-    /// includeWhite 預設關（2026-11-21 Claude 決定，使用者允許改善 JS 的做法）：「白」會把閃電特效當成扭蛋，
-    /// 魔法師／巫師的雷擊術、雷爆術幾乎一直在放，角色會一直去追火花；實際只看過珊瑚粉紅的節慶扭蛋，等有白色扭蛋的截圖校正後再打開
+    /// 預設只找實機確認過的顏色（2026-11-21 Claude 決定，使用者允許改善 JS 的做法）。實測其他顏色規則一直誤判：
+    /// 「白」＝閃電特效（魔法師／巫師的雷擊術、雷爆術幾乎一直在放）、「紅」＝寶箱的紅褐色外殼 (164,49,52)、
+    /// 「橘」＝掉落水晶的橘色光暈。實際只看過珊瑚粉紅的節慶扭蛋；其他顏色等有真的扭蛋截圖校正後再加進來
     /// </summary>
-    public static IReadOnlyList<BallBlob> Find(Frame f, double dpr, bool includeWhite = false)
-        => Scan(f, dpr).Where(b => IsBall(b, dpr) && (includeWhite || b.Kind != "白")).OrderBy(b => b.D).ToList();
+    public static readonly IReadOnlySet<string> VerifiedKinds = new HashSet<string> { "粉紅" };
+
+    /// <summary>找出所有像扭蛋的色塊，離畫面中心近的在前面（同 JS 的排序）。kinds＝要找的顏色；null＝<see cref="VerifiedKinds"/></summary>
+    public static IReadOnlyList<BallBlob> Find(Frame f, double dpr, IReadOnlySet<string>? kinds = null)
+    {
+        kinds ??= VerifiedKinds;
+        return Scan(f, dpr).Where(b => IsBall(b, dpr) && kinds.Contains(b.Kind)).OrderBy(b => b.D).ToList();
+    }
+
+    /// <summary>全部五種顏色（測試、校正用）</summary>
+    public static readonly IReadOnlySet<string> AllKinds = new HashSet<string>(Kinds);
 
     /// <summary>大小、形狀像不像扭蛋（門檻見各常數的實測值）</summary>
     private static bool IsBall(BallBlob b, double dpr)
