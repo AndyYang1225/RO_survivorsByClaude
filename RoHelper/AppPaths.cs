@@ -35,6 +35,9 @@ public static class AppPaths
     /// <summary>視覺判斷用的範本圖片（每個範本一個 PNG，加一個同名 JSON 記搜尋範圍、門檻、截圖時的 dpr）</summary>
     public static string TemplatesDir => Path.Combine(DataDir, "templates");
 
+    /// <summary>視覺除錯視窗「存截圖」的輸出位置（原尺寸 PNG，跟引擎看到的畫面一模一樣，設計判讀方式用）</summary>
+    public static string ShotsDir => Path.Combine(DataDir, "shots");
+
     public const string GameUrl = "https://ro-survivors.com/";
 
     /// <summary>

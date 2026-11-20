@@ -49,8 +49,9 @@ public sealed class VisionDebugForm : Form
         var save = new Button { Text = "存成範本", AutoSize = true };
         var find = new Button { Text = "找範本", AutoSize = true };
         var findAll = new Button { Text = "全部找", AutoSize = true };
+        var saveShot = new Button { Text = "存截圖", AutoSize = true };
         var bar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true };
-        bar.Controls.AddRange([_live, snap, _clickMode, _selectMode, ocr, _templateName, _wholeFrame, save, _templates, find, findAll]);
+        bar.Controls.AddRange([_live, snap, _clickMode, _selectMode, ocr, _templateName, _wholeFrame, save, _templates, find, findAll, saveShot]);
 
         // 先加 Fill 再加 Top／Bottom：WinForms 依 z-order 反向處理 Dock
         Controls.Add(_view);
@@ -67,6 +68,7 @@ public sealed class VisionDebugForm : Form
         save.Click += (_, _) => SaveTemplate();
         find.Click += (_, _) => FindTemplate();
         findAll.Click += (_, _) => FindAllTemplates();
+        saveShot.Click += (_, _) => SaveShot();
         _view.MouseDown += OnViewMouseDown;
         _view.MouseMove += OnViewMouseMove;
         _view.MouseUp += OnViewMouseUp;
@@ -300,6 +302,24 @@ public sealed class VisionDebugForm : Form
     }
 
     #endregion
+
+    /// <summary>
+    /// 把目前的截圖原尺寸存成 PNG（檔名是時間）。給設計新的判讀方式用：要看真實畫面上的文字和按鈕排在哪裡。
+    /// 刻意存「引擎截到的那張」而不是另外截螢幕：兩者的大小、縮放、邊框可能不同，判讀要以引擎看到的為準。
+    /// </summary>
+    private void SaveShot()
+    {
+        if (_frame is null)
+        {
+            Log("要先有截圖");
+            return;
+        }
+        Directory.CreateDirectory(AppPaths.ShotsDir);
+        var path = Path.Combine(AppPaths.ShotsDir, $"{DateTime.Now:yyyyMMdd-HHmmss}.png");
+        using (var bmp = _frame.ToBitmap())
+            bmp.Save(path, System.Drawing.Imaging.ImageFormat.Png);
+        Log($"已存截圖：{path}");
+    }
 
     private void Log(string message) => _log.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}\r\n");
 }
