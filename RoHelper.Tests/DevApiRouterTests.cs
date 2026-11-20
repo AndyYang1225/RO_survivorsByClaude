@@ -21,6 +21,15 @@ public class DevApiRouterTests
     }
 
     [Fact]
+    public async Task Move_PassesCoordinates()
+    {
+        var r = await Call("POST", "/move?x=5&y=7");
+
+        Assert.Equal(200, r.Status);
+        Assert.Equal("Move(5,7)", Assert.Single(_host.Calls));
+    }
+
+    [Fact]
     public async Task Click_PassesCoordinates()
     {
         var r = await Call("POST", "/click?x=10&y=20");
@@ -179,6 +188,7 @@ internal sealed class FakeDevApiHost : IDevApiHost
     public Task<JsonObject> PickerAsync() => Record("Picker()");
     public Task<JsonObject> FieldAsync() => Record("Field()");
     public Task ClickAsync(int x, int y) => Record($"Click({x},{y})");
+    public Task MoveAsync(int x, int y) => Record($"Move({x},{y})");
     public Task KeyAsync(char key) => Record($"Key({key})");
     public Task SetPausedAsync(bool paused) => Record($"Paused({paused})");
     public Task ReloadTemplatesAsync() => Record("Reload()");
