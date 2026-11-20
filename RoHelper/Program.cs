@@ -27,11 +27,13 @@ internal static class Program
         var config = new ConfigStore(AppPaths.ConfigFile);
         using var log = new LogStore(AppPaths.LogFile);
         var runs = new RunStore(AppPaths.RunsFile);
+        // 【JS 引擎已停用（2026-11-20，使用者決定）】一律用視覺模式，不在遊戲網頁注入任何 JS。
+        // EngineBridge 仍建立（GameForm 的建構子要它），但不會接到網頁上。要恢復 JS 模式：還原下面註解掉的兩行，或看 git tag js-engine-last。
         var bridge = new EngineBridge(config, log, runs);
-        // 視覺模式：面板改接視覺引擎；EngineBridge 仍建立，但遊戲視窗不會把它接到網頁上
-        using var vision = settings.VisionMode ? new VisionEngine(config, BuiltInSchema.Load()) : null;
-        IAutomation automation = vision is null ? bridge : vision;
-        using var panel = new PanelForm(config, log, runs, automation, settings);
+        using var vision = new VisionEngine(config, BuiltInSchema.Load());
+        // using var vision = settings.VisionMode ? new VisionEngine(config, BuiltInSchema.Load()) : null;
+        // IAutomation automation = vision is null ? bridge : vision;
+        using var panel = new PanelForm(config, log, runs, vision, settings);
         Application.Run(new GameForm(settings, bridge, vision, panel));
     }
 }

@@ -12,9 +12,9 @@ using Microsoft.Web.WebView2.WinForms;
 namespace RoHelper.Forms;
 
 /// <summary>
-/// 主視窗：用 WebView2 開遊戲，並在每個頁面「文件建立時」注入 JS 引擎。關掉這個視窗＝結束程式。
+/// 主視窗：用 WebView2 開遊戲，由視覺引擎截圖判斷並送真實輸入（JS 引擎已停用，不注入任何 JS）。關掉這個視窗＝結束程式。
 /// WebView2 的使用者資料夾固定在 <see cref="AppPaths.WebViewDir"/>，遊戲登入狀態、角色資料下次開還在。
-/// 上方選單：面板（F9）、重新載入（F5）、開發者工具（F12）、開啟資料夾、檢查更新；最右邊顯示目前引擎版本。
+/// 上方選單：面板（F9）、重新載入（F5）、開發者工具（F12）、開啟資料夾、視覺除錯；最右邊顯示目前模式。
 /// </summary>
 public sealed class GameForm : Form
 {
@@ -72,9 +72,10 @@ public sealed class GameForm : Form
         menu.Items.Add(new ToolStripMenuItem("重新載入 (F5)", null, (_, _) => _webView.CoreWebView2?.Reload()));
         menu.Items.Add(new ToolStripMenuItem("開發者工具 (F12)", null, (_, _) => _webView.CoreWebView2?.OpenDevToolsWindow()));
         menu.Items.Add(new ToolStripMenuItem("開啟資料夾", null, (_, _) => OpenDataFolder()));
-        menu.Items.Add(new ToolStripMenuItem("檢查更新", null, async (_, _) => await CheckUpdateManuallyAsync()));
+        // 【JS 引擎已停用】檢查引擎更新、切換 JS／視覺模式都用不到了（見 Program.cs）
+        // menu.Items.Add(new ToolStripMenuItem("檢查更新", null, async (_, _) => await CheckUpdateManuallyAsync()));
         menu.Items.Add(new ToolStripMenuItem("視覺除錯", null, (_, _) => OpenVisionDebug()));
-        menu.Items.Add(new ToolStripMenuItem(settings.VisionMode ? "模式：視覺" : "模式：JS", null, (_, _) => ToggleMode()));
+        // menu.Items.Add(new ToolStripMenuItem(settings.VisionMode ? "模式：視覺" : "模式：JS", null, (_, _) => ToggleMode()));
         menu.Items.Add(_engineItem);
 
         // 先加 Fill 再加 Top：WinForms 依 z-order 反向處理 Dock，這樣選單才不會蓋住遊戲畫面
@@ -116,28 +117,30 @@ public sealed class GameForm : Form
             core.Navigate(AppPaths.GameUrl);
             return;
         }
-        _bridge.TogglePanelRequested += TogglePanel;
-        _bridge.Attach(core);
-
-        // 步驟 1：選本機最新的引擎
-        var engine = _updater.LoadLocal();
-
-        // 步驟 2：開遊戲前先問一次線上有沒有新版（最多等 5 秒，失敗就用本機版，不擋遊戲）
-        string? note = null;
-        if (_settings.AutoUpdateEngine && !EngineUpdater.UsingOverride)
-        {
-            _engineItem.Text = "檢查更新中…";
-            var result = await _updater.CheckAsync(engine);
-            if (result is { Status: UpdateStatus.Available, Remote: { } newer })
-                engine = newer;
-            else if (result is { Status: UpdateStatus.NeedNewerExe, Remote: { } r })
-                note = $"｜有新版 v{r.Version.ToString(3)}，需先更新 exe";
-        }
-
-        // 步驟 3：注入並開遊戲
-        await UseEngineAsync(engine);
-        _engineItem.Text += note;
-        core.Navigate(AppPaths.GameUrl);
+        // 【JS 引擎已停用（2026-11-20，使用者決定）】以下是 JS 模式的流程：接網頁訊息、檢查引擎更新、注入 engine.js。
+        // 視覺模式一定會走上面的 return，這段不會執行；要恢復時拿掉註解，並還原 Program.cs 的模式判斷。
+        // _bridge.TogglePanelRequested += TogglePanel;
+        // _bridge.Attach(core);
+        //
+        // // 步驟 1：選本機最新的引擎
+        // var engine = _updater.LoadLocal();
+        //
+        // // 步驟 2：開遊戲前先問一次線上有沒有新版（最多等 5 秒，失敗就用本機版，不擋遊戲）
+        // string? note = null;
+        // if (_settings.AutoUpdateEngine && !EngineUpdater.UsingOverride)
+        // {
+        //     _engineItem.Text = "檢查更新中…";
+        //     var result = await _updater.CheckAsync(engine);
+        //     if (result is { Status: UpdateStatus.Available, Remote: { } newer })
+        //         engine = newer;
+        //     else if (result is { Status: UpdateStatus.NeedNewerExe, Remote: { } r })
+        //         note = $"｜有新版 v{r.Version.ToString(3)}，需先更新 exe";
+        // }
+        //
+        // // 步驟 3：注入並開遊戲
+        // await UseEngineAsync(engine);
+        // _engineItem.Text += note;
+        // core.Navigate(AppPaths.GameUrl);
     }
 
     /// <summary>

@@ -25,6 +25,7 @@ public sealed class AppSettings
     /// <summary>
     /// 視覺模式：不在遊戲網頁注入 JS，只靠截圖判斷、用瀏覽器層級的真實輸入操作。開發中（目前只有大廳流程），預設關閉。
     /// 從遊戲視窗選單切換，重新開啟後生效：兩種模式不能同時跑，否則兩邊會同時點畫面。
+    /// 【JS 引擎已停用（2026-11-20）】目前一律視覺模式，這個值不會被讀取（見 Program.cs）；留著是為了恢復 JS 模式時不用改設定檔格式。
     /// </summary>
     public bool VisionMode { get; set; }
 

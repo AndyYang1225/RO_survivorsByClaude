@@ -38,7 +38,8 @@
   </Target>
 
   <ItemGroup>
-    <EmbeddedResource Include="Engine\engine.js" LogicalName="RoHelper.engine.js" />
+    <!-- 【JS 引擎已停用（2026-11-20）】不再把 engine.js 編進 exe；檔案留著當搬規則的參考，tools/gen-schema.js 和 BuiltInSchemaTests 仍會讀它 -->
+    <!-- <EmbeddedResource Include="Engine\engine.js" LogicalName="RoHelper.engine.js" /> -->
     <EmbeddedResource Include="Engine\schema.json" LogicalName="RoHelper.schema.json" />
   </ItemGroup>
 

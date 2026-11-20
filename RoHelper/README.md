@@ -2,6 +2,11 @@
 
 取代 Tampermonkey 腳本 v7.5。雙擊 `RoHelper.exe` 就會開遊戲並自動掛上小幫手，控制面板是獨立視窗。
 
+## 目前狀態（2026-11-20）：JS 引擎已停用
+- 一律用視覺模式，不在遊戲網頁注入任何 JS。相關程式碼是**註解掉**的（Program.cs、GameForm.cs、RoHelper.csproj 標了【JS 引擎已停用】），要恢復就拿掉註解，或看 git tag `js-engine-last`。
+- 視覺模式目前只會跑大廳流程；**選卡（計畫 3）和野外走位（計畫 4）完成前，進野外要自己玩**。
+- 下面「自動更新引擎」「從 Tampermonkey 版搬設定」等 JS 相關段落暫時不適用；`picklog.json`、`runs.jsonl` 也不會再新增。
+
 ## 使用
 - **F8**：暫停／繼續（遊戲或面板有焦點時都可以按）
 - **F9**：顯示／隱藏面板（面板按 X 也只是隱藏）
@@ -22,7 +27,7 @@
 - 例外：Win+D（顯示桌面）是由系統直接最小化，這時遊戲還是會暫停。
 - 不想要這個行為：把 `app.json` 的 `KeepRunningWhenMinimized` 改成 `false`。
 
-## 自動更新引擎（取代 Tampermonkey 的 @updateURL）
+## 自動更新引擎（取代 Tampermonkey 的 @updateURL）【已停用】
 exe 啟動時會到 Gist 抓 `ro_engine.js`，比目前新就換上（也可以按選單「檢查更新」）。選單最右邊會顯示目前用的引擎版本。
 
 **發佈新版引擎的步驟：**
