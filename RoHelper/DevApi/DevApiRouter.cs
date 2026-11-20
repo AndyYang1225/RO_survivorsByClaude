@@ -62,7 +62,7 @@ public sealed class DevApiRouter(IDevApiHost host)
         ("GET", "/shot", "截一張存到 shots/api（name 選填，預設用時間），回路徑"),
         ("GET", "/screen", "截一張，回每個大廳範本的分數與 ScreenReader 判讀"),
         ("GET", "/picker", "截一張讀選卡，附上現在設定下會怎麼選（只預覽，不點）"),
-        ("GET", "/field", "截一張讀小地圖（自己、磁鐵、寶箱、掉落物、王），附上現在設定下會怎麼走（只預覽，不點）"),
+        ("GET", "/field", "截一張讀小地圖（自己、磁鐵、寶箱、掉落物、王）和上方的金錢／寶箱價格，附上現在設定下會怎麼走（只預覽，不點）"),
         ("POST", "/click", "點擊截圖像素 x、y（必填）"),
         ("POST", "/key", "按一個鍵 k（必填，一個英數字元）"),
         ("POST", "/pause", "暫停"),

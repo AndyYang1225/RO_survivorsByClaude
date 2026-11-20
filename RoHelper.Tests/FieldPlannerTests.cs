@@ -8,7 +8,7 @@ namespace RoHelper.Tests;
 public sealed class FieldPlannerTests : IDisposable
 {
     private static readonly RectangleF Map = new(1731, 40, 157, 129); // 中心 (1809.5, 104.5)
-    private static readonly FieldSettings All = new(true, true, true, true, true, true, 500, 500);
+    private static readonly FieldSettings All = new(true, true, true, true, true, true, 500, 500, true);
     private readonly string _path = Path.Combine(Path.GetTempPath(), "RoHelperTests", Guid.NewGuid().ToString("N"), "config.json");
 
     public void Dispose()
@@ -28,7 +28,7 @@ public sealed class FieldPlannerTests : IDisposable
     [Fact]
     public void Step_AllOff_DoesNothing()
     {
-        var d = Planner().Step(Mm(B(1810, 105), chests: [B(1790, 90)]), new FieldSettings(false, false, false, false, true, true, 500, 500), 10_000);
+        var d = Planner().Step(Mm(B(1810, 105), chests: [B(1790, 90)]), new FieldSettings(false, false, false, false, true, true, 500, 500, true), 10_000);
 
         Assert.Equal(new FieldDecision("", null), d);
     }
@@ -160,14 +160,38 @@ public sealed class FieldPlannerTests : IDisposable
     {
         var empty = new ConfigStore(_path);
         empty.Replace(new JsonObject());
-        Assert.Equal(new FieldSettings(false, false, false, false, false, false, 1500, 1500), FieldSettings.From(empty));
+        Assert.Equal(new FieldSettings(false, false, false, false, false, false, 1500, 1500, ChestMoney: true), FieldSettings.From(empty));
 
         var store = new ConfigStore(_path);
         store.Replace(new JsonObject
         {
             ["seekLoot"] = true, ["seekMagnet"] = true, ["seekChest"] = false, ["autoWander"] = true,
-            ["stayCenter"] = true, ["zoomOut"] = true, ["tSeekN"] = 800, ["tWanderN"] = 1400,
+            ["stayCenter"] = true, ["zoomOut"] = true, ["tSeekN"] = 800, ["tWanderN"] = 1400, ["chestMoney"] = false,
         });
-        Assert.Equal(new FieldSettings(true, true, false, true, true, true, 800, 1400), FieldSettings.From(store));
+        Assert.Equal(new FieldSettings(true, true, false, true, true, true, 800, 1400, false), FieldSettings.From(store));
+    }
+
+    [Fact]
+    public void Step_ChestNotAffordable_SkipsChest_ButKeepsMagnet()
+    {
+        var me = B(1810, 105);
+        Assert.NotEqual("前往寶箱", Planner().Step(Mm(me, chests: [B(1790, 90)]), All, 10_000, chestAffordable: false).Status);
+        Assert.Equal("前往磁鐵", Planner().Step(Mm(me, magnets: [B(1830, 120)], chests: [B(1790, 90)]), All, 10_000, chestAffordable: false).Status);
+    }
+
+    [Theory]
+    [InlineData(true, 1537, 3009, false)]
+    [InlineData(true, 36, 30, true)]
+    [InlineData(true, 30, 30, true)]
+    [InlineData(false, 0, 30, true)]
+    public void CanAffordChest_ComparesMoneyAndCost(bool chestMoney, int money, int cost, bool expected)
+    {
+        Assert.Equal(expected, (All with { ChestMoney = chestMoney }).CanAffordChest(new Hud(money, cost)));
+    }
+
+    [Fact]
+    public void CanAffordChest_UnreadableHud_CountsAsAffordable()
+    {
+        Assert.True(All.CanAffordChest(null));
     }
 }

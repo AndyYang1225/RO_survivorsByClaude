@@ -32,8 +32,16 @@ public sealed class VisionEngine : IAutomation, IDisposable
     private const int ZoomSteps = 3;
     private const double ZoomDelta = 300;
 
+    /// <summary>在野外時多久讀一次金錢與寶箱價格：OCR 一次約 100～300 ms，每輪都讀會拖慢走位；金錢變化也沒那麼快</summary>
+    private const long HudEvery = 3000;
+
     /// <summary>這一局已經拉遠過鏡頭</summary>
     private bool _zoomed;
+
+    /// <summary>最近一次讀到的金錢與寶箱價格（null＝還沒讀或讀不到，當買得起）和讀的時間</summary>
+    private Hud? _hud;
+    private long _hudAt = long.MinValue / 2;
+    private HudReader? _hudReader;
     private VisionKit? _kit;
     private ScreenReader? _reader;
     private PickerReader? _pickerReader;
@@ -78,6 +86,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
         _kit = kit;
         _reader = new ScreenReader(kit.Templates);
         _pickerReader = kit.Ocr is { } ocr ? new PickerReader(ocr) : null;
+        _hudReader = kit.Ocr is null ? null : new HudReader(kit.Ocr);
         _config.Replace(ConfigDefaults.Apply(ConfigDefaults.Build(Schema), _config.Current, Schema, reset: false));
         SchemaReceived?.Invoke(Schema);
         _timer.Interval = TickMs();
@@ -219,16 +228,19 @@ public sealed class VisionEngine : IAutomation, IDisposable
         NewFieldRun();
     }
 
-    /// <summary>新的一局：走位狀態（卡住、忽略清單、繞圈角度）清掉，鏡頭要重新拉遠</summary>
+    /// <summary>新的一局：走位狀態（卡住、忽略清單、繞圈角度）清掉，鏡頭要重新拉遠，金錢要重新讀</summary>
     private void NewFieldRun()
     {
         _planner.NewRun();
         _zoomed = false;
+        _hud = null;
+        _hudAt = long.MinValue / 2;
     }
 
     /// <summary>
     /// 野外走位一輪：進野外滿 <see cref="ZoomDelay"/> 後拉遠鏡頭一次（設定 zoomOut），再讀小地圖 → <see cref="FieldPlanner"/> 決定 → 點擊。
     /// 小地圖找不到自己時傳 null 給決策（它會繞圈）。點擊是世界畫面比例：野外時遊戲畫布佔滿視窗，所以乘上截圖寬高就是截圖像素。
+    /// chestMoney 開著時每 <see cref="HudEvery"/> 讀一次金錢與寶箱價格，錢不夠就不追寶箱；沒有繁中 OCR 時一律當買得起。
     /// 回傳面板文字（空字串＝走位的開關都關了）。
     /// </summary>
     private async Task<string> FieldStepAsync(Frame frame, double dpr, long now)
@@ -242,7 +254,12 @@ public sealed class VisionEngine : IAutomation, IDisposable
                 await kit.Input.WheelAsync(cx, cy, ZoomDelta);
             _zoomed = true;
         }
-        var d = _planner.Step(MinimapReader.Read(frame, dpr), s, now);
+        if (s.ChestMoney && _hudReader is not null && now - _hudAt >= HudEvery)
+        {
+            _hud = await _hudReader.ReadAsync(frame, dpr);
+            _hudAt = now;
+        }
+        var d = _planner.Step(MinimapReader.Read(frame, dpr), s, now, s.CanAffordChest(_hud));
         if (d.Click is { } c)
         {
             var (x, y) = kit.Viewport.ToCss(c.X * frame.Width, c.Y * frame.Height);

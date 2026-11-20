@@ -8,7 +8,7 @@ public sealed record FieldDecision(string Status, PointF? Click);
 /// 撿王的掉落物 → 磁鐵 → 寶箱 → 回地圖中間／繞圈；一直下指令但小地圖上的自己沒動就繞路；站在掉落物上 3 秒還在就忽略它。
 /// 純邏輯：時間與亂數由呼叫端傳入（亂數注入才能寫測試），不截圖、不送輸入。
 /// 刻意不做（第二批）：節慶扭蛋、精確模式（JS 讀遊戲資料）、吃肉、躲鐘、王死掉的地點（要 OCR 小地圖座標）、
-/// MVP 倒數撿取階段、farLimit（JS 在小地圖模式本來就沒用）、chestMoney（要 OCR 金錢；第一批一律當買得起）、lowHpStop。
+/// MVP 倒數撿取階段、farLimit（JS 在小地圖模式本來就沒用）、lowHpStop。
 /// 小地圖座標用截圖像素：假設 dpr 1 時跟 JS 的小地圖畫布像素同尺度，所以 JS 以像素為單位的門檻（0.8、3、len·0.03）直接沿用。
 /// </summary>
 public sealed class FieldPlanner(Func<double> random)
@@ -45,7 +45,11 @@ public sealed class FieldPlanner(Func<double> random)
         _lootNear = 0;
     }
 
-    public FieldDecision Step(MinimapInfo? mm, FieldSettings s, long now)
+    /// <summary>
+    /// 決定這一輪怎麼走。chestAffordable＝錢夠不夠開寶箱（呼叫端讀 HUD 算，見 <see cref="FieldSettings.CanAffordChest"/>）：
+    /// 不夠就不追寶箱（同 JS：seekChest 且 canAffordChest() 才追），開不了的寶箱追過去只會一直站在上面或卡在旁邊。
+    /// </summary>
+    public FieldDecision Step(MinimapInfo? mm, FieldSettings s, long now, bool chestAffordable = true)
     {
         if (!s.SeekLoot && !s.SeekMagnet && !s.SeekChest && !s.AutoWander)
             return new("", null);
@@ -86,7 +90,7 @@ public sealed class FieldPlanner(Func<double> random)
 
         // 磁鐵優先於寶箱
         var magnet = s.SeekMagnet ? Nearest(me, mm.Magnets, now) : null;
-        var chest = s.SeekChest ? Nearest(me, mm.Chests, now) : null;
+        var chest = s.SeekChest && chestAffordable ? Nearest(me, mm.Chests, now) : null;
         if ((magnet ?? chest) is { } pick)
         {
             var (dx, dy, len) = Delta(me, pick);
