@@ -41,6 +41,12 @@ public sealed class VisionEngine : IAutomation, IDisposable
 
     public EngineSchema Schema { get; }
 
+    /// <summary>最近的狀態變化（開發介面、自動存證據用）</summary>
+    public StatusHistory History { get; } = new();
+
+    /// <summary>本局選卡狀態（唯讀，給開發介面預覽「現在會怎麼選」）</summary>
+    public RunPickState PickState => _picker.State;
+
     public event Action<EngineSchema>? SchemaReceived;
     public event Action<JsonObject>? StatusReceived;
 
@@ -212,6 +218,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
     /// <summary>送狀態給面板（格式同 JS 的 status 訊息；尋寶率、下一隻王要等計畫 3、4）</summary>
     private void Report(string action)
     {
+        History.Add(DateTime.Now, action);
         var s = FlowSettings.From(_config);
         var status = new JsonObject
         {
