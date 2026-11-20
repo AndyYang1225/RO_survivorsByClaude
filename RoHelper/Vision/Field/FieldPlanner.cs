@@ -6,8 +6,9 @@ public sealed record FieldDecision(string Status, PointF? Click);
 /// <summary>
 /// 野外走位決策（移植 engine.js fieldStep 的「小地圖模式」、wanderStep、checkStuck）：
 /// 王死掉的地點（bossSpot）→ 撿王的掉落物 → 磁鐵 → 寶箱（farLimit：太遠的先不追）→ 回地圖中間／繞圈；一直下指令但小地圖上的自己沒動就繞路；站在掉落物上 3 秒還在就忽略它。
+/// MVP 死後的撿取倒數（lootPhase，見 <see cref="TimerReader"/>）只撿掉落物，沒有掉落物就在附近小範圍繞圈找。
 /// 純邏輯：時間與亂數由呼叫端傳入（亂數注入才能寫測試），不截圖、不送輸入。
-/// 刻意不做（第二批）：節慶扭蛋、精確模式（JS 讀遊戲資料）、吃肉、躲鐘、MVP 倒數撿取階段。
+/// 刻意不做（第二批）：節慶扭蛋、精確模式（JS 讀遊戲資料）、吃肉、躲鐘。
 /// 小地圖座標用截圖像素：假設 dpr 1 時跟 JS 的小地圖畫布像素同尺度，所以 JS 以像素為單位的門檻（0.8、3、len·0.03）直接沿用。
 /// </summary>
 public sealed class FieldPlanner(Func<double> random)
@@ -29,6 +30,7 @@ public sealed class FieldPlanner(Func<double> random)
     private long _escUntil;
     private readonly List<(double X, double Y, long Until)> _blocked = [];
     private long _lootNear;
+    private (MinimapBlob T, long At)? _lastLoot;
     private readonly BossTracker _bosses = new();
     private long _bossArrive;
 
@@ -47,6 +49,7 @@ public sealed class FieldPlanner(Func<double> random)
         _escUntil = 0;
         _blocked.Clear();
         _lootNear = 0;
+        _lastLoot = null;
         _bosses.Reset();
         _bossArrive = 0;
     }
@@ -55,8 +58,9 @@ public sealed class FieldPlanner(Func<double> random)
     /// 決定這一輪怎麼走。chestAffordable＝錢夠不夠開寶箱（呼叫端讀 HUD 算，見 <see cref="FieldSettings.CanAffordChest"/>）：
     /// 不夠就不追寶箱（同 JS：seekChest 且 canAffordChest() 才追），開不了的寶箱追過去只會一直站在上面或卡在旁邊。
     /// hp＝HP 比例（0～1，見 <see cref="HpReader"/>；null＝讀不到，不檢查）：lowHpStop 開著而且低於 lowHpStopN% 就不走位（同 JS）。
+    /// lootPhase＝MVP 死後的撿取倒數中（計時器變紅字，見 <see cref="TimerReader"/>）：只撿掉落物，不追寶箱、磁鐵（同 JS 1126～1148 行）。
     /// </summary>
-    public FieldDecision Step(MinimapInfo? mm, FieldSettings s, long now, bool chestAffordable = true, double? hp = null)
+    public FieldDecision Step(MinimapInfo? mm, FieldSettings s, long now, bool chestAffordable = true, double? hp = null, bool lootPhase = false)
     {
         // 同 JS：在「走位開關都關了」和 SeekEvery 之前檢查
         if (s.LowHpStop && hp < s.LowHpStopN / 100.0)
@@ -77,7 +81,7 @@ public sealed class FieldPlanner(Func<double> random)
             return Escape(now);
 
         if (mm is null)
-            return Wander(null, s, now);
+            return lootPhase ? LootWander(s, now) : Wander(null, s, now);
         var me = mm.Me;
 
         // 王剛死：跑到死掉的地點（最多 12 秒；到了之後停 1.5 秒讓東西被撿起來）
@@ -94,12 +98,18 @@ public sealed class FieldPlanner(Func<double> random)
                 return BossSpotStep(me, spot, now);
         }
 
-        // 王的掉落物最優先
-        if (s.SeekLoot && Nearest(me, mm.Loot, now) is { } loot)
+        // 王的掉落物最優先（MVP 死後撿取時間有限）
+        var loot = s.SeekLoot ? Nearest(me, mm.Loot, now) : null;
+        // 掉落物在小地圖上會閃，倒數中看不到時就照 2.5 秒內最後看到的位置繼續走
+        if (loot is not null)
+            _lastLoot = (loot, now);
+        else if (s.SeekLoot && lootPhase && _lastLoot is { } last && now - last.At < 2500)
+            loot = last.T;
+        if (loot is not null)
         {
             var (dx, dy, len) = Delta(me, loot);
-            // 已經站在上面 3 秒還在 → 不是掉落物（可能是地形顏色），忽略 30 秒
-            if (len < 3)
+            // 已經站在上面 3 秒還在 → 不是掉落物（可能是地形顏色），忽略 30 秒（撿取倒數中不放棄）
+            if (len < 3 && !lootPhase)
             {
                 if (_lootNear == 0)
                     _lootNear = now;
@@ -113,8 +123,12 @@ public sealed class FieldPlanner(Func<double> random)
                 _lootNear = 0;
             if (CheckStuck(now, me, Math.Atan2(dy, dx), loot))
                 return Escape(now);
-            return Go("撿王的掉落物", dx, dy, len, now);
+            return Go(lootPhase ? "倒數中！撿王的掉落物" : "撿王的掉落物", dx, dy, len, now);
         }
+
+        // 倒數中只撿掉落物（不去撿寶箱、磁鐵）；沒有掉落物就繞圈找
+        if (lootPhase)
+            return LootWander(s, now);
 
         // 磁鐵優先於寶箱；太遠的先不追（掉落物不受限，同 JS）
         var farMax = FarMax(mm, s);
@@ -154,6 +168,21 @@ public sealed class FieldPlanner(Func<double> random)
         if (CheckStuck(now, me, Math.Atan2(dy, dx), null))
             return Escape(now);
         return Go("跑到王死掉的地方", dx, dy, len, now);
+    }
+
+    /// <summary>
+    /// 撿取倒數中沒看到掉落物（同 JS 1146 行）：每 WanderEvery 轉 60°，在附近小範圍繞圈（橫 0.25、直 0.2）找掉落物；不做卡住偵測（同 JS）。
+    /// 跟 JS 小差異：JS 只設 st.action，沒設 lastAct，SeekEvery 內的那幾輪面板會顯示上一個動作；這裡也記成 lastAct，面板一直顯示「倒數中：找掉落物」。
+    /// </summary>
+    private FieldDecision LootWander(FieldSettings s, long now)
+    {
+        const string status = "倒數中：找掉落物";
+        _lastAct = status;
+        if (!s.AutoWander || now - _lastMove <= s.WanderEvery)
+            return new(status, null);
+        _lastMove = now;
+        _angle += Math.PI / 3;
+        return Click(status, 0.5 + Math.Cos(_angle) * 0.25, 0.5 + Math.Sin(_angle) * 0.2);
     }
 
     /// <summary>

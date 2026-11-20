@@ -338,7 +338,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
     /// 野外走位一輪：進野外滿 <see cref="ZoomDelay"/> 後拉遠鏡頭一次（設定 zoomOut），再讀小地圖 → <see cref="FieldPlanner"/> 決定 → 點擊。
     /// 小地圖找不到自己時傳 null 給決策（它會繞圈）。點擊是世界畫面比例：野外時遊戲畫布佔滿視窗，所以乘上截圖寬高就是截圖像素。
     /// chestMoney 開著時每 <see cref="HudEvery"/> 讀一次金錢與寶箱價格，錢不夠就不追寶箱；沒有繁中 OCR 時一律當買得起。
-    /// HP 每輪都讀（純像素，很便宜），lowHpStop 用。
+    /// HP 與計時器顏色（MVP 死後的撿取倒數）每輪都讀（純像素，很便宜），lowHpStop、撿取倒數用。
     /// 進野外滿 ZoomDelay 後也讀地名與職業（<see cref="ReadInfoAsync"/>，讀到為止）。
     /// 回傳面板文字（空字串＝走位的開關都關了）。
     /// </summary>
@@ -360,7 +360,8 @@ public sealed class VisionEngine : IAutomation, IDisposable
             _hud = await _hudReader.ReadAsync(frame, dpr);
             _hudAt = now;
         }
-        var d = _planner.Step(MinimapReader.Read(frame, dpr), s, now, s.CanAffordChest(_hud), HpReader.Read(frame, dpr));
+        var lootPhase = TimerReader.Read(frame, dpr) == TimerPhase.Loot;
+        var d = _planner.Step(MinimapReader.Read(frame, dpr), s, now, s.CanAffordChest(_hud), HpReader.Read(frame, dpr), lootPhase);
         if (d.Click is { } c)
         {
             var (x, y) = kit.Viewport.ToCss(c.X * frame.Width, c.Y * frame.Height);

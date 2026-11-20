@@ -151,9 +151,10 @@ public sealed class DevApiHost(Control ui, VisionKit kit, VisionEngine engine, P
         // 金錢與寶箱價格：每次都讀（開發介面不在意 OCR 的時間），沒有 OCR 時是 null
         var hud = kit.Ocr is null ? null : await new HudReader(kit.Ocr).ReadAsync(frame, dpr);
         var hp = HpReader.Read(frame, dpr);
+        var timer = TimerReader.Read(frame, dpr);
         var s = FieldSettings.From(config);
         // 只預覽：用一個新的走位決策（沒有上次移動時間、卡住紀錄），不動引擎的走位狀態，也不點
-        var d = new FieldPlanner(Random.Shared.NextDouble).Step(mm, s, Environment.TickCount64, s.CanAffordChest(hud), hp);
+        var d = new FieldPlanner(Random.Shared.NextDouble).Step(mm, s, Environment.TickCount64, s.CanAffordChest(hud), hp, timer == TimerPhase.Loot);
         return new JsonObject
         {
             ["width"] = frame.Width,
@@ -161,6 +162,8 @@ public sealed class DevApiHost(Control ui, VisionKit kit, VisionEngine engine, P
             ["dpr"] = dpr,
             ["inField"] = engine.InField,
             ["hp"] = hp is null ? null : Math.Round(hp.Value, 3),
+            // 計時器：normal（深藍字）、loot（MVP 死後的撿取倒數，紅字）、null（找不到計時器）
+            ["timer"] = timer is { } t ? (t == TimerPhase.Loot ? "loot" : "normal") : null,
             // 引擎的走位狀態（預覽用的新決策沒有追蹤紀錄）；ageMs＝判定死掉到現在多久
             ["bossSpot"] = engine.BossSpot is { } spot
                 ? new JsonObject { ["x"] = Math.Round(spot.X, 1), ["y"] = Math.Round(spot.Y, 1), ["ageMs"] = Environment.TickCount64 - spot.At }

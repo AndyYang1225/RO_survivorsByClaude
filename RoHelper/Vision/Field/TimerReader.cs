@@ -1,0 +1,63 @@
+namespace RoHelper.Vision.Field;
+
+/// <summary>畫面正上方計時器的狀態：平常（深藍字，倒數到下一隻王）或 MVP 死後的撿取倒數（紅字，同 JS 的 #timer.loot）</summary>
+public enum TimerPhase
+{
+    Normal,
+    Loot,
+}
+
+/// <summary>
+/// 讀畫面正上方的計時器顏色，判斷是不是 MVP 死後的 15 秒撿取倒數。純像素判斷，不做 OCR（每輪都讀也很便宜）。
+/// 實測（2026-11-21，dpr 1，視窗 1904×682）：計時器是白底圓角框，在畫面水平中央（框約 x 896～1005、y 11～34，白色底的範圍），
+/// 外框是灰藍 (107,123,168)。平常是深藍字 (36,65,142)～(49,76,149)（野外1～7 在框附近量到 560～890 點）；
+/// 撿取倒數是紅字 (192,58,44)～(196,76,64)，反鋸齒邊緣 (211,122,115)（撿取倒數量到 624 點紅字、深藍字 0 點）。
+/// 白底（三色都 &gt; 235）在野外量到 355～940 點（字越多白底越少；野外7 有技能光圈蓋到框的上緣也有 564）；
+/// 結算、首頁、選角色畫面在這一塊 0 點，選卡畫面 29 點。
+/// </summary>
+public static class TimerReader
+{
+    /// <summary>掃描範圍（dpr 1）：畫面水平中央左右各 70 px、y 4～48，把框包進來並留一點餘裕</summary>
+    private const int HalfWidth = 70;
+    private const int Top = 4;
+    private const int Bottom = 48;
+
+    /// <summary>白底至少這麼多點（× dpr²）才算看到計時器框：野外最少量到 355，選卡畫面 29</summary>
+    private const int MinWhite = 150;
+
+    /// <summary>字的點數至少這麼多（× dpr²）才判斷顏色：野外的字量到 560 點以上</summary>
+    private const int MinText = 100;
+
+    /// <summary>找不到計時器框（不在野外、被畫面擋住）或框裡看不到字時回 null</summary>
+    public static TimerPhase? Read(Frame f, double dpr)
+    {
+        int cx = f.Width / 2, half = (int)(HalfWidth * dpr);
+        int x0 = Math.Max(0, cx - half), x1 = Math.Min(f.Width, cx + half);
+        int y0 = Math.Min(f.Height, (int)(Top * dpr)), y1 = Math.Min(f.Height, (int)(Bottom * dpr));
+        int white = 0, red = 0, blue = 0;
+        for (var y = y0; y < y1; y++)
+            for (var x = x0; x < x1; x++)
+            {
+                var c = f.At(x, y);
+                if (c.R > 235 && c.G > 235 && c.B > 235)
+                    white++;
+                else if (IsRed(c))
+                    red++;
+                else if (IsBlue(c))
+                    blue++;
+            }
+        var area = dpr * dpr;
+        if (white < MinWhite * area || Math.Max(red, blue) < MinText * area)
+            return null;
+        return red > blue ? TimerPhase.Loot : TimerPhase.Normal;
+    }
+
+    /// <summary>紅字：實測 (192,58,44)～(211,122,115)，R 都 ≥ 190、比 G、B 都多 ≥ 89；門檻放寬到 R ≥ 150、多 ≥ 70</summary>
+    private static bool IsRed((byte R, byte G, byte B) c) => c.R >= 150 && c.R - c.G >= 70 && c.R - c.B >= 70;
+
+    /// <summary>
+    /// 深藍字：實測 (36,65,142)～(49,76,149)，B−R ≥ 100。框的灰藍外框 (107,123,168) B−R 只有 61，
+    /// 門檻取 B−R ≥ 80 把外框排除（外框兩種狀態都有，算進去會沖淡紅字）
+    /// </summary>
+    private static bool IsBlue((byte R, byte G, byte B) c) => c.B >= 120 && c.B - c.R >= 80 && c.R <= 120;
+}

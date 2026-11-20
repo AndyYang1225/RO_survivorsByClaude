@@ -319,6 +319,91 @@ public sealed class FieldPlannerTests : IDisposable
     }
 
     [Fact]
+    public void Step_LootPhase_LootStatusPrefixed()
+    {
+        var d = Planner().Step(Mm(B(1810, 105), chests: [B(1790, 90)], loot: [B(1820, 80)]), All, 10_000, lootPhase: true);
+
+        Assert.Equal("倒數中！撿王的掉落物", d.Status);
+        Assert.True(d.Click!.Value.X > 0.5 && d.Click.Value.Y < 0.5, $"{d.Click}");
+    }
+
+    [Fact]
+    public void Step_LootPhase_IgnoresChestAndMagnet_WandersSmall()
+    {
+        var d = Planner().Step(Mm(B(1810, 105), magnets: [B(1830, 120)], chests: [B(1790, 90)]), All, 10_000, lootPhase: true);
+
+        Assert.Equal("倒數中：找掉落物", d.Status);
+        Assert.NotNull(d.Click);
+        // 小範圍繞圈：橫 0.25、直 0.2 以內
+        Assert.InRange(d.Click.Value.X, 0.25f - 0.001f, 0.75f + 0.001f);
+        Assert.InRange(d.Click.Value.Y, 0.3f - 0.001f, 0.7f + 0.001f);
+    }
+
+    [Fact]
+    public void Step_LootPhase_NoLoot_ClicksOnlyEveryWanderEvery()
+    {
+        var p = Planner();
+        var mm = Mm(B(1810, 105));
+        Assert.NotNull(p.Step(mm, All, 10_000, lootPhase: true).Click);
+
+        Assert.Equal(new FieldDecision("倒數中：找掉落物", null), p.Step(mm, All, 10_200, lootPhase: true));
+        Assert.Equal(new FieldDecision("倒數中：找掉落物", null), p.Step(mm, All, 10_500, lootPhase: true));
+        Assert.NotNull(p.Step(mm, All, 10_600, lootPhase: true).Click);
+    }
+
+    [Fact]
+    public void Step_LootPhase_AutoWanderOff_NoClick()
+    {
+        var d = Planner().Step(Mm(B(1810, 105)), All with { AutoWander = false }, 10_000, lootPhase: true);
+
+        Assert.Equal(new FieldDecision("倒數中：找掉落物", null), d);
+    }
+
+    [Fact]
+    public void Step_LootPhase_NullMinimap_WandersSmall()
+    {
+        Assert.Equal("倒數中：找掉落物", Planner().Step(null, All, 10_000, lootPhase: true).Status);
+    }
+
+    [Fact]
+    public void Step_LootPhase_LootBlinksOut_KeepsGoingToLastSeenFor2500ms()
+    {
+        var p = Planner();
+        var me = B(1810, 105);
+        p.Step(Mm(me, loot: [B(1820, 80)]), All, 10_000, lootPhase: true);
+
+        var d = p.Step(Mm(me), All, 11_000, lootPhase: true);
+        Assert.Equal("倒數中！撿王的掉落物", d.Status);
+        Assert.True(d.Click!.Value.X > 0.5 && d.Click.Value.Y < 0.5, $"{d.Click}");
+
+        Assert.Equal("倒數中：找掉落物", p.Step(Mm(me), All, 12_600, lootPhase: true).Status);
+    }
+
+    [Fact]
+    public void Step_LootBlinksOut_NotLootPhase_DoesNotRemember()
+    {
+        var p = Planner();
+        var me = B(1810, 105);
+        p.Step(Mm(me, loot: [B(1820, 80)]), All, 10_000);
+
+        Assert.NotEqual("撿王的掉落物", p.Step(Mm(me), All, 11_000).Status);
+    }
+
+    [Fact]
+    public void Step_LootPhase_StandingOnLoot_DoesNotGiveUp()
+    {
+        var p = Planner();
+        var loot = B(1810, 105);
+        for (var i = 0; i < 12; i++)
+        {
+            var now = 10_000 + i * 600L;
+            // 自己左右晃 1 px（不觸發卡住偵測），一直站在掉落物上
+            var d = p.Step(Mm(B(loot.X + (i % 2 == 0 ? 1 : -1), loot.Y), loot: [loot]), All, now, lootPhase: true);
+            Assert.Equal("倒數中！撿王的掉落物", d.Status);
+        }
+    }
+
+    [Fact]
     public void Step_ChestNotAffordable_SkipsChest_ButKeepsMagnet()
     {
         var me = B(1810, 105);
