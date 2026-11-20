@@ -68,6 +68,17 @@ public sealed class VisionEngine : IAutomation, IDisposable
     private ScreenReader? _reader;
     private PickerReader? _pickerReader;
     private ResultReader? _resultReader;
+    private FieldInfoReader? _infoReader;
+
+    /// <summary>讀地名與職業失敗時多久再試一次、每局最多試幾次（讀不到的職業、被擋住的角色框不要整局一直花時間 OCR）</summary>
+    private const long InfoEvery = 3000;
+    private const int InfoMaxTries = 10;
+
+    /// <summary>這一局讀地名與職業的狀態：上次試的時間、試了幾次、讀到的地名（空字串＝還沒讀到）、讀到職業了沒</summary>
+    private long _infoAt = long.MinValue / 2;
+    private int _infoTries;
+    private string _stage = "";
+    private bool _jobRead;
 
     /// <summary>自動存證據（<c>--dev-api</c> 啟動時才有；null＝不存）</summary>
     private readonly EvidenceStore? _evidence;
@@ -114,7 +125,9 @@ public sealed class VisionEngine : IAutomation, IDisposable
         _reader = new ScreenReader(kit.Templates);
         _pickerReader = kit.Ocr is { } ocr ? new PickerReader(ocr) : null;
         _hudReader = kit.Ocr is null ? null : new HudReader(kit.Ocr);
-        _resultReader = kit.Ocr is null ? null : new ResultReader(kit.Ocr, Schema.JobSkills.Select(j => j.Key).ToList());
+        var jobs = Schema.JobSkills.Select(j => j.Key).ToList();
+        _resultReader = kit.Ocr is null ? null : new ResultReader(kit.Ocr, jobs);
+        _infoReader = kit.Ocr is null ? null : new FieldInfoReader(kit.Ocr, jobs, Schema.Stages);
         _config.Replace(ConfigDefaults.Apply(ConfigDefaults.Build(Schema), _config.Current, Schema, reset: false));
         SchemaReceived?.Invoke(Schema);
         _timer.Interval = TickMs();
@@ -278,6 +291,12 @@ public sealed class VisionEngine : IAutomation, IDisposable
         {
             // 為什麼吞掉：結算畫面讀不到只是紀錄少了內容，局數、返回角色照常
         }
+        // 結算畫面的職業比角色框好讀（字比較大、不會跟角色名黏在一起）：這局沒從角色框讀到職業時用它補（exe 新增，JS 在選角色畫面讀）
+        if (!_jobRead && result is { Job.Length: > 0 })
+        {
+            UpdateJob(result.Job);
+            _recorder.SetInfo("", PickSettings.From(_config).Job);
+        }
         var now = DateTime.Now;
         var run = _recorder.Finish(result, now);
         if (run is not null)
@@ -309,6 +328,10 @@ public sealed class VisionEngine : IAutomation, IDisposable
         _zoomed = false;
         _hud = null;
         _hudAt = long.MinValue / 2;
+        _infoAt = long.MinValue / 2;
+        _infoTries = 0;
+        _stage = "";
+        _jobRead = false;
     }
 
     /// <summary>
@@ -316,6 +339,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
     /// 小地圖找不到自己時傳 null 給決策（它會繞圈）。點擊是世界畫面比例：野外時遊戲畫布佔滿視窗，所以乘上截圖寬高就是截圖像素。
     /// chestMoney 開著時每 <see cref="HudEvery"/> 讀一次金錢與寶箱價格，錢不夠就不追寶箱；沒有繁中 OCR 時一律當買得起。
     /// HP 每輪都讀（純像素，很便宜），lowHpStop 用。
+    /// 進野外滿 ZoomDelay 後也讀地名與職業（<see cref="ReadInfoAsync"/>，讀到為止）。
     /// 回傳面板文字（空字串＝走位的開關都關了）。
     /// </summary>
     private async Task<string> FieldStepAsync(Frame frame, double dpr, long now)
@@ -329,6 +353,8 @@ public sealed class VisionEngine : IAutomation, IDisposable
                 await kit.Input.WheelAsync(cx, cy, ZoomDelta);
             _zoomed = true;
         }
+        if (now - _gate.Since >= ZoomDelay)
+            await ReadInfoAsync(frame, dpr, now);
         if (s.ChestMoney && _hudReader is not null && now - _hudAt >= HudEvery)
         {
             _hud = await _hudReader.ReadAsync(frame, dpr);
@@ -341,6 +367,39 @@ public sealed class VisionEngine : IAutomation, IDisposable
             await kit.Input.ClickAsync(x, y);
         }
         return d.Status;
+    }
+
+    /// <summary>
+    /// 進野外滿 <see cref="ZoomDelay"/>（畫面載入完）後讀小地圖標題的地名與角色框的職業，讀不到每 <see cref="InfoEvery"/> 再試，最多 <see cref="InfoMaxTries"/> 次。
+    /// 職業寫進 cfg curJob（<see cref="UpdateJob"/>），地名、職業給對局紀錄。
+    /// </summary>
+    private async Task ReadInfoAsync(Frame frame, double dpr, long now)
+    {
+        if (_infoReader is null || (_stage.Length > 0 && _jobRead) || _infoTries >= InfoMaxTries || now - _infoAt < InfoEvery)
+            return;
+        _infoAt = now;
+        _infoTries++;
+        var info = await _infoReader.ReadAsync(frame, dpr);
+        if (info.Stage.Length > 0)
+            _stage = info.Stage;
+        if (info.Job.Length > 0)
+        {
+            _jobRead = true;
+            UpdateJob(info.Job);
+        }
+        _recorder.SetInfo(_stage, PickSettings.From(_config).Job);
+    }
+
+    /// <summary>
+    /// 偵測到的職業寫進 cfg curJob（同 JS detectJob：只寫職業清單裡有的、跟現在不同才寫）。面板職業選「自動」時選卡就用它。
+    /// </summary>
+    private void UpdateJob(string job)
+    {
+        if (!Schema.JobSkills.Any(j => j.Key == job) || _config.GetString("curJob") == job)
+            return;
+        var cfg = (JsonObject)_config.Current.DeepClone();
+        cfg["curJob"] = job;
+        _config.Replace(cfg);
     }
 
     /// <summary>
@@ -382,8 +441,8 @@ public sealed class VisionEngine : IAutomation, IDisposable
             if (s.DebugLog)
                 LogPick(info, s, action.Status, d);
         }
-        // 視覺模式還不能偵測職業：沒選職業時技能規則不生效，提醒使用者
-        var status = s.Job.Length == 0 ? action.Status + "（沒選職業：技能規則不生效，請在面板選職業）" : action.Status;
+        // 還沒讀到職業（進野外後才讀角色框）而且沒選職業時技能規則不生效，提醒使用者
+        var status = s.Job.Length == 0 ? action.Status + "（還沒偵測到職業：技能規則不生效，可在面板選職業）" : action.Status;
         Report(status);
         return (true, null);
     }

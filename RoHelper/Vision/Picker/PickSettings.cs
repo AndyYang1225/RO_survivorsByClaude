@@ -28,9 +28,9 @@ public sealed partial record PickSettings(
 {
     public static PickSettings From(ConfigStore c)
     {
-        // 目前職業：面板選「自動」時用上次偵測到的職業（視覺模式不偵測職業，沿用設定裡的 curJob）
+        // 目前職業：面板選「自動」時用上次偵測到的職業（設定裡的 curJob；視覺模式進野外後讀角色框寫入，見 FieldInfoReader）
         var job = c.CurrentJob();
-        // JS 一定偵測得到職業；視覺模式還不能偵測，沒有職業時技能規則不能生效，否則每張新技能都會被當成「清單外」而重抽／放逐
+        // JS 一定偵測得到職業；視覺模式可能還沒讀到（第一次用、OCR 讀不到），沒有職業時技能規則不能生效，否則每張新技能都會被當成「清單外」而重抽／放逐
         var skillOn = job.Length > 0 && c.GetBool("skillOn");
         var skills = skillOn && JobNode(c, "skills", job) is JsonObject o
             ? new SkillCfg(List(o["order"]), List(o["after"]), List(o["ban"]), List(o["focus"]), List(o["skip"]))

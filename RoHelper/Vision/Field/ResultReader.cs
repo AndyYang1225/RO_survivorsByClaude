@@ -79,7 +79,7 @@ public sealed partial class ResultReader(OcrReader ocr, IReadOnlyList<string>? j
             Vote(p);
         foreach (var s in RowScales)
             Vote(await ocr.ReadAsync(f, row, s));
-        if (OcrPrep.RedStretch(f, row, Pad, invert: false) is { } prepRow)
+        if (OcrPrep.RedStretch(f, row, Pad) is { } prepRow)
             Vote(Shift(await ocr.ReadAsync(prepRow, new Rectangle(0, 0, prepRow.Width, prepRow.Height), 3), row));
         for (var i = 0; i < 5; i++)
         {
@@ -87,7 +87,7 @@ public sealed partial class ResultReader(OcrReader ocr, IReadOnlyList<string>? j
             var reads = new List<IReadOnlyList<OcrLine>>();
             foreach (var s in ChipScales)
                 reads.Add(await ocr.ReadAsync(f, c, s));
-            if (OcrPrep.RedStretch(f, c, Pad, invert: false) is { } prep)
+            if (OcrPrep.RedStretch(f, c, Pad) is { } prep)
                 reads.Add(await ocr.ReadAsync(prep, new Rectangle(0, 0, prep.Width, prep.Height), 5));
             foreach (var r in reads)
                 if (Normalize(i, string.Join(" ", r.OrderBy(l => l.Bounds.X).Select(l => l.Text))) is { } v)
