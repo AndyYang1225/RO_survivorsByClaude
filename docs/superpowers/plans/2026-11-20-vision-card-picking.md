@@ -506,7 +506,8 @@ public class CardDeciderTests
     [Fact]
     public void AutoFocus_FirstNonAfterPriority_Once()
     {
-        var picker = Picker(false, Card(0, "冰箭術"), Card(1, "雷爆術"));
+        // 雷爆術是「學到後放逐」：要標成新卡，否則會先被放逐
+        var picker = Picker(false, Card(0, "冰箭術"), Card(1, "雷爆術", isNew: true));
         var settings = Settings(Skills(order: ["雷爆術", "冰箭術"], after: ["雷爆術"]), autoFocus: true, autoFocusN: 1);
         var st = new RunPickState();
 
@@ -1069,7 +1070,7 @@ Expected: 全部通過。只能調常數和判斷細節，**不能改測試的�
 
 - [ ] **Step 6: 執行全部測試並 Commit**
 
-Run: `dotnet test C:\Ro\RoHelper.Tests` → Expected: 107 通過（94 ＋ 13）。
+Run: `dotnet test C:\Ro\RoHelper.Tests` → Expected: 108 通過（94 ＋ 14）。
 
 ```bash
 git add RoHelper/Vision/Picker/CardLayout.cs RoHelper.Tests/CardLayoutTests.cs
@@ -1188,7 +1189,7 @@ Expected: 全部通過。**不能改預期值**。剩餘次數的 OCR 如果怎�
 
 - [ ] **Step 5: 執行全部測試並 Commit**
 
-Run: `dotnet test C:\Ro\RoHelper.Tests` → Expected: 114 通過（107 ＋ 7）。
+Run: `dotnet test C:\Ro\RoHelper.Tests` → Expected: 115 通過（108 ＋ 7）。
 
 ```bash
 git add RoHelper/Vision/Picker/PickerReader.cs RoHelper.Tests/PickerReaderTests.cs
@@ -1312,6 +1313,20 @@ public class PickerFlowTests
     }
 
     [Fact]
+    public void PickKeyIgnored_ButNextPickerAlreadyShown_DecidesAgain()
+    {
+        var flow = new PickerFlow();
+        flow.Waiting(0, 350);
+        flow.Act(Upgrade(Card(0, "火箭術"), Card(1, "雷爆術")), Settings(Mage), 400);
+        flow.Waiting(2000, 350);
+
+        var next = flow.Act(Upgrade(Card(0, "冰箭術"), Card(1, "火焰之壁")), Settings(Mage), 2000);
+
+        Assert.Equal('1', next.Key);
+        Assert.Null(next.Click);
+    }
+
+    [Fact]
     public void PickSkillOff_WaitsForUser()
     {
         var flow = new PickerFlow();
@@ -1409,13 +1424,17 @@ public sealed class PickerFlow
         if (!(p.IsChest ? s.PickChest : s.PickSkill))
             return new("等你選卡");
 
-        // 選卡的數字鍵沒反應（畫面還在）：改點那張卡（同 JS 按鍵後 250 ms 補一次 click）
+        // 選卡的數字鍵沒反應（同一張卡還在原位）：改點那張卡（同 JS 按鍵後 250 ms 補一次 click）。
+        // 要比對卡名：連續升級時下一個選卡畫面可能已經出現（主迴圈間隔長時看不到中間沒有選卡的那一刻），那時不能點舊位置
         if (_pendingPick is { } pending)
         {
             _pendingPick = null;
-            _readyAt = now + Settle;
-            var card = pending.Card;
-            return new($"選卡按鍵沒反應，改點卡片：{pending.Name}", Click: new Point(card.X + card.Width / 2, card.Y + card.Height / 2));
+            if (pending.Index < p.Cards.Count && p.Cards[pending.Index].Name == pending.Name)
+            {
+                _readyAt = now + Settle;
+                var card = pending.Card;
+                return new($"選卡按鍵沒反應，改點卡片：{pending.Name}", Click: new Point(card.X + card.Width / 2, card.Y + card.Height / 2));
+            }
         }
 
         var d = CardDecider.Decide(p, s, State);
@@ -1456,7 +1475,7 @@ public sealed class PickerFlow
 - [ ] **Step 4: 執行全部測試**
 
 Run: `dotnet test C:\Ro\RoHelper.Tests`
-Expected: 123 通過（114 ＋ 9）。
+Expected: 125 通過（115 ＋ 10）。
 
 - [ ] **Step 5: Commit**
 
@@ -1627,7 +1646,7 @@ git commit -m "feat: 選卡流程（等待、動作、每局狀態）"
 - [ ] **Step 5: 建置、測試、檢查沒有碰網頁**
 
 Run: `dotnet build C:\Ro\RoHelper\RoHelper.csproj` → Expected: 0 個錯誤、0 個警告
-Run: `dotnet test C:\Ro\RoHelper.Tests` → Expected: 124 通過
+Run: `dotnet test C:\Ro\RoHelper.Tests` → Expected: 126 通過
 Run（在 `C:\Ro\RoHelper`）: `grep -rn '"Runtime\.\|"DOM\.\|ExecuteScript\|AddScriptToExecute\|PostWebMessage\|WebMessageReceived' Vision/` → Expected: 沒有輸出
 
 - [ ] **Step 6: Commit**
@@ -1654,6 +1673,7 @@ git commit -m "feat: 視覺模式自動選卡，除錯視窗加讀選卡"
 4. 撿到寶箱：面板顯示「［視覺］選寶箱卡：…」。
 5. 任何一次選得跟預期不同：在選卡畫面暫停（F8），開「視覺除錯」→「截一張」→「讀選卡」，把記錄欄貼回來；也可以看 `%AppData%\RoHelper\picklog.json`。
 6. 記下「讀選卡」顯示的耗時。
+7. 主迴圈間隔（面板「其他 → 時間」）目前是 1500 ms，建議改回 250，選卡和大廳流程的反應會快很多。
 
 - [ ] **Step 2: 更新 README**
 
@@ -1681,4 +1701,4 @@ git commit -m "docs: 視覺模式選卡的說明與實機結果"
 - **涵蓋範圍**：路線表第 3 階段「選卡（OCR ＋ decide() 移植）」——讀卡（Task 4、5）、決策（Task 3）、流程與每局狀態（Task 6）、接進引擎（Task 7）。使用者決定的「先跳過尋寶率」「不做累積升級按 B」寫進 Global Constraints，並在 `PickSettings`／`CardDecider` 的 summary 說明原因。
 - **型別一致性**：`ActButton`／`CardInfo`／`PickerInfo`／`PickDecision`／`RunPickState`（Task 1）在 Task 3～7 使用；`PickSettings` 欄位順序在 Task 2 定義，Task 3、6 的測試用同樣的位置參數（24 個）建構；`CardLayout.FindCards` 在 Task 5、7 使用；`FlowDecision.StartsRun` 在 Task 7 加入，既有呼叫端用具名參數不受影響。
 - **刻意留給實作者的部分**：Task 4 的顏色／亮度常數和 Task 5 的 OCR 細節，因為要對真實截圖校正；預期結果已經完整寫成測試（真實畫面上的事實），實作者只能調判斷方式，不能改預期值。
-- **測試數量**：計畫 2 結束 66；Task 1：＋3＝69；Task 2：＋4＝73；Task 3：＋21＝94；Task 4：＋13＝107（Theory 展開：FindCards 3＋1、ReadBadge 3、HasNewRibbon 3、FindButtons 4… 實際以 xUnit 計數為準）；Task 5：＋7；Task 6：＋9；Task 7：＋1。各 Task 的「預期通過數」以前一個 Task 的實際數字＋本 Task 新增數為準。
+- **測試數量**：計畫 2 結束 66；Task 1：＋3＝69；Task 2：＋4＝73；Task 3：＋21＝94；Task 4：＋14＝108（FindCards 3＋1、ReadBadge 3、HasNewRibbon 3、FindButtons 4）；Task 5：＋7＝115；Task 6：＋10＝125；Task 7：＋1＝126。各 Task 的「預期通過數」以前一個 Task 的實際數字＋本 Task 新增數為準。
