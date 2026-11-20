@@ -8,7 +8,7 @@ namespace RoHelper.Forms;
 /// <summary>
 /// 控制面板（獨立視窗，可以跟遊戲分開擺、單獨最小化）。
 /// 介面不是寫死的：遊戲頁面載入後，JS 引擎送來規則清單（<see cref="EngineSchema"/>），面板照著產生分頁和控制項。
-/// 資料流向是單向循環：使用者操作 → <see cref="EngineBridge.SendPatch"/> → JS 改 cfg → 回傳整份 cfg →
+/// 資料流向是單向循環：使用者操作 → <see cref="IAutomation.SendPatch"/> → 引擎改 cfg → 存回 ConfigStore →
 /// <see cref="ConfigStore.Changed"/> → <see cref="ApplyConfig"/> 把畫面對齊設定。
 /// 刻意不在操作當下直接改畫面以外的狀態：所有顯示都以 JS 回傳的設定為準，兩邊才不會不同步。
 /// 檔案拆分：本檔＝骨架與共用；Rules＝一般規則；Lists＝技能／神祇／道具；Other＝其他分頁。
@@ -18,7 +18,7 @@ public sealed partial class PanelForm : Form
     private readonly ConfigStore _config;
     private readonly LogStore _log;
     private readonly RunStore _runs;
-    private readonly EngineBridge _bridge;
+    private readonly IAutomation _automation;
     private readonly AppSettings _settings;
 
     private readonly CheckBox _pauseBox = new() { Text = "暫停 (F8)", AutoSize = true };
@@ -36,12 +36,12 @@ public sealed partial class PanelForm : Form
     /// </summary>
     private bool _applying;
 
-    public PanelForm(ConfigStore config, LogStore log, RunStore runs, EngineBridge bridge, AppSettings settings)
+    public PanelForm(ConfigStore config, LogStore log, RunStore runs, IAutomation automation, AppSettings settings)
     {
         _config = config;
         _log = log;
         _runs = runs;
-        _bridge = bridge;
+        _automation = automation;
         _settings = settings;
 
         Text = "RO 小幫手 面板";
@@ -62,8 +62,8 @@ public sealed partial class PanelForm : Form
         _config.Changed += ApplyConfig;
         _log.Changed += UpdateLogCount;
         _runs.Changed += UpdateRunsCount;
-        _bridge.SchemaReceived += OnSchema;
-        _bridge.StatusReceived += ShowStatus;
+        _automation.SchemaReceived += OnSchema;
+        _automation.StatusReceived += ShowStatus;
     }
 
     /// <summary>內容區寬度（扣掉捲軸），換行用</summary>
@@ -73,6 +73,9 @@ public sealed partial class PanelForm : Form
     private const float FontSize = 11f;
 
     private int S(int logical) => LogicalToDeviceUnits((int)Math.Round(logical * FontSize / 9f));
+
+    /// <summary>暫停／繼續（F8）。遊戲視窗攔到 F8 時也呼叫這裡，兩個視窗的行為一致</summary>
+    public void TogglePause() => Send("paused", !_config.GetBool("paused"));
 
     public void SaveWindowState()
     {
@@ -99,7 +102,7 @@ public sealed partial class PanelForm : Form
         switch (e.KeyCode)
         {
             case Keys.F8:
-                Send("paused", !_config.GetBool("paused"));
+                TogglePause();
                 e.Handled = true;
                 break;
             case Keys.F9:
@@ -232,14 +235,14 @@ public sealed partial class PanelForm : Form
     {
         if (_applying)
             return;
-        _bridge.SendPatch(new JsonObject { [key] = value });
+        _automation.SendPatch(new JsonObject { [key] = value });
     }
 
     private void Send(JsonObject patch)
     {
         if (_applying)
             return;
-        _bridge.SendPatch(patch);
+        _automation.SendPatch(patch);
     }
 
     private FlowLayoutPanel NewPage() => new()

@@ -124,8 +124,8 @@ public sealed partial class PanelForm
             return;
         }
 
-        if (_bridge.Schema is not null)
-            _bridge.SendReplace(cfg);
+        if (_automation.Schema is not null)
+            _automation.SendReplace(cfg);
         else
             _config.Replace(cfg);
         MessageBox.Show(this, "已匯入", Text);

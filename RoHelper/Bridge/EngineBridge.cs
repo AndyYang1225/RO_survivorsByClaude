@@ -14,7 +14,7 @@ namespace RoHelper.Bridge;
 /// 送：init（頁面載入後帶入存檔設定）、set（面板改了部分設定）、replace（匯入整份設定）。
 /// 只接受遊戲網域送來的訊息：使用者在遊戲視窗裡點到別的網站時，那邊的頁面不能冒充引擎改設定。
 /// </summary>
-public sealed class EngineBridge
+public sealed class EngineBridge : IAutomation
 {
     private readonly ConfigStore _config;
     private readonly LogStore _log;
