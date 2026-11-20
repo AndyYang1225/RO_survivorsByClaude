@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using RoHelper.DevApi;
 using RoHelper.Storage;
 using RoHelper.Vision;
+using RoHelper.Vision.Field;
 using RoHelper.Vision.Picker;
 
 namespace RoHelper.Forms;
@@ -138,6 +139,46 @@ public sealed class DevApiHost(Control ui, VisionKit kit, VisionEngine engine, P
         };
     });
 
+    public Task<JsonObject> FieldAsync() => OnUi(async () =>
+    {
+        var frame = await kit.Grabber.CaptureAsync();
+        var dpr = kit.Viewport.Dpr;
+        var mm = MinimapReader.Read(frame, dpr);
+        // 只預覽：用一個新的走位決策（沒有上次移動時間、卡住紀錄），不動引擎的走位狀態，也不點
+        var d = new FieldPlanner(Random.Shared.NextDouble).Step(mm, FieldSettings.From(config), Environment.TickCount64);
+        return new JsonObject
+        {
+            ["width"] = frame.Width,
+            ["height"] = frame.Height,
+            ["dpr"] = dpr,
+            ["inField"] = engine.InField,
+            ["minimap"] = mm is null ? null : new JsonObject
+            {
+                ["area"] = Rect(MinimapReader.Area(frame, dpr)),
+                ["map"] = new JsonObject
+                {
+                    ["x"] = Math.Round(mm.Map.X, 1),
+                    ["y"] = Math.Round(mm.Map.Y, 1),
+                    ["w"] = Math.Round(mm.Map.Width, 1),
+                    ["h"] = Math.Round(mm.Map.Height, 1),
+                },
+                ["me"] = Blob(mm.Me),
+                ["magnets"] = Blobs(mm.Magnets),
+                ["chests"] = Blobs(mm.Chests),
+                ["loot"] = Blobs(mm.Loot),
+                ["bosses"] = Blobs(mm.Bosses),
+            },
+            ["preview"] = new JsonObject
+            {
+                ["status"] = d.Status,
+                // 世界畫面比例換成截圖像素（同引擎）
+                ["click"] = d.Click is { } c
+                    ? new JsonObject { ["x"] = (int)Math.Round(c.X * frame.Width), ["y"] = (int)Math.Round(c.Y * frame.Height) }
+                    : null,
+            },
+        };
+    });
+
     public Task ClickAsync(int x, int y) => OnUi(async () =>
     {
         var (cx, cy) = kit.Viewport.ToCss(x, y);
@@ -226,6 +267,15 @@ public sealed class DevApiHost(Control ui, VisionKit kit, VisionEngine engine, P
 
     private static JsonObject? Rect(Rectangle? r)
         => r is { } v ? new JsonObject { ["x"] = v.X, ["y"] = v.Y, ["w"] = v.Width, ["h"] = v.Height } : null;
+
+    private static JsonNode? Blob(MinimapBlob b) => new JsonObject
+    {
+        ["x"] = Math.Round(b.X, 1),
+        ["y"] = Math.Round(b.Y, 1),
+        ["n"] = b.N,
+    };
+
+    private static JsonArray Blobs(IEnumerable<MinimapBlob> items) => new(items.Select(Blob).ToArray());
 
     private static JsonNode? Button(ActButton b) => new JsonObject
     {

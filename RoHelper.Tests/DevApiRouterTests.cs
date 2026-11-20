@@ -98,6 +98,15 @@ public class DevApiRouterTests
     }
 
     [Fact]
+    public async Task Field_Get()
+    {
+        Assert.Equal(200, (await Call("GET", "/field")).Status);
+        Assert.Equal("Field()", Assert.Single(_host.Calls));
+        Assert.Equal(405, (await Call("POST", "/field")).Status);
+        Assert.Single(_host.Calls);
+    }
+
+    [Fact]
     public async Task Shot_Name()
     {
         Assert.Equal(200, (await Call("GET", "/shot")).Status);
@@ -168,6 +177,7 @@ internal sealed class FakeDevApiHost : IDevApiHost
     public Task<JsonObject> ShotAsync(string? name) => Record($"Shot({name})");
     public Task<JsonObject> ScreenAsync() => Record("Screen()");
     public Task<JsonObject> PickerAsync() => Record("Picker()");
+    public Task<JsonObject> FieldAsync() => Record("Field()");
     public Task ClickAsync(int x, int y) => Record($"Click({x},{y})");
     public Task KeyAsync(char key) => Record($"Key({key})");
     public Task SetPausedAsync(bool paused) => Record($"Paused({paused})");

@@ -72,6 +72,7 @@ exe 啟動時會到 Gist 抓 `ro_engine.js`，比目前新就換上（也可以�
 | `GET /shot?name=xxx` | 截一張存到 `shots\api\`，回路徑 |
 | `GET /screen` | 每個大廳範本的最佳位置、分數、門檻 |
 | `GET /picker` | 讀選卡畫面＋現在設定下會怎麼選（只預覽） |
+| `GET /field` | 讀小地圖（自己、磁鐵、寶箱、掉落物、王）＋現在設定下會怎麼走（只預覽） |
 | `POST /click?x=&y=`、`POST /key?k=1` | 點擊（截圖像素座標）、按鍵 |
 | `POST /pause`、`POST /resume` | 暫停、繼續 |
 | `POST /templates/reload` | 重新讀範本 |
