@@ -1,0 +1,97 @@
+using System.Drawing.Imaging;
+using System.Text.Json;
+
+using RoHelper.Storage;
+
+namespace RoHelper.Vision;
+
+/// <summary>一個範本：圖片、搜尋範圍（佔截圖的比例 0～1）、門檻、截圖當下的 dpr</summary>
+public sealed record TemplateInfo(string Name, Frame Image, RectangleF Region, double Threshold, double Dpr);
+
+/// <summary>
+/// 範本庫：資料夾裡每個範本是「名稱.png」＋「名稱.json」。JSON 壞掉或不存在時用預設值（整張截圖、門檻 0.9、dpr 1），不讓單一範本擋住其他範本。
+/// 為什麼要記 dpr：遊戲的按鈕和文字是固定 CSS 大小，Windows 顯示縮放（100%／125%／150%）改了，截圖上的像素大小就跟著變；
+/// 比對前依「目前 dpr ÷ 截圖當下的 dpr」縮放範本，換一台電腦或改了縮放，範本照樣能用。
+/// 搜尋範圍用比例而不是像素：視窗大小會變，比例是比較穩定的近似值，實際值由計畫 2 起依各個按鈕校正。
+/// </summary>
+public sealed class TemplateLibrary
+{
+    public const double DefaultThreshold = 0.9;
+
+    private readonly string _dir;
+    private readonly Dictionary<string, TemplateInfo> _items = new(StringComparer.OrdinalIgnoreCase);
+
+    public TemplateLibrary(string dir)
+    {
+        _dir = dir;
+        Reload();
+    }
+
+    public IReadOnlyCollection<string> Names => _items.Keys;
+
+    public TemplateInfo? Get(string name) => _items.GetValueOrDefault(name);
+
+    public void Reload()
+    {
+        _items.Clear();
+        if (!Directory.Exists(_dir))
+            return;
+        foreach (var png in Directory.EnumerateFiles(_dir, "*.png"))
+        {
+            var name = Path.GetFileNameWithoutExtension(png);
+            // 刻意先讀成 byte[] 再建 Bitmap：new Bitmap(path) 會鎖住檔案，之後就不能用同一個名稱覆蓋存檔
+            using var ms = new MemoryStream(File.ReadAllBytes(png));
+            using var bmp = new Bitmap(ms);
+            var meta = ReadMeta(Path.ChangeExtension(png, ".json"));
+            _items[name] = new TemplateInfo(name, Frame.FromBitmap(bmp), new RectangleF(meta.X, meta.Y, meta.W, meta.H), meta.Threshold, meta.Dpr);
+        }
+    }
+
+    public void Save(string name, Frame image, RectangleF region, double threshold, double dpr)
+    {
+        if (name.Length == 0 || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            throw new ArgumentException("範本名稱不能是空的，也不能有 \\ / : * ? \" < > | 這些字元", nameof(name));
+        Directory.CreateDirectory(_dir);
+        using (var bmp = image.ToBitmap())
+            bmp.Save(Path.Combine(_dir, name + ".png"), ImageFormat.Png);
+        var meta = new TemplateMeta(region.X, region.Y, region.Width, region.Height, threshold, dpr);
+        JsonFile.WriteText(Path.Combine(_dir, name + ".json"), JsonSerializer.Serialize(meta, JsonFile.Options));
+        _items[name] = new TemplateInfo(name, image, region, threshold, dpr);
+    }
+
+    /// <summary>找最像的位置，不管分數有沒有過門檻（除錯視窗要顯示分數）。範本不存在或比搜尋範圍大時回 null</summary>
+    public MatchResult? Match(Frame frame, string name, double dpr)
+    {
+        if (Get(name) is not { } t)
+            return null;
+        var image = Math.Abs(dpr - t.Dpr) < 0.01 ? t.Image : t.Image.Resize(dpr / t.Dpr);
+        var region = new Rectangle(
+            (int)(t.Region.X * frame.Width),
+            (int)(t.Region.Y * frame.Height),
+            (int)Math.Ceiling(t.Region.Width * frame.Width),
+            (int)Math.Ceiling(t.Region.Height * frame.Height));
+        return TemplateMatcher.Find(frame, image, region);
+    }
+
+    /// <summary>找範本，分數達到門檻才算找到</summary>
+    public MatchResult? Find(Frame frame, string name, double dpr)
+        => Match(frame, name, dpr) is { } m && m.Score >= Get(name)!.Threshold ? m : null;
+
+    private static TemplateMeta ReadMeta(string path)
+    {
+        try
+        {
+            return JsonFile.Read(path)?.Deserialize<TemplateMeta>(JsonFile.Options) ?? TemplateMeta.Default;
+        }
+        catch (JsonException)
+        {
+            return TemplateMeta.Default;
+        }
+    }
+
+    /// <summary>範本的 JSON 設定（X、Y、W、H 是佔截圖的比例）。用 internal 不用 private：保險起見讓 System.Text.Json 一定能用反射建構</summary>
+    internal sealed record TemplateMeta(float X, float Y, float W, float H, double Threshold, double Dpr)
+    {
+        public static TemplateMeta Default { get; } = new(0, 0, 1, 1, DefaultThreshold, 1.0);
+    }
+}
