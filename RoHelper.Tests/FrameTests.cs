@@ -60,6 +60,16 @@ public class FrameTests
     }
 
     [Fact]
+    public void Half_IsHalfSize_AndCached()
+    {
+        var f = TestFrames.Pattern();
+
+        Assert.Equal(100, f.Half.Width);
+        Assert.Equal(50, f.Half.Height);
+        Assert.Same(f.Half, f.Half);
+    }
+
+    [Fact]
     public void ViewportMapper_DividesByDpr()
     {
         var m = new ViewportMapper(1.25);
