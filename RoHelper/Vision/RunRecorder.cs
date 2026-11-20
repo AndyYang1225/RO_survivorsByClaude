@@ -16,7 +16,7 @@ namespace RoHelper.Vision;
 /// - 刻意沒有 diff、loot、cards、serverLoot、got、treasure、deity、items：遠征難度、戰利品圖示（要認圖）、撿到幾個、尋寶率、道具欄都還沒讀。
 /// - result／exp／dps／dpsTotal 來自 <see cref="ResultReader"/> 的 OCR（dps 每一筆只有 text，沒有 JS 的 key、name：那兩個是網頁屬性）。
 /// - 只記小幫手自己的選卡動作：JS 另外記使用者自己點的卡（manual: true，靠網頁的 isTrusted 點擊事件），視覺模式分不出來。
-/// - mode 一律 "event"：視覺模式只跑活動（前往野外），不跑遠征。
+/// - mode 是 "event"（活動）或 "expe"（自動遠征按的前往野外）。
 /// 純邏輯：時間由呼叫端傳入，不截圖、不寫檔。
 /// </summary>
 public sealed class RunRecorder
@@ -29,8 +29,8 @@ public sealed class RunRecorder
     /// <summary>這一局正在記錄（Start 之後、Finish 之前）</summary>
     public bool Active => _rec is not null;
 
-    /// <summary>新的一局（按了「前往野外」）：同 JS recStart。上一局沒結算就開新局時，上一局直接丟掉（同 JS 覆蓋 st.rec）</summary>
-    public void Start(DateTime now, string job, bool paused)
+    /// <summary>新的一局（按了「前往野外」）：同 JS recStart，mode＝event（活動）或 expe（遠征）。上一局沒結算就開新局時，上一局直接丟掉（同 JS 覆蓋 st.rec）</summary>
+    public void Start(DateTime now, string job, bool paused, string mode = "event")
     {
         _start = now;
         _picks.Clear();
@@ -41,7 +41,7 @@ public sealed class RunRecorder
             ["start"] = Iso(now),
             ["stage"] = "",
             ["job"] = job,
-            ["mode"] = "event",
+            ["mode"] = mode,
             ["autoAtStart"] = !paused,
             ["pausedAny"] = paused,
         };

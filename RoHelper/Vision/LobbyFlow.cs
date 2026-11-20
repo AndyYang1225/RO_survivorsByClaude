@@ -2,28 +2,42 @@ using RoHelper.Storage;
 
 namespace RoHelper.Vision;
 
-/// <summary>大廳流程用到的設定（每一輪從 cfg 讀一次的快照）。時間都是毫秒</summary>
+/// <summary>
+/// 大廳流程用到的設定（每一輪從 cfg 讀一次的快照）。時間都是毫秒。
+/// 遠征（autoExpe 底下）：expeTalk（① 走到遠征隊長並交談）、expePick／expeStage（② 選地圖）、expeGo（③ 按出發）、
+/// expeDiff（難度：keep 維持遊戲設定／max 全部拉滿／min 全部最低）、expeEnter（④ 按前往野外）。
+/// 遠征的開關沒設定時同 schema 的預設（勾選、地圖斐揚洞穴、難度 keep）。新加的欄位放在最後並給預設值，既有的呼叫端不用改。
+/// </summary>
 public sealed record FlowSettings(
     bool Paused, bool SoloLobby, bool AutoEvent, bool AutoExpe, bool AutoReturn,
-    bool RunLimit, int RunLimitN, int Runs, int TStart, int TReturn, int TLobby)
+    bool RunLimit, int RunLimitN, int Runs, int TStart, int TReturn, int TLobby,
+    bool ExpeTalk = true, bool ExpePick = true, string ExpeStage = "斐揚洞穴", bool ExpeGo = true, string ExpeDiff = "keep", bool ExpeEnter = true)
 {
     public static FlowSettings From(ConfigStore c) => new(
         c.GetBool("paused"), c.GetBool("soloLobby"), c.GetBool("autoEvent"), c.GetBool("autoExpe"), c.GetBool("autoReturn"),
         c.GetBool("runLimit"), c.GetInt("runLimitN", 10), c.GetInt("runs"),
-        c.GetInt("tStartN", 800), c.GetInt("tReturnN", 1500), c.GetInt("tLobbyN", 700));
+        c.GetInt("tStartN", 800), c.GetInt("tReturnN", 1500), c.GetInt("tLobbyN", 700),
+        c.Current["expeTalk"] is null || c.GetBool("expeTalk"),
+        c.Current["expePick"] is null || c.GetBool("expePick"),
+        c.GetString("expeStage", "斐揚洞穴"),
+        c.Current["expeGo"] is null || c.GetBool("expeGo"),
+        c.GetString("expeDiff", "keep"),
+        c.Current["expeEnter"] is null || c.GetBool("expeEnter"));
 }
 
 /// <summary>
 /// 這一輪的決定：顯示在面板上的動作文字、要點的位置（截圖像素，null＝不點）、要不要把局數 +1。
-/// StartsRun＝這一輪按了活動的「前往野外」，新的一局開始（選卡要清掉上一局的狀態）
+/// StartsRun＝這一輪按了「前往野外」，新的一局開始（選卡要清掉上一局的狀態）；Expe＝這一局是遠征（對局紀錄的 mode）。
+/// WheelAt／WheelDelta＝在這個位置捲動滑鼠滾輪（遠征清單找地圖；deltaY 正＝往下）。
 /// </summary>
-public sealed record FlowDecision(string Action, Point? Click = null, bool CountRun = false, bool StartsRun = false);
+public sealed record FlowDecision(string Action, Point? Click = null, bool CountRun = false, bool StartsRun = false,
+    bool Expe = false, Point? WheelAt = null, double WheelDelta = 0);
 
 /// <summary>
 /// 大廳流程（視覺模式）：選單人大廳 → 走到節慶主持人 → 交談 → 開始遊戲 → 前往野外；結算時記一局並返回角色。
+/// 自動遠征：走到遠征隊長 → 交談 → 遠征視窗選地圖、出發 → 難度對話框 → 前往野外（遠征視窗與難度對話框見 <see cref="ExpeditionFlow"/>）。
 /// 判斷順序和等待時間照 engine.js 的 step()／lobbyStep()，差別只在「看到什麼」改由截圖辨識（<see cref="ScreenState"/>）提供。
 /// 純邏輯：不截圖、不點擊、時間由呼叫端傳入，所以可以單元測試；實際截圖和點擊由 VisionEngine 負責。
-/// 刻意不處理遠征（要用 OCR 選地圖、調難度滑桿），之後另寫計畫。
 /// </summary>
 public sealed class LobbyFlow
 {
@@ -72,6 +86,7 @@ public sealed class LobbyFlow
     private long? _talkedAt;
     private long _festAt = long.MinValue / 2;
     private long _lastWalk = long.MinValue / 2;
+    private readonly ExpeditionFlow _expe = new();
 
     /// <summary>
     /// 只清等待中的計時（_soloAt／_discardAt／_titleAt／_charSelectAt／_startAt／_talkedAt／_lastWalk），改了設定或暫停後重新開始等待（同 JS：set 只重設 npcDone／npcTalked）。
@@ -82,16 +97,19 @@ public sealed class LobbyFlow
     {
         _soloAt = _discardAt = _titleAt = _charSelectAt = _startAt = _talkedAt = null;
         _lastWalk = long.MinValue / 2;
+        _expe.Reset();
     }
 
-    public FlowDecision Decide(ScreenState s, FlowSettings c, long now)
+    /// <summary>stages＝遠征視窗 OCR 到的內容（沒開遠征視窗、沒有繁中 OCR 時是 null）</summary>
+    public FlowDecision Decide(ScreenState s, FlowSettings c, long now, StageListView? stages = null)
     {
         if (c.Paused)
             return new("已暫停");
 
         // 看到結算以外的大廳畫面＝上一次結算已經結束，之後再看到「返回角色」就是新的一局
         if (s.Solo is not null || s.Start is not null || s.GoField is not null || s.FestivalHost is not null || s.TalkPrompt is not null
-            || s.Title is not null || s.CharSelect is not null || s.Discard is not null || s.DiscardOk is not null)
+            || s.Title is not null || s.CharSelect is not null || s.Discard is not null || s.DiscardOk is not null
+            || s.ExpeLeader is not null || s.LeaderPrompt is not null || s.StageList is not null || s.DiffTitle is not null)
             _returnAt = null;
 
         // 步驟 0：遊戲 0.7.8 起，被中斷的局再上線會先跳「未完成的一局（捨棄／繼續）」，按捨棄後再跳「已捨棄本局（OK）」，兩個都會擋住大廳。
@@ -183,31 +201,37 @@ public sealed class LobbyFlow
             return new(action, Center(b), StartsRun: !isStart);
         }
         _startAt = null;
+        // 遠征的難度對話框（同 JS：前往野外跟活動的開始遊戲在同一步）
+        if (c.AutoExpe && _expe.Difficulty(s, c, limit, now) is { } diff)
+            return diff;
         if (limit && (s.GoField is not null || s.Start is not null))
             return new("已達局數上限，停止自動開始");
 
-        // 步驟 4：大廳 → 有交談提示就按；否則看得到節慶主持人就往那邊走
-        if (c.AutoExpe)
-            return new("視覺模式還不支援遠征");
-        if (!c.AutoEvent)
+        // 步驟 4：遠征視窗（同 JS lobbyStep 先做 stageStep）
+        if (c.AutoExpe && _expe.Stage(s, stages, c, limit, now) is { } stage)
+            return stage;
+
+        // 步驟 5：大廳 → 有交談提示就按；否則看得到 NPC 就往那邊走（遠征：遠征隊長；活動：節慶主持人，同 JS lobbyStep 的 target）
+        var (name, talk, npc) = c.AutoExpe ? ("遠征隊長", s.LeaderPrompt, s.ExpeLeader) : ("節慶主持人", s.TalkPrompt, s.FestivalHost);
+        if (c.AutoExpe ? !c.ExpeTalk : !c.AutoEvent)
             return new("待機");
         if (limit)
             return new("已達局數上限");
-        if (s.TalkPrompt is { } prompt)
+        if (talk is { } prompt)
         {
             if (_talkedAt is { } t && now - t < TalkRetry)
-                return new("和節慶主持人交談");
+                return new("和" + name + "交談");
             _talkedAt = now;
-            return new("和節慶主持人交談", Center(prompt));
+            return new("和" + name + "交談", Center(prompt));
         }
         if (_talkedAt is { } talked && now - talked < TalkRetry)
             return new("等待對話框");
-        if (s.FestivalHost is { } host)
+        if (npc is { } host)
         {
             if (now - _lastWalk < c.TLobby)
-                return new("走向節慶主持人");
+                return new("走向" + name);
             _lastWalk = now;
-            return new("走向節慶主持人", WalkTarget(s, host));
+            return new("走向" + name, WalkTarget(s, host));
         }
         return new(s.Missing.Count > 0 ? "缺少範本：" + string.Join("、", s.Missing) : "待機");
     }

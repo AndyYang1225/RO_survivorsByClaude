@@ -27,6 +27,25 @@ public class FieldGateTests
     }
 
     [Fact]
+    public void ExpeditionLobby_TwoFrames_Leaves()
+    {
+        var gate = new FieldGate();
+        gate.Enter(0);
+
+        gate.Update(Screen() with { ExpeLeader = Btn }, new FlowDecision("走向遠征隊長"), 1000);
+        Assert.True(gate.InField);
+        gate.Update(Screen() with { StageList = Btn }, new FlowDecision("② 選擇地圖：斐揚森林"), 1250);
+        Assert.False(gate.InField);
+    }
+
+    [Fact]
+    public void ExpeditionDialogs_AreLobbyVisible()
+    {
+        Assert.True(FieldGate.LobbyVisible(Screen() with { DiffTitle = Btn }));
+        Assert.True(FieldGate.LobbyVisible(Screen() with { LeaderPrompt = Btn }));
+    }
+
+    [Fact]
     public void FieldScreen_StaysInside()
     {
         var gate = new FieldGate();

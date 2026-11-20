@@ -63,7 +63,7 @@ public sealed class DevApiHost(Control ui, VisionKit kit, VisionEngine engine, P
         var frame = await kit.Grabber.CaptureAsync();
         var dpr = kit.Viewport.Dpr;
         var templates = new JsonObject();
-        foreach (var name in ScreenTemplates.All)
+        foreach (var name in ScreenTemplates.All.Concat(ScreenTemplates.Expedition))
         {
             if (kit.Templates.Get(name) is not { } t)
             {
@@ -80,8 +80,11 @@ public sealed class DevApiHost(Control ui, VisionKit kit, VisionEngine engine, P
                 ["found"] = m is { } f && f.Score >= t.Threshold,
             };
         }
-        // lobby: true＝連 NPC 名字和交談提示也找（跟開了活動時的引擎一樣）
-        var s = new ScreenReader(kit.Templates).Read(frame, dpr, lobby: true);
+        // lobby、expe: true＝連 NPC 名字和交談提示、遠征的範本也找（跟開了活動或遠征時的引擎一樣）
+        var s = new ScreenReader(kit.Templates).Read(frame, dpr, lobby: true, expe: true);
+        // 遠征視窗開著時 OCR 地圖清單（跟引擎一樣），沒開或沒有 OCR 是 null
+        var stages = s.StageList is { } list && kit.Ocr is not null
+            ? await new ExpeditionReader(kit.Ocr, engine.Schema.Stages).ReadAsync(frame, dpr, list) : null;
         return new JsonObject
         {
             ["width"] = frame.Width,
@@ -100,7 +103,20 @@ public sealed class DevApiHost(Control ui, VisionKit kit, VisionEngine engine, P
                 [ScreenTemplates.DiscardOk] = Rect(s.DiscardOk),
                 [ScreenTemplates.Title] = Rect(s.Title),
                 [ScreenTemplates.CharSelect] = Rect(s.CharSelect),
+                [ScreenTemplates.ExpeLeader] = Rect(s.ExpeLeader),
+                [ScreenTemplates.LeaderPrompt] = Rect(s.LeaderPrompt),
+                [ScreenTemplates.StageList] = Rect(s.StageList),
+                [ScreenTemplates.ExpeGo] = Rect(s.ExpeGo),
+                [ScreenTemplates.DiffTitle] = Rect(s.DiffTitle),
+                ["難度前往野外"] = Rect(s.DiffGo),
                 ["missing"] = Strings(s.Missing),
+            },
+            // 遠征清單：cards＝清單上認得的地圖（由上到下）、selected＝右邊詳細資料的地名、list＝清單範圍
+            ["stages"] = stages is null ? null : new JsonObject
+            {
+                ["cards"] = new JsonArray(stages.Cards.Select(c => (JsonNode?)new JsonObject { ["stage"] = c.Stage, ["bounds"] = Rect(c.Bounds) }).ToArray()),
+                ["selected"] = stages.Selected,
+                ["list"] = Rect(stages.List),
             },
         };
     });

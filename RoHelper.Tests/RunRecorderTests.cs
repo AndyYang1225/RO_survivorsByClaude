@@ -89,6 +89,15 @@ public class RunRecorderTests
     }
 
     [Fact]
+    public void Start_Expedition_ModeExpe()
+    {
+        var rec = new RunRecorder();
+        rec.Start(T0, "", paused: false, "expe");
+
+        Assert.Equal("expe", (string?)rec.Finish(null, T0)!["mode"]);
+    }
+
+    [Fact]
     public void Start_Again_DropsUnfinishedRun()
     {
         var rec = new RunRecorder();

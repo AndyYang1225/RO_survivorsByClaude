@@ -91,6 +91,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
     private PickerReader? _pickerReader;
     private ResultReader? _resultReader;
     private FieldInfoReader? _infoReader;
+    private ExpeditionReader? _expeReader;
 
     /// <summary>讀地名與職業失敗時多久再試一次、每局最多試幾次（讀不到的職業、被擋住的角色框不要整局一直花時間 OCR）</summary>
     private const long InfoEvery = 3000;
@@ -158,6 +159,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
         var jobs = Schema.JobSkills.Select(j => j.Key).ToList();
         _resultReader = kit.Ocr is null ? null : new ResultReader(kit.Ocr, jobs);
         _infoReader = kit.Ocr is null ? null : new FieldInfoReader(kit.Ocr, jobs, Schema.Stages);
+        _expeReader = kit.Ocr is null ? null : new ExpeditionReader(kit.Ocr, Schema.Stages);
         _config.Replace(ConfigDefaults.Apply(ConfigDefaults.Build(Schema), _config.Current, Schema, reset: false));
         SchemaReceived?.Invoke(Schema);
         _timer.Interval = TickMs();
@@ -227,13 +229,16 @@ public sealed class VisionEngine : IAutomation, IDisposable
             var full = !_gate.InField || _lobbySeen || readAt - _fullReadAt >= FullReadEvery;
             if (full)
                 _fullReadAt = readAt;
-            var screen = _reader.Read(frame, dpr, lobby: settings.AutoEvent, inField: !full);
+            var screen = _reader.Read(frame, dpr, lobby: settings.AutoEvent, inField: !full, expe: settings.AutoExpe);
             // 返回角色不算：只找返回角色的那幾輪也找得到它，不必為了它改成每輪完整辨識
             _lobbySeen = full && FieldGate.LobbyVisible(screen with { Return = null });
 
             // 步驟 3：決定並執行（點擊座標是截圖像素，換成網頁 CSS 座標再送）
             var now = Environment.TickCount64;
-            var decision = _flow.Decide(screen, settings, now);
+            // 自動遠征：遠征視窗開著時 OCR 地圖清單（選地圖用）
+            var stages = settings.AutoExpe && screen.StageList is { } list && _expeReader is not null
+                ? await _expeReader.ReadAsync(frame, dpr, list) : null;
+            var decision = _flow.Decide(screen, settings, now, stages);
             // 結算：先讀結算畫面再記錄（同一輪；第一次確認結算的這一輪不會按返回角色，要等 tReturn，結算畫面還在）
             if (decision.CountRun)
                 await CountRunAsync(frame, dpr);
@@ -241,13 +246,18 @@ public sealed class VisionEngine : IAutomation, IDisposable
             {
                 _picker.NewRun();
                 NewFieldRun();
-                _recorder.Start(DateTime.Now, PickSettings.From(_config).Job, paused: false);
+                _recorder.Start(DateTime.Now, PickSettings.From(_config).Job, paused: false, decision.Expe ? "expe" : "event");
             }
             _gate.Update(screen, decision, now);
             if (decision.Click is { } p)
             {
                 var (x, y) = _kit.Viewport.ToCss(p.X, p.Y);
                 await _kit.Input.ClickAsync(x, y);
+            }
+            if (decision.WheelAt is { } w)
+            {
+                var (x, y) = _kit.Viewport.ToCss(w.X, w.Y);
+                await _kit.Input.WheelAsync(x, y, decision.WheelDelta);
             }
 
             // 步驟 4：在野外、畫面上沒有大廳按鈕時走位。

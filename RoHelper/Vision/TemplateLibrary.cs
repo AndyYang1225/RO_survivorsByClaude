@@ -77,6 +77,18 @@ public sealed class TemplateLibrary
     public MatchResult? Find(Frame frame, string name, double dpr)
         => Match(frame, name, dpr) is { } m && m.Score >= Get(name)!.Threshold ? m : null;
 
+    /// <summary>
+    /// 在指定範圍（截圖像素，不用範本自己存的搜尋範圍）找範本，分數達到門檻才算找到。
+    /// 給「同一個按鈕出現在不同對話框」用：例如難度對話框的「前往野外」比活動的低，不在「前往野外」範本的搜尋範圍裡。
+    /// </summary>
+    public MatchResult? FindIn(Frame frame, string name, double dpr, Rectangle region)
+    {
+        if (Get(name) is not { } t)
+            return null;
+        var image = Math.Abs(dpr - t.Dpr) < 0.01 ? t.Image : t.Image.Resize(dpr / t.Dpr);
+        return TemplateMatcher.Find(frame, image, Rectangle.Intersect(region, new Rectangle(0, 0, frame.Width, frame.Height))) is { } m && m.Score >= t.Threshold ? m : null;
+    }
+
     private static TemplateMeta ReadMeta(string path)
     {
         try

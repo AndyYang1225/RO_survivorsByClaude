@@ -215,11 +215,11 @@ public class LobbyFlowTests
     }
 
     [Fact]
-    public void Expedition_NotSupportedYet()
+    public void Expedition_NothingVisible_Idle()
     {
         var d = new LobbyFlow().Decide(Screen(), Cfg(autoEvent: false, autoExpe: true), 0);
 
-        Assert.Equal("視覺模式還不支援遠征", d.Action);
+        Assert.Equal("待機", d.Action);
     }
 
     [Fact]

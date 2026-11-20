@@ -35,6 +35,24 @@ public static class ScreenTemplates
     /// <summary>角色選擇畫面右下的「開始遊戲」按鈕</summary>
     public const string CharSelect = "選角開始遊戲";
 
+    /// <summary>大廳裡遠征隊長頭上的名字（會跟著畫面移動，整張畫面找）</summary>
+    public const string ExpeLeader = "遠征隊長";
+
+    /// <summary>走到遠征隊長旁邊時出現的「與隊長交談 空格」提示（跟節慶主持人的「與主持人交談」不同，要另外存）</summary>
+    public const string LeaderPrompt = "隊長交談提示";
+
+    /// <summary>遠征視窗（地圖清單）左上角的標題「◆ 遠征」：清單、詳細資料的位置都以它為準</summary>
+    public const string StageList = "遠征標題";
+
+    /// <summary>遠征視窗右下角藍色的「出發」按鈕（灰色的「劇情」不算）</summary>
+    public const string ExpeGo = "遠征出發";
+
+    /// <summary>按了出發之後「難度」對話框的標題「◆ 難度」：滑桿、「前往野外」的位置都以它為準</summary>
+    public const string DiffTitle = "難度標題";
+
+    /// <summary>自動遠征開著時一定要有的範本（沒存的列在 <see cref="ScreenState.Missing"/>）</summary>
+    public static readonly string[] Expedition = [ExpeLeader, LeaderPrompt, StageList, ExpeGo, DiffTitle];
+
     /// <summary>
     /// 一定要有的範本（沒存的會列在 <see cref="ScreenState.Missing"/> 提醒使用者）。
     /// 刻意不含 <see cref="Discard"/>、<see cref="DiscardOk"/>：那兩個對話框只在局被中斷時才出現，是選用範本，沒存也不提醒。
@@ -59,5 +77,13 @@ public sealed record ScreenState(Size FrameSize, double Dpr)
     public Rectangle? DiscardOk { get; init; }
     public Rectangle? Title { get; init; }
     public Rectangle? CharSelect { get; init; }
+    public Rectangle? ExpeLeader { get; init; }
+    public Rectangle? LeaderPrompt { get; init; }
+    public Rectangle? StageList { get; init; }
+    public Rectangle? ExpeGo { get; init; }
+    public Rectangle? DiffTitle { get; init; }
+
+    /// <summary>難度對話框裡的「前往野外」（用「前往野外」範本在難度標題下方找，見 <see cref="ScreenReader"/>）</summary>
+    public Rectangle? DiffGo { get; init; }
     public IReadOnlyList<string> Missing { get; init; } = [];
 }
