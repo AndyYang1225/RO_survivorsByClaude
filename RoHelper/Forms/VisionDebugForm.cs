@@ -22,6 +22,7 @@ public sealed class VisionDebugForm : Form
     private readonly RadioButton _selectMode = new() { Text = "框選", AutoSize = true };
     private readonly TextBox _templateName = new() { Width = 120, PlaceholderText = "範本名稱" };
     private readonly ComboBox _templates = new() { Width = 140, DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly CheckBox _wholeFrame = new() { Text = "整張畫面找", AutoSize = true };
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 500 };
 
     private Frame? _frame;
@@ -47,8 +48,9 @@ public sealed class VisionDebugForm : Form
         var ocr = new Button { Text = "OCR 框選區", AutoSize = true };
         var save = new Button { Text = "存成範本", AutoSize = true };
         var find = new Button { Text = "找範本", AutoSize = true };
+        var findAll = new Button { Text = "全部找", AutoSize = true };
         var bar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true };
-        bar.Controls.AddRange([_live, snap, _clickMode, _selectMode, ocr, _templateName, save, _templates, find]);
+        bar.Controls.AddRange([_live, snap, _clickMode, _selectMode, ocr, _templateName, _wholeFrame, save, _templates, find, findAll]);
 
         // 先加 Fill 再加 Top／Bottom：WinForms 依 z-order 反向處理 Dock
         Controls.Add(_view);
@@ -64,6 +66,7 @@ public sealed class VisionDebugForm : Form
         ocr.Click += async (_, _) => await OcrSelectionAsync();
         save.Click += (_, _) => SaveTemplate();
         find.Click += (_, _) => FindTemplate();
+        findAll.Click += (_, _) => FindAllTemplates();
         _view.MouseDown += OnViewMouseDown;
         _view.MouseMove += OnViewMouseMove;
         _view.MouseUp += OnViewMouseUp;
@@ -221,7 +224,8 @@ public sealed class VisionDebugForm : Form
     }
 
     /// <summary>
-    /// 存成範本。搜尋範圍先存整張截圖、門檻用預設值；要縮小範圍或調門檻，直接改範本旁邊的 JSON（計畫 2 起依各個按鈕校正）。
+    /// 存成範本。搜尋範圍：預設是框選範圍往外擴大（<see cref="TemplateRegion.Around"/>）；
+    /// 勾「整張畫面找」時用整張，給會到處移動的東西（NPC 名字、交談提示）。門檻用預設值，要調直接改範本旁邊的 JSON。
     /// </summary>
     private void SaveTemplate()
     {
@@ -231,16 +235,17 @@ public sealed class VisionDebugForm : Form
             Log("要先框選範圍，並填範本名稱");
             return;
         }
+        var region = _wholeFrame.Checked ? new RectangleF(0, 0, 1, 1) : TemplateRegion.Around(r, new Size(_frame.Width, _frame.Height));
         try
         {
-            _kit.Templates.Save(name, _frame.Crop(r), new RectangleF(0, 0, 1, 1), TemplateLibrary.DefaultThreshold, _kit.Viewport.Dpr);
+            _kit.Templates.Save(name, _frame.Crop(r), region, TemplateLibrary.DefaultThreshold, _kit.Viewport.Dpr);
         }
         catch (ArgumentException ex)
         {
             Log(ex.Message);
             return;
         }
-        Log($"已存範本「{name}」（{r.Width}×{r.Height}）");
+        Log($"已存範本「{name}」（{r.Width}×{r.Height}，搜尋範圍 {region.X:0.00},{region.Y:0.00} {region.Width:0.00}×{region.Height:0.00}）");
         RefreshTemplates();
         _templates.SelectedItem = name;
     }
@@ -261,6 +266,27 @@ public sealed class VisionDebugForm : Form
         Log(m is { } r
             ? $"找「{name}」（{ms} ms）：({r.Bounds.X}, {r.Bounds.Y}) 分數 {r.Score:0.000}，門檻 {threshold:0.00} → {(r.Score >= threshold ? "找到" : "沒找到")}"
             : $"找「{name}」：範本比搜尋範圍還大");
+    }
+
+    /// <summary>每個範本都找一次，列出分數和耗時：校正門檻、確認搜尋範圍夠不夠快</summary>
+    private void FindAllTemplates()
+    {
+        if (_frame is null)
+        {
+            Log("要先有截圖");
+            return;
+        }
+        var total = Stopwatch.StartNew();
+        foreach (var name in _kit.Templates.Names.Order())
+        {
+            var sw = Stopwatch.StartNew();
+            var m = _kit.Templates.Match(_frame, name, _kit.Viewport.Dpr);
+            var threshold = _kit.Templates.Get(name)!.Threshold;
+            Log(m is { } r
+                ? $"  {name}：分數 {r.Score:0.000}／門檻 {threshold:0.00} {(r.Score >= threshold ? "找到" : "沒找到")}，{sw.ElapsedMilliseconds} ms"
+                : $"  {name}：範本比搜尋範圍還大");
+        }
+        Log($"全部找完，共 {total.ElapsedMilliseconds} ms");
     }
 
     private void RefreshTemplates()
