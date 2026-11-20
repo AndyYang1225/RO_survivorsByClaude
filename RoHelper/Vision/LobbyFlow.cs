@@ -13,8 +13,11 @@ public sealed record FlowSettings(
         c.GetInt("tStartN", 800), c.GetInt("tReturnN", 1500), c.GetInt("tLobbyN", 700));
 }
 
-/// <summary>這一輪的決定：顯示在面板上的動作文字、要點的位置（截圖像素，null＝不點）、要不要把局數 +1</summary>
-public sealed record FlowDecision(string Action, Point? Click = null, bool CountRun = false);
+/// <summary>
+/// 這一輪的決定：顯示在面板上的動作文字、要點的位置（截圖像素，null＝不點）、要不要把局數 +1。
+/// StartsRun＝這一輪按了活動的「前往野外」，新的一局開始（選卡要清掉上一局的狀態）
+/// </summary>
+public sealed record FlowDecision(string Action, Point? Click = null, bool CountRun = false, bool StartsRun = false);
 
 /// <summary>
 /// 大廳流程（視覺模式）：選單人大廳 → 走到節慶主持人 → 交談 → 開始遊戲 → 前往野外；結算時記一局並返回角色。
@@ -122,7 +125,7 @@ public sealed class LobbyFlow
             _startAt = null;
             if (isStart)
                 _festAt = now;
-            return new(action, Center(b));
+            return new(action, Center(b), StartsRun: !isStart);
         }
         _startAt = null;
         if (limit && (s.GoField is not null || s.Start is not null))

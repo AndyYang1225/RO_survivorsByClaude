@@ -77,6 +77,20 @@ public class LobbyFlowTests
     }
 
     [Fact]
+    public void GoField_Click_StartsRun()
+    {
+        var flow = new LobbyFlow();
+
+        flow.Decide(Screen() with { Start = Btn }, Cfg(), 0);
+        var start = flow.Decide(Screen() with { Start = Btn }, Cfg(), 900);
+        flow.Decide(Screen() with { GoField = Btn }, Cfg(), 2000);
+        var go = flow.Decide(Screen() with { GoField = Btn }, Cfg(), 2900);
+
+        Assert.False(start.StartsRun);
+        Assert.True(go.StartsRun);
+    }
+
+    [Fact]
     public void GoField_WithoutRecentStart_IsIgnored()
     {
         var flow = new LobbyFlow();

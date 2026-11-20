@@ -1,6 +1,7 @@
 using System.Diagnostics;
 
 using RoHelper.Vision;
+using RoHelper.Vision.Picker;
 
 namespace RoHelper.Forms;
 
@@ -50,8 +51,9 @@ public sealed class VisionDebugForm : Form
         var find = new Button { Text = "找範本", AutoSize = true };
         var findAll = new Button { Text = "全部找", AutoSize = true };
         var saveShot = new Button { Text = "存截圖", AutoSize = true };
+        var readPicker = new Button { Text = "讀選卡", AutoSize = true };
         var bar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true };
-        bar.Controls.AddRange([_live, snap, _clickMode, _selectMode, ocr, _templateName, _wholeFrame, save, _templates, find, findAll, saveShot]);
+        bar.Controls.AddRange([_live, snap, _clickMode, _selectMode, ocr, _templateName, _wholeFrame, save, _templates, find, findAll, saveShot, readPicker]);
 
         // 先加 Fill 再加 Top／Bottom：WinForms 依 z-order 反向處理 Dock
         Controls.Add(_view);
@@ -69,6 +71,7 @@ public sealed class VisionDebugForm : Form
         find.Click += (_, _) => FindTemplate();
         findAll.Click += (_, _) => FindAllTemplates();
         saveShot.Click += (_, _) => SaveShot();
+        readPicker.Click += async (_, _) => await ReadPickerAsync();
         _view.MouseDown += OnViewMouseDown;
         _view.MouseMove += OnViewMouseMove;
         _view.MouseUp += OnViewMouseUp;
@@ -290,6 +293,29 @@ public sealed class VisionDebugForm : Form
         }
         Log($"全部找完，共 {total.ElapsedMilliseconds} ms");
     }
+
+    /// <summary>讀目前截圖的選卡畫面，把每張卡讀到的內容印在記錄欄（校正判讀用；不做決定、不點擊）</summary>
+    private async Task ReadPickerAsync()
+    {
+        if (_frame is null || _kit.Ocr is null)
+        {
+            Log(_kit.Ocr is null ? _kit.OcrError : "要先有截圖");
+            return;
+        }
+        var sw = Stopwatch.StartNew();
+        var p = await new PickerReader(_kit.Ocr).ReadAsync(_frame, _kit.Viewport.Dpr);
+        if (p is null)
+        {
+            Log($"不是選卡畫面（{sw.ElapsedMilliseconds} ms）");
+            return;
+        }
+        Log($"{(p.IsChest ? "寶箱" : "升級")}選卡，{p.Cards.Count} 張（{sw.ElapsedMilliseconds} ms）；重抽全部：{Describe(p.RerollAll)}");
+        foreach (var c in p.Cards)
+            Log($"  {c.Index + 1}. {c.Name}｜稀有度 {c.Rarity}{(c.SkillBadge ? "｜技能" : "")}{(c.IsNew ? "｜新！" : "")}｜{string.Join(" ", c.Buttons.Select(Describe))}｜{c.Text}");
+    }
+
+    private static string Describe(ActButton? b)
+        => b is null ? "無" : $"{b.Kind switch { ActKind.Reroll => "重抽", ActKind.Focus => "專注", _ => "放逐" }}{(b.Enabled ? "" : "✘")}{b.Left}";
 
     private void RefreshTemplates()
     {
