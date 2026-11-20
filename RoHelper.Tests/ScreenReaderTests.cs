@@ -104,4 +104,56 @@ public sealed class ScreenReaderTests : IDisposable
         Assert.DoesNotContain(ScreenTemplates.Discard, s.Missing);
         Assert.DoesNotContain(ScreenTemplates.DiscardOk, s.Missing);
     }
+
+    /// <summary>
+    /// 首頁「開始遊戲！」、角色選擇「開始遊戲」按鈕（截圖像素），範本從真實截圖裁出來，範圍和門檻同 Claude 存的範本。
+    /// 首頁刻意用 y437（和 Claude 存的範本逐點相同），不用計畫寫的 y395：y395 起的那一塊橫向幾乎沒有變化（實測左右平移 20 px 差異都一樣），找到的 x 會偏掉，在升級選卡畫面也會誤判。
+    /// </summary>
+    private static readonly Rectangle TitleArea = new(1500, 437, 160, 34);
+    private static readonly Rectangle CharSelectArea = new(1230, 628, 76, 26);
+
+    private TemplateLibrary TitleLibrary()
+    {
+        var lib = new TemplateLibrary(_dir);
+        lib.Save(ScreenTemplates.Title, CardLayoutTests.Fixture("首頁").Crop(TitleArea), new RectangleF(0.65f, 0.5f, 0.35f, 0.3f), 0.95, 1.0);
+        lib.Save(ScreenTemplates.CharSelect, CardLayoutTests.Fixture("選角色").Crop(CharSelectArea), new RectangleF(0.55f, 0.82f, 0.2f, 0.18f), 0.95, 1.0);
+        return lib;
+    }
+
+    [Fact]
+    public void Read_FindsTitleAndCharSelect_OnRealScreens()
+    {
+        var reader = new ScreenReader(TitleLibrary());
+
+        var title = reader.Read(CardLayoutTests.Fixture("首頁"), 1.0, lobby: true);
+        Assert.Equal(TitleArea, title.Title);
+        Assert.Null(title.CharSelect);
+
+        var select = reader.Read(CardLayoutTests.Fixture("選角色"), 1.0, lobby: true);
+        Assert.Equal(CharSelectArea, select.CharSelect);
+        Assert.Null(select.Title);
+    }
+
+    [Theory]
+    [InlineData("野外1")]
+    [InlineData("野外2寶箱")]
+    [InlineData("前往野外")]
+    [InlineData("未完成的一局")]
+    [InlineData("升級選卡2")]
+    public void Read_NoTitleOrCharSelect_OnOtherScreens(string fixture)
+    {
+        var s = new ScreenReader(TitleLibrary()).Read(CardLayoutTests.Fixture(fixture), 1.0, lobby: true);
+
+        Assert.Null(s.Title);
+        Assert.Null(s.CharSelect);
+    }
+
+    [Fact]
+    public void Read_TitleTemplatesAreOptional_NotListedAsMissing()
+    {
+        var s = new ScreenReader(Library()).Read(TestFrames.Pattern(), 1.0, lobby: true);
+
+        Assert.DoesNotContain(ScreenTemplates.Title, s.Missing);
+        Assert.DoesNotContain(ScreenTemplates.CharSelect, s.Missing);
+    }
 }

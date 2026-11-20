@@ -303,4 +303,65 @@ public class LobbyFlowTests
         Assert.Null(flow.Decide(s, Cfg(), 600).Click);
         Assert.Equal(BtnCenter, flow.Decide(s, Cfg(), 1200).Click);
     }
+
+    [Fact]
+    public void Title_ClicksAfterOneSecond_BeforeSoloLobby()
+    {
+        var flow = new LobbyFlow();
+        var s = Screen() with { Title = Btn, Solo = new Rectangle(0, 0, 10, 10) };
+
+        var first = flow.Decide(s, Cfg(), 0);
+        Assert.Equal("首頁：開始遊戲", first.Action);
+        Assert.Null(first.Click);
+        Assert.Null(flow.Decide(s, Cfg(), 900).Click);
+        var d = flow.Decide(s, Cfg(), 1100);
+        Assert.Equal(BtnCenter, d.Click);
+        Assert.False(d.CountRun);
+        Assert.False(d.StartsRun);
+    }
+
+    [Fact]
+    public void CharSelect_ClicksAfterOneSecond()
+    {
+        var flow = new LobbyFlow();
+        var s = Screen() with { CharSelect = Btn };
+
+        var first = flow.Decide(s, Cfg(), 0);
+        Assert.Equal("選角色：開始遊戲", first.Action);
+        Assert.Null(first.Click);
+        Assert.Equal(BtnCenter, flow.Decide(s, Cfg(), 1100).Click);
+    }
+
+    [Fact]
+    public void Discard_BeforeTitle()
+    {
+        var d = new LobbyFlow().Decide(Screen() with { DiscardOk = Btn, Title = new Rectangle(0, 0, 10, 10) }, Cfg(), 0);
+
+        Assert.Equal("關閉已捨棄本局", d.Action);
+    }
+
+    [Fact]
+    public void TitleAndCharSelect_NotClicked_WhenAutoEventOff()
+    {
+        var flow = new LobbyFlow();
+        var title = Screen() with { Title = Btn };
+        var select = Screen() with { CharSelect = Btn };
+
+        flow.Decide(title, Cfg(autoEvent: false), 0);
+        Assert.Null(flow.Decide(title, Cfg(autoEvent: false), 1100).Click);
+        flow.Decide(select, Cfg(autoEvent: false), 2000);
+        Assert.Null(flow.Decide(select, Cfg(autoEvent: false), 3100).Click);
+    }
+
+    [Fact]
+    public void Title_GoneThenBack_WaitsAgain()
+    {
+        var flow = new LobbyFlow();
+        var s = Screen() with { Title = Btn };
+
+        flow.Decide(s, Cfg(), 0);
+        flow.Decide(Screen(), Cfg(), 500);
+        Assert.Null(flow.Decide(s, Cfg(), 1100).Click);
+        Assert.Equal(BtnCenter, flow.Decide(s, Cfg(), 2200).Click);
+    }
 }

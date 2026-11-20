@@ -2,7 +2,7 @@ namespace RoHelper.Vision.Field;
 
 /// <summary>
 /// 記住「現在在野外」：按了活動的「前往野外」（<see cref="FlowDecision.StartsRun"/>）就進野外；
-/// 記一局（結算畫面第一次出現）、或畫面上認出單人大廳／開始遊戲／節慶主持人／返回角色任一範本就離開。
+/// 記一局（結算畫面第一次出現）、或畫面上連續認出單人大廳／開始遊戲／節慶主持人／首頁／角色選擇任一範本就離開。
 /// 刻意不用小地圖判斷在不在野外：大廳也可能有類似的顏色，誤判會在大廳亂點；只信任自己按的「前往野外」。
 /// 純邏輯：時間由呼叫端傳入，可以單元測試。
 /// </summary>
@@ -37,7 +37,9 @@ public sealed class FieldGate
     /// </summary>
     public void Update(ScreenState s, FlowDecision d, long now)
     {
-        _lobbyHits = s.Solo is not null || s.Start is not null || s.FestivalHost is not null ? _lobbyHits + 1 : 0;
+        // 首頁、角色選擇也算：斷線或重開後回到這兩個畫面，代表那一局已經沒了
+        _lobbyHits = s.Solo is not null || s.Start is not null || s.FestivalHost is not null || s.Title is not null || s.CharSelect is not null
+            ? _lobbyHits + 1 : 0;
         if (d.CountRun || _lobbyHits >= LeaveHits)
             Leave();
         if (d.StartsRun)
@@ -47,5 +49,6 @@ public sealed class FieldGate
     /// <summary>畫面上有沒有任何大廳流程的按鈕或標籤（有的話這一輪不走位，交給大廳流程）</summary>
     public static bool LobbyVisible(ScreenState s)
         => s.Solo is not null || s.Start is not null || s.GoField is not null || s.Return is not null
-            || s.FestivalHost is not null || s.TalkPrompt is not null || s.Discard is not null || s.DiscardOk is not null;
+            || s.FestivalHost is not null || s.TalkPrompt is not null || s.Discard is not null || s.DiscardOk is not null
+            || s.Title is not null || s.CharSelect is not null;
 }

@@ -53,6 +53,8 @@ public class FieldGateTests
     [InlineData(ScreenTemplates.Solo)]
     [InlineData(ScreenTemplates.Start)]
     [InlineData(ScreenTemplates.FestivalHost)]
+    [InlineData(ScreenTemplates.Title)]
+    [InlineData(ScreenTemplates.CharSelect)]
     public void LobbyTemplate_TwoTicks_Leaves(string name)
     {
         var gate = new FieldGate();
@@ -97,7 +99,8 @@ public class FieldGateTests
     public void LobbyVisible_AnyTemplate()
     {
         Assert.False(FieldGate.LobbyVisible(Screen()));
-        foreach (var name in ScreenTemplates.All.Append(ScreenTemplates.Discard).Append(ScreenTemplates.DiscardOk))
+        foreach (var name in ScreenTemplates.All.Append(ScreenTemplates.Discard).Append(ScreenTemplates.DiscardOk)
+                     .Append(ScreenTemplates.Title).Append(ScreenTemplates.CharSelect))
             Assert.True(FieldGate.LobbyVisible(With(name)), name);
     }
 
@@ -111,6 +114,8 @@ public class FieldGateTests
         ScreenTemplates.TalkPrompt => Screen() with { TalkPrompt = Btn },
         ScreenTemplates.Discard => Screen() with { Discard = Btn },
         ScreenTemplates.DiscardOk => Screen() with { DiscardOk = Btn },
+        ScreenTemplates.Title => Screen() with { Title = Btn },
+        ScreenTemplates.CharSelect => Screen() with { CharSelect = Btn },
         _ => throw new ArgumentException(name),
     };
 }

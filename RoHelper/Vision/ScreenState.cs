@@ -29,9 +29,16 @@ public static class ScreenTemplates
     /// <summary>按了捨棄之後「已捨棄本局」對話框的「OK」按鈕</summary>
     public const string DiscardOk = "確定捨棄";
 
+    /// <summary>遊戲首頁的「開始遊戲！」大藍按鈕（重開程式或斷線後會回到首頁）</summary>
+    public const string Title = "首頁開始遊戲";
+
+    /// <summary>角色選擇畫面右下的「開始遊戲」按鈕</summary>
+    public const string CharSelect = "選角開始遊戲";
+
     /// <summary>
     /// 一定要有的範本（沒存的會列在 <see cref="ScreenState.Missing"/> 提醒使用者）。
     /// 刻意不含 <see cref="Discard"/>、<see cref="DiscardOk"/>：那兩個對話框只在局被中斷時才出現，是選用範本，沒存也不提醒。
+    /// 同理不含 <see cref="Title"/>、<see cref="CharSelect"/>：只在重開或斷線後才會看到。
     /// </summary>
     public static readonly string[] All = [Solo, Start, GoField, Return, FestivalHost, TalkPrompt];
 }
@@ -50,5 +57,7 @@ public sealed record ScreenState(Size FrameSize, double Dpr)
     public Rectangle? TalkPrompt { get; init; }
     public Rectangle? Discard { get; init; }
     public Rectangle? DiscardOk { get; init; }
+    public Rectangle? Title { get; init; }
+    public Rectangle? CharSelect { get; init; }
     public IReadOnlyList<string> Missing { get; init; } = [];
 }

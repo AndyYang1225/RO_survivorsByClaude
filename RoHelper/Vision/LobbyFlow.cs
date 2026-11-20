@@ -33,6 +33,9 @@ public sealed class LobbyFlow
     /// <summary>「未完成的一局」出現後等多久才按「捨棄」（同單人大廳，等對話框動畫跑完）</summary>
     private const long DiscardDelay = 500;
 
+    /// <summary>首頁、角色選擇的「開始遊戲」出現後等多久才按（畫面切換和載入比對話框慢，多等一點）</summary>
+    private const long TitleDelay = 1000;
+
     /// <summary>按「開始遊戲」後多久內出現的「前往野外」算活動流程（同 JS 的 festAt 10 秒；遠征的「前往野外」不能亂按）</summary>
     private const long FestivalWindow = 10_000;
 
@@ -62,6 +65,8 @@ public sealed class LobbyFlow
 
     private long? _soloAt;
     private long? _discardAt;
+    private long? _titleAt;
+    private long? _charSelectAt;
     private long? _returnAt;
     private int _returnHits;
     private long _returnSeenAt;
@@ -71,13 +76,13 @@ public sealed class LobbyFlow
     private long _lastWalk = long.MinValue / 2;
 
     /// <summary>
-    /// 只清等待中的計時（_soloAt／_discardAt／_startAt／_talkedAt／_lastWalk），改了設定或暫停後重新開始等待（同 JS：set 只重設 npcDone／npcTalked）。
+    /// 只清等待中的計時（_soloAt／_discardAt／_titleAt／_charSelectAt／_startAt／_talkedAt／_lastWalk），改了設定或暫停後重新開始等待（同 JS：set 只重設 npcDone／npcTalked）。
     /// 刻意保留 _returnAt 和最後看到返回角色的時間：結算畫面上暫停或切分頁就清掉的話，恢復後會把同一局再記一次（JS 的 returnSeenAt 也不清）。
     /// 刻意保留 _festAt：按完開始遊戲 10 秒內改設定或暫停就清掉的話，之後的「前往野外」會被當成遠征而不按（JS 的 festAt 也不清）。
     /// </summary>
     public void Reset()
     {
-        _soloAt = _discardAt = _startAt = _talkedAt = null;
+        _soloAt = _discardAt = _titleAt = _charSelectAt = _startAt = _talkedAt = null;
         _lastWalk = long.MinValue / 2;
     }
 
@@ -100,6 +105,28 @@ public sealed class LobbyFlow
             return new("捨棄未完成的一局", Center(discard));
         }
         _discardAt = null;
+
+        // 步驟 0.5：重開程式或斷線後會回到首頁（開始遊戲！）→ 角色選擇（開始遊戲）。
+        // 只在開了自動活動時才按，理由同捨棄：沒開的話是使用者自己在玩，不要搶。
+        // 角色選擇刻意直接按目前選中的角色、不切換角色：用哪隻由使用者自己決定（遊戲會記住上次選的）。
+        if (c.AutoEvent && s.Title is { } title)
+        {
+            _titleAt ??= now;
+            if (now - _titleAt <= TitleDelay)
+                return new("首頁：開始遊戲");
+            _titleAt = null;
+            return new("首頁：開始遊戲", Center(title));
+        }
+        _titleAt = null;
+        if (c.AutoEvent && s.CharSelect is { } select)
+        {
+            _charSelectAt ??= now;
+            if (now - _charSelectAt <= TitleDelay)
+                return new("選角色：開始遊戲");
+            _charSelectAt = null;
+            return new("選角色：開始遊戲", Center(select));
+        }
+        _charSelectAt = null;
 
         // 步驟 1：「選擇大廳」→ 等 0.5 秒按「單人大廳」
         if (c.SoloLobby && s.Solo is { } solo)
