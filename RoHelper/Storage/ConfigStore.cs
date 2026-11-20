@@ -38,12 +38,20 @@ public sealed class ConfigStore
     public string GetString(string key, string fallback = "")
         => Current[key] is JsonValue v && v.TryGetValue(out string? s) && s is not null ? s : fallback;
 
+    /// <summary>
+    /// 讀數字。int／long 要分開試：從 JSON 檔解析來的值 TryGetValue&lt;decimal&gt; 讀得到，
+    /// 但在 C# 裡直接放的數字（視覺模式的局數 +1），JsonValue 包的是 int，不會幫忙轉成 decimal。
+    /// </summary>
     public decimal GetNumber(string key, decimal fallback = 0)
     {
         if (Current[key] is not JsonValue v)
             return fallback;
         if (v.TryGetValue(out decimal d))
             return d;
+        if (v.TryGetValue(out int i))
+            return i;
+        if (v.TryGetValue(out long l))
+            return l;
         if (v.TryGetValue(out double f))
             return (decimal)f;
         return fallback;
