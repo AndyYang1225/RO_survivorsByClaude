@@ -1853,3 +1853,19 @@ git commit -m "docs: 視覺模式大廳流程的說明與實機結果"
 - **涵蓋範圍**：路線表第 2 階段的四項——模式切換（Task 8）、規則清單搬到 C#（Task 3、4）、F8／F9 由 exe 處理（Task 5 的 `TogglePause`＋Task 8 的 `ProcessCmdKey`）、流程按鈕（Task 6、7、8）。另外補了計畫 1 實測發現的範本比對太慢（Task 1、2）。遠征明確排除在「不在這份計畫的範圍」。
 - **型別一致性**：`RuleDef.Default`／`EngineSchema.Stages`（Task 3）在 Task 4 使用；`IAutomation`（Task 5）在 Task 8 的 `VisionEngine`、`Program` 使用；`PanelForm.TogglePause`（Task 5）在 Task 8 使用；`ScreenState`／`ScreenTemplates`／`FlowSettings`／`FlowDecision`／`LobbyFlow.Decide`（Task 6）在 Task 7、8 使用；`ScreenReader.Read(Frame, double, bool)`（Task 7）在 Task 8 使用；`VisionKit` 建構子 `(CoreWebView2, IntPtr, Func<double>)` 同計畫 1 實作後的版本。
 - **測試數量**：計畫 1 結束時 27；Task 1：＋2＝29；Task 2：＋2＝31；Task 3：＋2＝33；Task 4：＋7＝40；Task 6：＋13＝53；Task 7：＋3＝56。
+
+## 實作時的修正（2026-11-20）
+
+- Task 4 審查：超出 decimal 範圍的數字（例如 1e30）轉型會拋例外 → 夾到上下限（83e14f1）。
+- Task 6 審查（使用者同意）：WalkTarget 改成跟 JS 一樣「先算步長再加 45px」；按交談提示後 5 秒內不走路（對應 JS 的 npcDone）；單人大廳等待改成 >500 ms（5459f01）。
+- 最終審查：int 溢位會讓 async void 計時器掛掉程式 → `ConfigStore.GetInt` 飽和讀取；F8／F9 改成只在視覺模式由 exe 處理（使用者決定，JS 模式不變）；返回角色漏認一張就重複記局 → 2 秒寬限；短寬範本（NPC 名字）也走金字塔（短邊 ≥ 12）；`LobbyFlow.Reset()` 只清等待中的計時（2ae7412、c0c87ad）。
+
+## 實機驗證結果（2026-11-20）
+
+| 項目 | 結果 |
+|---|---|
+| 範本收集 | 存了單人大廳、開始遊戲、前往野外、節慶主持人、交談提示；返回角色先跳過。節慶主持人／交談提示存的時候沒勾「整張畫面找」，手動改成整張 |
+| 單人大廳範本 | 37 ms，分數 1.000 |
+| 視覺模式大廳流程 | 單人大廳 → 走到節慶主持人 → 交談 → 開始遊戲 → 前往野外，全部自動完成 |
+| 暫停狀態 | 從 JS 模式暫停後切到視覺模式，重開仍是暫停（設定共用，預期行為）；F8 解除後正常 |
+| 尚未驗證 | 返回角色與局數、最小化時的流程、切回 JS 模式、全部找的總耗時、每輪耗時 |
