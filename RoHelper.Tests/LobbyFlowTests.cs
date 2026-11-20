@@ -109,6 +109,22 @@ public class LobbyFlowTests
     }
 
     [Fact]
+    public void AfterTalking_DoesNotWalkWhilePromptGone()
+    {
+        var flow = new LobbyFlow();
+
+        Assert.Equal(BtnCenter, flow.Decide(Screen() with { TalkPrompt = Btn }, Cfg(), 0).Click);
+
+        // 交談提示消失（對話框開啟中）：等待，不往 NPC 走（否則可能點掉對話框）
+        var waiting = flow.Decide(Screen() with { FestivalHost = new Rectangle(800, 100, 80, 20) }, Cfg(), 1000);
+        Assert.Null(waiting.Click);
+        Assert.Equal("等待對話框", waiting.Action);
+
+        // 過了 TalkRetry 仍沒有交談提示，才恢復走路
+        Assert.NotNull(flow.Decide(Screen() with { FestivalHost = new Rectangle(800, 100, 80, 20) }, Cfg(), 5100).Click);
+    }
+
+    [Fact]
     public void FestivalHost_WalksTowardLabel_Throttled()
     {
         var flow = new LobbyFlow();
@@ -123,20 +139,18 @@ public class LobbyFlowTests
     }
 
     [Fact]
-    public void WalkTarget_LimitsStepToThirtyFivePercentOfShortSide()
+    public void WalkTarget_ScalesStepThenAddsFeetOffset()
     {
-        // 畫面中心 (500,300)；目標 (970, 580+45)；一步最多 600×0.35＝210
+        // 中心 (500,300)；往名字底部 (970,580) 的方向走 600×0.35＝210（k≈0.384）→ (680,407)，再往下 45 → (680,452)
         var p = LobbyFlow.WalkTarget(Screen(), new Rectangle(950, 560, 40, 20));
 
-        var dist = Math.Sqrt(Math.Pow(p.X - 500, 2) + Math.Pow(p.Y - 300, 2));
-        Assert.InRange(dist, 209, 211);
-        Assert.True(p.X > 500 && p.Y > 300);
+        Assert.Equal(new Point(680, 452), p);
     }
 
     [Fact]
     public void WalkTarget_ClampsAwayFromEdges()
     {
-        // 100×100：中心 (50,50)；目標 (50,140)；走 35 → (50,85)；離下緣至少 20 → (50,80)
+        // 100×100：中心 (50,50)；往 (50,95) 走 35 → (50,85)，加 45 → (50,130)，離下緣至少 20 → (50,80)
         var p = LobbyFlow.WalkTarget(new ScreenState(new Size(100, 100), 1.0), new Rectangle(40, 90, 20, 5));
 
         Assert.Equal(new Point(50, 80), p);

@@ -30,7 +30,10 @@ public sealed class LobbyFlow
     /// <summary>按「開始遊戲」後多久內出現的「前往野外」算活動流程（同 JS 的 festAt 10 秒；遠征的「前往野外」不能亂按）</summary>
     private const long FestivalWindow = 10_000;
 
-    /// <summary>按了交談提示後，提示還在就隔多久再按一次（點擊沒生效時重試）</summary>
+    /// <summary>
+    /// 按了交談提示後，提示還在就隔多久再按一次（點擊沒生效時重試）。這段時間內也不往 NPC 走：
+    /// 提示消失多半是對話框開了，此時走路會點到對話框把它關掉（同 JS 的 npcDone）
+    /// </summary>
     private const long TalkRetry = 5_000;
 
     /// <summary>名字標籤底部往下多少 CSS px 是 NPC 腳下（同 JS 的 +45）</summary>
@@ -55,7 +58,7 @@ public sealed class LobbyFlow
         if (c.SoloLobby && s.Solo is { } solo)
         {
             _soloAt ??= now;
-            if (now - _soloAt < SoloDelay)
+            if (now - _soloAt <= SoloDelay)
                 return new("選單人大廳");
             _soloAt = null;
             return new("選單人大廳", Center(solo));
@@ -115,6 +118,8 @@ public sealed class LobbyFlow
             _talkedAt = now;
             return new("和節慶主持人交談", Center(prompt));
         }
+        if (_talkedAt is { } talked && now - talked < TalkRetry)
+            return new("等待對話框");
         if (s.FestivalHost is { } host)
         {
             if (now - _lastWalk < c.TLobby)
@@ -127,7 +132,8 @@ public sealed class LobbyFlow
 
     /// <summary>
     /// 往 NPC 走的點擊位置（同 JS lobbyStep 的算法）。鏡頭跟著角色，所以角色當作在畫面正中間；
-    /// 目標是名字標籤正下方 45 CSS px（NPC 腳下），一次最多走畫面短邊的 35%，點的位置離畫面邊緣至少 20 CSS px。
+    /// 方向是畫面中心往名字標籤底部中央，走的距離夾到畫面短邊的 35%，之後才往下加 45 CSS px（NPC 腳下），
+    /// 最後點的位置離畫面邊緣至少 20 CSS px。腳下的偏移不算進距離，和 JS 一樣。
     /// 刻意不辨識自己角色的名字：每個玩家的名字不同，沒辦法做成固定範本。
     /// </summary>
     public static Point WalkTarget(ScreenState s, Rectangle label)
@@ -135,13 +141,13 @@ public sealed class LobbyFlow
         var (w, h) = (s.FrameSize.Width, s.FrameSize.Height);
         double cx = w / 2.0, cy = h / 2.0;
         var dx = label.X + label.Width / 2.0 - cx;
-        var dy = label.Bottom + LabelToFeet * s.Dpr - cy;
+        var dy = label.Bottom - cy;
         var dist = Math.Max(1, Math.Sqrt(dx * dx + dy * dy));
         var k = Math.Min(1, Math.Min(w, h) * 0.35 / dist);
         var margin = EdgeMargin * s.Dpr;
         return new Point(
             (int)Math.Round(Math.Clamp(cx + dx * k, margin, w - margin)),
-            (int)Math.Round(Math.Clamp(cy + dy * k, margin, h - margin)));
+            (int)Math.Round(Math.Clamp(cy + dy * k + LabelToFeet * s.Dpr, margin, h - margin)));
     }
 
     private static Point Center(Rectangle r) => new(r.X + r.Width / 2, r.Y + r.Height / 2);
