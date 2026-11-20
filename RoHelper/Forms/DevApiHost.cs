@@ -150,15 +150,17 @@ public sealed class DevApiHost(Control ui, VisionKit kit, VisionEngine engine, P
         var mm = MinimapReader.Read(frame, dpr);
         // 金錢與寶箱價格：每次都讀（開發介面不在意 OCR 的時間），沒有 OCR 時是 null
         var hud = kit.Ocr is null ? null : await new HudReader(kit.Ocr).ReadAsync(frame, dpr);
+        var hp = HpReader.Read(frame, dpr);
         var s = FieldSettings.From(config);
         // 只預覽：用一個新的走位決策（沒有上次移動時間、卡住紀錄），不動引擎的走位狀態，也不點
-        var d = new FieldPlanner(Random.Shared.NextDouble).Step(mm, s, Environment.TickCount64, s.CanAffordChest(hud));
+        var d = new FieldPlanner(Random.Shared.NextDouble).Step(mm, s, Environment.TickCount64, s.CanAffordChest(hud), hp);
         return new JsonObject
         {
             ["width"] = frame.Width,
             ["height"] = frame.Height,
             ["dpr"] = dpr,
             ["inField"] = engine.InField,
+            ["hp"] = hp is null ? null : Math.Round(hp.Value, 3),
             ["hud"] = hud is null ? null : new JsonObject { ["money"] = hud.Money, ["chestCost"] = hud.ChestCost },
             ["chestAffordable"] = s.CanAffordChest(hud),
             ["minimap"] = mm is null ? null : new JsonObject

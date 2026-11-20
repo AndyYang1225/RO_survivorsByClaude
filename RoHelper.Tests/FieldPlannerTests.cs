@@ -156,6 +156,30 @@ public sealed class FieldPlannerTests : IDisposable
     }
 
     [Fact]
+    public void Step_LowHpStop_BelowThreshold_Stops()
+    {
+        var s = All with { LowHpStop = true, LowHpStopN = 30 };
+        var mm = Mm(B(1810, 105), chests: [B(1790, 90)]);
+
+        Assert.Equal(new FieldDecision("HP 過低，停止走位", null), Planner().Step(mm, s, 10_000, hp: 0.29));
+        Assert.Equal("前往寶箱", Planner().Step(mm, s, 10_000, hp: 0.31).Status);
+        // 讀不到 HP（null）不停；lowHpStop 關掉時 HP 再低也照走
+        Assert.Equal("前往寶箱", Planner().Step(mm, s, 10_000, hp: null).Status);
+        Assert.Equal("前往寶箱", Planner().Step(mm, All, 10_000, hp: 0.05).Status);
+    }
+
+    [Fact]
+    public void Step_LowHpStop_CheckedBeforeSeekEvery()
+    {
+        var p = Planner();
+        var s = All with { LowHpStop = true };
+        var mm = Mm(B(1810, 105), chests: [B(1790, 90)]);
+        p.Step(mm, s, 10_000, hp: 1);
+
+        Assert.Equal("HP 過低，停止走位", p.Step(mm, s, 10_100, hp: 0.1).Status);
+    }
+
+    [Fact]
     public void FieldSettings_From_DefaultsAndValues()
     {
         var empty = new ConfigStore(_path);
@@ -167,8 +191,9 @@ public sealed class FieldPlannerTests : IDisposable
         {
             ["seekLoot"] = true, ["seekMagnet"] = true, ["seekChest"] = false, ["autoWander"] = true,
             ["stayCenter"] = true, ["zoomOut"] = true, ["tSeekN"] = 800, ["tWanderN"] = 1400, ["chestMoney"] = false,
+            ["lowHpStop"] = true, ["lowHpStopN"] = 45,
         });
-        Assert.Equal(new FieldSettings(true, true, false, true, true, true, 800, 1400, false), FieldSettings.From(store));
+        Assert.Equal(new FieldSettings(true, true, false, true, true, true, 800, 1400, false, LowHpStop: true, LowHpStopN: 45), FieldSettings.From(store));
     }
 
     [Fact]
