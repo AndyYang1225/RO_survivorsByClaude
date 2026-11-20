@@ -29,4 +29,9 @@
     <None Include="..\RoHelper\Engine\engine.js" Link="engine.js" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- 真實選卡畫面（使用者 2026-11-20 截的，dpr 1）：PickerReader／CardLayout 的測試素材 -->
+  <ItemGroup>
+    <None Include="Fixtures\*.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
