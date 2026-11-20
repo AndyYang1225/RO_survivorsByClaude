@@ -166,3 +166,24 @@
 - `FieldGate.LobbyVisible` 也要包含這兩個。
 - 用真實 fixture 測 ScreenReader 找得到（需要範本：測試可以從 fixture 裁出範本建 TemplateLibrary，或只測 LobbyFlow 邏輯，自行判斷）。
 - commit `feat: 大廳流程處理「未完成的一局」對話框`
+
+### Task 8: 首頁、選角色自動化
+
+**Files:** Modify `ScreenState.cs`（`ScreenTemplates`）、`ScreenReader.cs`、`LobbyFlow.cs`、`Field/FieldGate.cs`；Test `LobbyFlowTests.cs`、`ScreenReaderTests.cs`、`FieldGateTests.cs`
+
+- 重開程式或斷線後會回到遊戲首頁（「開始遊戲！」大藍按鈕）→ 角色選擇（右下「開始遊戲」）。範本已由 Claude 存好：`首頁開始遊戲`（範圍 X .65 W .35 Y .5 H .3，門檻 .95）、`選角開始遊戲`（X .55 W .2 Y .82 H .18，門檻 .95）。Fixtures `首頁.png`（按鈕在 x1500,y395 起，有維護公告時位置會上移）、`選角色.png`（x1230,y628）。實測：自己的畫面 1.000，其他畫面最高 0.926。
+- `ScreenTemplates` 加 `Title = "首頁開始遊戲"`、`CharSelect = "選角開始遊戲"`，同 Discard 一樣是**選用範本**（不列入 `All`／Missing）；`ScreenState` 加 `Title`、`CharSelect`；ScreenReader 在按鈕那一組找。
+- `LobbyFlow.Decide`：在 Discard 之後、單人大廳之前：看到 `Title` → 等 1000 ms 後點（`"首頁：開始遊戲"`）；看到 `CharSelect` → 等 1000 ms 後點（`"選角色：開始遊戲"`，選的是目前選中的角色，不切換角色；註解寫原因：使用者自己決定用哪隻）。只在 `AutoEvent` 開著時才點（同 Discard 的理由：使用者手動玩的時候不要搶）。
+- `FieldGate`：`Title`／`CharSelect` 也算大廳範本（連續 2 輪就離開野外），`LobbyVisible` 也包含。
+- ScreenReader 測試：同 Task 7，用 fixture 裁範本建臨時 TemplateLibrary（首頁：x1500,y395,w160,h34；選角色：x1230,y628,w76,h26），區域同上。
+- commit `feat: 大廳流程處理首頁與角色選擇`
+
+### Task 9: 野外不必每輪比對全部大廳範本
+
+**Files:** Modify `ScreenReader.cs`、`VisionEngine.cs`；Test `ScreenReaderTests.cs`
+
+- 實測（2026-11-21）：每輪比對全部範本約 400 ms（範本比對改成逐點找之後）。在野外時大部分範本不可能出現，卻佔掉走位的時間。
+- `ScreenReader.Read(frame, dpr, lobby, inField)`：`inField` 為 true 時只找 `Return`（結算畫面）和 Solo／Start／FestivalHost／Title／CharSelect 這幾個「離開野外」要用的嗎？——**不要**：離開野外只靠 CountRun（結算確認）就夠；斷線回首頁的情況，改成「每 5 秒才做一次完整辨識」來涵蓋。所以：`inField` 時只找 `Return`；`VisionEngine` 在野外每 5 秒做一次完整辨識（`inField: false`），其餘輪只找 Return。
+- 測試：`inField: true` 時只回 Return（其他欄位 null），不找 NPC。
+- VisionEngine：記上次完整辨識的時間；`FieldGate.InField` 時依上面規則選。
+- commit `perf: 野外只找結算按鈕，每 5 秒才完整辨識一次`
