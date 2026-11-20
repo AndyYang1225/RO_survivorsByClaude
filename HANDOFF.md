@@ -34,7 +34,7 @@
   - 自動選卡：升級／寶箱（程式完成、135 個測試通過，**還沒實機驗證**）
 - **還不會的**：野外走位（計畫 4）、遠征、尋寶率（使用者決定先跳過）、累積升級按 B（使用者把遊戲設成升級立即跳出選卡）、職業自動偵測。
 
-## 下一步：計畫 3 的 Task 8（實機驗證選卡）
+## 下一步（舊）：計畫 3 的 Task 8（已完成，見計畫書最後的實機驗證結果）
 
 計畫書：`docs/superpowers/plans/2026-11-20-vision-card-picking.md`（Task 8）。進度紀錄：`.superpowers/sdd/progress.md`（含每個 Task 的審查結果和還沒處理的小問題）。
 
@@ -65,3 +65,9 @@
 - 回覆用繁體中文；程式識別字英文、註解／XML doc／log 繁中（`coding-style` skill）。
 - 寫計畫用 superpowers:writing-plans，執行用 Subagent-Driven（每個 Task 一個 agent ＋ 審查），commit 在分支上。
 - 要使用者實機測試時，Claude 幫忙 `dotnet run`；使用者說「重新啟動」就是要重開程式。
+
+## 2026-11-20 晚更新
+
+- 計畫 3 實機驗證完成；新增「放逐完後按遊戲『自動』」、重存「返回角色」範本。
+- 計畫 4a（開發介面＋自動存證據）：要實機測試時用 `dotnet run --project RoHelper -- --dev-api` 啟動，Claude 用 `curl 127.0.0.1:8765/...` 自己截圖、讀畫面、操作（見 `RoHelper/README.md`「開發介面」）。登入由使用者自己做一次。
+- 執行中的 RoHelper.exe 會鎖住 bin：跑測試用 `dotnet test RoHelper.Tests --artifacts-path <暫存資料夾>`，不用關掉程式。
