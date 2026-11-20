@@ -176,6 +176,12 @@ public sealed class DevApiHost(Control ui, VisionKit kit, VisionEngine engine, P
         var bankLook = BankReader.Look(frame, dpr);
         int? bankN = kit.Ocr is null ? null : await new BankReader(kit.Ocr).ReadAsync(frame, dpr);
         int? clock = kit.Ocr is null ? null : await TimerReader.ReadClockAsync(kit.Ocr, frame, dpr);
+        // 道具欄：有東西的格子、畫面上正在顯示的說明框（滑鼠剛好停在某一格上時；這裡不移滑鼠）
+        var filled = TreasureReader.FilledSlots(frame, dpr);
+        var tipSlot = filled.FirstOrDefault(i => TreasureReader.FindTip(frame, dpr, i) is not null, -1);
+        var tipBox = tipSlot >= 0 ? TreasureReader.FindTip(frame, dpr, tipSlot) : null;
+        var tip = tipBox is null || kit.Ocr is null ? null : await new TreasureReader(kit.Ocr).ReadTipAsync(frame, tipBox, dpr);
+        var lastTreasure = engine.LastTreasure;
         var now = Environment.TickCount64;
         var s = FieldSettings.From(config);
         // 只預覽：用一個新的走位決策（沒有上次移動時間、卡住紀錄），不動引擎的走位狀態（也不會在躲鐘），也不點
@@ -230,6 +236,27 @@ public sealed class DevApiHost(Control ui, VisionKit kit, VisionEngine engine, P
                 ["rgb"] = $"{b.Rgb.R}/{b.Rgb.G}/{b.Rgb.B}",
             }).ToArray()),
             ["hud"] = hud is null ? null : new JsonObject { ["money"] = hud.Money, ["chestCost"] = hud.ChestCost },
+            // 尋寶率：filled＝有東西的格子（0 起算）；tip＝這張截圖上的說明框（box、bodyTop 是截圖像素，head、treasure 是 OCR 結果）；
+            // engine＝引擎這局的尋寶率、最近一次讀到的道具、delayMs＝移過去到看到說明框最久多久、ageMs＝讀了多久了
+            ["treasure"] = new JsonObject
+            {
+                ["filled"] = new JsonArray(filled.Select(i => (JsonNode?)i).ToArray()),
+                ["tip"] = tipBox is null ? null : new JsonObject
+                {
+                    ["slot"] = tipSlot,
+                    ["box"] = Rect(tipBox.Box),
+                    ["bodyTop"] = tipBox.BodyTop,
+                    ["head"] = tip?.Head,
+                    ["treasure"] = tip?.Treasure,
+                },
+                ["engine"] = new JsonObject
+                {
+                    ["value"] = engine.PickState.Treasure,
+                    ["items"] = new JsonArray((lastTreasure?.Items ?? []).Select(i => (JsonNode?)i).ToArray()),
+                    ["delayMs"] = lastTreasure?.DelayMs,
+                    ["ageMs"] = lastTreasure is null ? null : now - engine.LastTreasureAt,
+                },
+            },
             ["chestAffordable"] = s.CanAffordChest(hud),
             ["minimap"] = mm is null ? null : new JsonObject
             {

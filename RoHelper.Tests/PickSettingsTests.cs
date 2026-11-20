@@ -129,4 +129,17 @@ public sealed class PickSettingsTests : IDisposable
         Assert.Empty(s.DeityList);
         Assert.Empty(s.DeityBan);
     }
+
+    [Fact]
+    public void From_ReadsTreasureCap()
+    {
+        var s = PickSettings.From(Store(new JsonObject { ["treasureCap"] = true, ["treasureCapN"] = 250, ["hpAfterCap"] = true }));
+        var off = PickSettings.From(Store(new JsonObject()));
+
+        Assert.True(s.TreasureCap);
+        Assert.Equal(250, s.TreasureCapN);
+        Assert.True(s.HpAfterCap);
+        Assert.False(off.TreasureCap);
+        Assert.Equal(300, off.TreasureCapN);
+    }
 }

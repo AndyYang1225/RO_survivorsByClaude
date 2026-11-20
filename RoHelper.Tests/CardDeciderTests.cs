@@ -15,10 +15,13 @@ public class CardDeciderTests
     private static PickSettings Settings(SkillCfg? skills = null, bool autoFocus = false, int autoFocusN = 1, string pickOrder = "treasure",
         bool deityPrio = false, string deityOrder = "none", bool deityLock = false, string[]? deity = null, string[]? deityBan = null,
         string[]? itemPrio = null, string[]? itemBan = null, string[]? itemFocus = null, bool avoidNew = true, bool rerollAll = true,
-        bool banishKeep = true, int banishKeepN = 2, bool banExtra = false, string[]? banExtraWords = null)
+        bool banishKeep = true, int banishKeepN = 2, bool banExtra = false, string[]? banExtraWords = null,
+        bool treasureCap = false, int treasureCapN = 300, bool hpAfterCap = false)
         => new("巫師", true, skills ?? SkillCfg.Empty, banExtra, banExtraWords ?? [], deityPrio, deityOrder, deityLock, deity ?? [], deityBan ?? [],
             autoFocus, autoFocusN, itemFocus ?? [], itemPrio ?? [], itemBan ?? [], rerollAll, avoidNew, banishKeep, banishKeepN, pickOrder,
-            true, true, 350, false);
+            true, true, 350, false, TreasureCap: treasureCap, TreasureCapN: treasureCapN, HpAfterCap: hpAfterCap);
+
+    private static RunPickState Treasure(double t) => new() { Treasure = t };
 
     private static SkillCfg Skills(string[]? order = null, string[]? after = null, string[]? ban = null, string[]? focus = null, string[]? skip = null)
         => new(order ?? [], after ?? [], ban ?? [], focus ?? [], skip ?? []);
@@ -236,5 +239,113 @@ public class CardDeciderTests
         Assert.True(CardDecider.IsDeity(Card(0, "某某", text: "某某 神祇")));
         Assert.False(CardDecider.IsDeity(Card(0, "傷害祝福")));
         Assert.Equal("思想之神", CardDecider.DeityName("思想之神 +3"));
+    }
+
+    [Fact]
+    public void TreasureOrder_PicksRarestTreasureCard()
+    {
+        var picker = Picker(true, Card(0, "攻擊力", rarity: 3), Card(1, "幸運符", rarity: 1, text: "幸運符 +5% 尋寶率"), Card(2, "金幣袋", rarity: 2, text: "金幣袋 +8% 尋寶率"));
+
+        Assert.Equal(new PickDecision(PickDo.Pick, 2, "尋寶率優先"), CardDecider.Decide(picker, Settings(), new RunPickState()));
+    }
+
+    [Fact]
+    public void TreasureOrder_NoTreasureCard_Rarest()
+    {
+        var picker = Picker(true, Card(0, "攻擊力", rarity: 1), Card(1, "防禦力", rarity: 2));
+
+        Assert.Equal(new PickDecision(PickDo.Pick, 1, "最稀有"), CardDecider.Decide(picker, Settings(), new RunPickState()));
+    }
+
+    [Theory]
+    [InlineData("尋寶藥水")]
+    [InlineData("驚奇秘藥 +2")]
+    [InlineData("豐饒 祝福")]
+    public void KnownTreasureItem_CountsEvenIfTextMisread(string name)
+    {
+        // 卡片文字的「尋寶」讀錯了（「尋賨」），靠卡名認
+        var picker = Picker(true, Card(0, "攻擊力", rarity: 3), Card(1, name, rarity: 0, text: name + " +5% 尋賨率"));
+
+        Assert.Equal(new PickDecision(PickDo.Pick, 1, "尋寶率優先"), CardDecider.Decide(picker, Settings(), new RunPickState()));
+    }
+
+    [Fact]
+    public void Capped_SkipsTreasureCards_RarestOfRest()
+    {
+        var picker = Picker(true, Card(0, "攻擊力", rarity: 1), Card(1, "尋寶藥水", rarity: 4, text: "尋寶藥水 +10% 尋寶率"), Card(2, "防禦力", rarity: 2));
+
+        var d = CardDecider.Decide(picker, Settings(treasureCap: true, treasureCapN: 300), Treasure(300));
+
+        Assert.Equal(new PickDecision(PickDo.Pick, 2, "最稀有"), d);
+    }
+
+    [Fact]
+    public void BelowCap_OrCapOff_TreasureStillPreferred()
+    {
+        var picker = Picker(true, Card(0, "攻擊力", rarity: 3), Card(1, "尋寶藥水", rarity: 0, text: "尋寶藥水 +10% 尋寶率"));
+
+        Assert.Equal(1, CardDecider.Decide(picker, Settings(treasureCap: true, treasureCapN: 300), Treasure(299.5)).Index);
+        Assert.Equal(1, CardDecider.Decide(picker, Settings(treasureCap: false), Treasure(1000)).Index);
+    }
+
+    [Fact]
+    public void Capped_OnlyTreasureCards_StillPicksOne()
+    {
+        var picker = Picker(true, Card(0, "尋寶藥水", rarity: 0, text: "+10% 尋寶率"), Card(1, "豐饒祝福", rarity: 2, text: "+5% 尋寶率"));
+
+        var d = CardDecider.Decide(picker, Settings(treasureCap: true), Treasure(500));
+
+        Assert.Equal(new PickDecision(PickDo.Pick, 1, "最稀有"), d);
+    }
+
+    [Theory]
+    [InlineData("最大生命 +10%")]
+    [InlineData("HP 回復")]
+    [InlineData("治癒之光")]
+    [InlineData("血量上限")]
+    [InlineData("恢復速度")]
+    public void Capped_HpAfterCap_PicksRarestHpCard(string hpText)
+    {
+        var picker = Picker(true, Card(0, "攻擊力", rarity: 4), Card(1, "生存", rarity: 0, text: hpText), Card(2, "生存2", rarity: 1, text: hpText),
+            Card(3, "尋寶藥水", rarity: 5, text: "+10% 尋寶率"));
+
+        var d = CardDecider.Decide(picker, Settings(treasureCap: true, hpAfterCap: true), Treasure(300));
+
+        Assert.Equal(new PickDecision(PickDo.Pick, 2, "尋寶已滿→生命"), d);
+    }
+
+    [Fact]
+    public void HpAfterCap_NotCapped_NoHpPreference()
+    {
+        var picker = Picker(true, Card(0, "攻擊力", rarity: 4), Card(1, "生存", rarity: 0, text: "最大生命 +10%"));
+
+        Assert.Equal(new PickDecision(PickDo.Pick, 0, "最稀有"), CardDecider.Decide(picker, Settings(treasureCap: true, hpAfterCap: true), Treasure(10)));
+    }
+
+    [Fact]
+    public void Capped_FavItemStillBeforeHp()
+    {
+        var picker = Picker(true, Card(0, "金剛石", rarity: 0), Card(1, "生存", rarity: 3, text: "最大生命 +10%"));
+
+        var d = CardDecider.Decide(picker, Settings(itemPrio: ["金剛石"], treasureCap: true, hpAfterCap: true), Treasure(300));
+
+        Assert.Equal(new PickDecision(PickDo.Pick, 0, "勾選的道具"), d);
+    }
+
+    [Fact]
+    public void RarityOrder_SameRarity_TreasureFirst_UnlessCapped()
+    {
+        var picker = Picker(true, Card(0, "攻擊力", rarity: 2), Card(1, "金幣袋", rarity: 2, text: "+5% 尋寶率"), Card(2, "防禦力", rarity: 1));
+
+        Assert.Equal(new PickDecision(PickDo.Pick, 1, "稀有度優先"), CardDecider.Decide(picker, Settings(pickOrder: "rarity"), new RunPickState()));
+        Assert.Equal(new PickDecision(PickDo.Pick, 0, "稀有度優先"), CardDecider.Decide(picker, Settings(pickOrder: "rarity", treasureCap: true), Treasure(300)));
+    }
+
+    [Fact]
+    public void FirstOrder_Capped_SkipsTreasureCard()
+    {
+        var picker = Picker(true, Card(0, "金幣袋", text: "+5% 尋寶率"), Card(1, "攻擊力"));
+
+        Assert.Equal(new PickDecision(PickDo.Pick, 1, "第一張"), CardDecider.Decide(picker, Settings(pickOrder: "first", treasureCap: true), Treasure(300)));
     }
 }

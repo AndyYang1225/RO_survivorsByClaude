@@ -5,9 +5,9 @@ namespace RoHelper.Vision.Picker;
 /// <summary>
 /// 選卡決策：engine.js decide()（約 448～559 行）的 C# 版，判斷順序和理由文字一行對一行。
 /// 順序：1 神祇 → 2 放逐（升級卡）→ 3 技能專注（升級卡）→ 道具專注 → 可選的卡（排除放逐／強制不選／別的神祇）
-/// → 4 技能優先（升級卡）→ 5 不學清單外的新技能（升級卡）→ 6 勾選的道具 → 選法（第一張／稀有度／最稀有）。
-/// 刻意沒有尋寶率的分支（JS 的 treasureCapped、hasTreasure、hpAfterCap）：視覺模式先不讀尋寶率（使用者決定），
-/// 等同「尋寶率 0、沒超過上限」，所以「尋寶率優先」在這裡就是「最稀有」，跟 JS 在沒有尋寶卡時一樣。
+/// → 4 技能優先（升級卡）→ 5 不學清單外的新技能（升級卡）→ 6 尋寶率上限 → 勾選的道具 → 尋寶已滿→生命 → 選法（第一張／稀有度／尋寶率優先）。
+/// 尋寶率（RunPickState.Treasure）由 VisionEngine 把滑鼠移到道具欄讀說明框得到（<see cref="Field.TreasureReader"/>）。
+/// 跟 JS 不同：尋寶卡除了卡片文字有「尋寶」，卡名是已知的尋寶道具也算（<see cref="HasTreasure"/>），因為 OCR 偶爾把「尋寶」讀錯。
 /// 純函式：不改 RunPickState（選了之後要記什麼由 PickerFlow 負責）。
 /// </summary>
 public static partial class CardDecider
@@ -131,22 +131,54 @@ public static partial class CardDecider
                 return new(PickDo.Reroll, null, "只有不要的新技能");
         }
 
-        // 6. 道具／寶箱／其他
+        // 6. 道具／寶箱／其他。尋寶率超過上限：還有別的卡時不選尋寶卡
+        var capped = s.TreasureCap && st.Treasure >= s.TreasureCapN;
+        if (capped)
+        {
+            var nt = pool.Where(i => !HasTreasure(cards[i])).ToList();
+            if (nt.Count > 0)
+                pool = nt;
+        }
         if (s.ItemPrio.Count > 0)
         {
             var fav = pool.Where(i => IsFavItem(cards[i], s)).ToList();
             if (fav.Count > 0)
                 return new(PickDo.Pick, RarestIndex(cards, fav), "勾選的道具");
         }
+        if (capped && s.HpAfterCap)
+        {
+            var hp = pool.Where(i => HasHp(cards[i])).ToList();
+            if (hp.Count > 0)
+                return new(PickDo.Pick, RarestIndex(cards, hp), "尋寶已滿→生命");
+        }
         if (s.PickOrder == "first")
             return new(PickDo.Pick, pool[0], "第一張");
         if (s.PickOrder == "rarity")
         {
+            // 同稀有度時優先尋寶卡（超過上限時不優先）
             var top = pool.Max(i => cards[i].Rarity);
-            return new(PickDo.Pick, pool.First(i => cards[i].Rarity == top), "稀有度優先");
+            var best = pool.Where(i => cards[i].Rarity == top).ToList();
+            var tb = capped ? -1 : best.FirstOrDefault(i => HasTreasure(cards[i]), -1);
+            return new(PickDo.Pick, tb >= 0 ? tb : best[0], "稀有度優先");
         }
-        return new(PickDo.Pick, RarestIndex(cards, pool), "最稀有");
+        List<int> tr = capped ? [] : [.. pool.Where(i => HasTreasure(cards[i]))];
+        return tr.Count > 0
+            ? new(PickDo.Pick, RarestIndex(cards, tr), "尋寶率優先")
+            : new(PickDo.Pick, RarestIndex(cards, pool), "最稀有");
     }
+
+    /// <summary>
+    /// 尋寶卡：卡片文字有「尋寶」（同 JS hasTreasure），或卡名是已知的尋寶道具（尋寶藥水、驚奇秘藥、豐饒祝福；JS 註解列的）。
+    /// 後者是 exe 新增：OCR 偶爾把「尋寶」二字讀錯，卡名比較大、比較好讀。
+    /// </summary>
+    public static bool HasTreasure(CardInfo c)
+        => (c.Name + " " + c.Text).Contains("尋寶") || TreasureItems.Any(n => Squash(c.Name).Contains(n));
+
+    /// <summary>提升生命的卡（同 JS hasHp）</summary>
+    public static bool HasHp(CardInfo c) => HpWord().IsMatch(c.Name + " " + c.Text);
+
+    /// <summary>已知會加尋寶率的道具卡名</summary>
+    private static readonly string[] TreasureItems = ["尋寶藥水", "驚奇秘藥", "豐饒祝福"];
 
     /// <summary>
     /// 放逐清單的字詞：學到後放逐、直接放逐、一出現就放逐（勾選時）。放逐時記下是哪一個，全部放逐過後就能改按遊戲「自動」。
@@ -222,6 +254,9 @@ public static partial class CardDecider
     }
 
     private static string Squash(string s) => Spaces().Replace(s, "");
+
+    [GeneratedRegex("生命|HP|血量|治癒|回復|恢復", RegexOptions.IgnoreCase)]
+    private static partial Regex HpWord();
 
     [GeneratedRegex("Deity|之神|神祇", RegexOptions.IgnoreCase)]
     private static partial Regex DeityWord();

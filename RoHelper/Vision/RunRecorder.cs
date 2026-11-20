@@ -13,7 +13,8 @@ namespace RoHelper.Vision;
 /// 跟 JS 不同的地方（視覺模式讀不到、或讀法不同）：
 /// - picks 的 gt（遊戲時間）是 OCR 計時器推算的「mm:ss」（<see cref="GameClock"/>），讀不到時空字串。
 /// - last 只有 hp、action：JS 的 gt、phase（計時器顏色）、nextBoss 視覺模式讀不到。
-/// - 刻意沒有 diff、loot、cards、serverLoot、got、treasure、deity、items：遠征難度、戰利品圖示（要認圖）、撿到幾個、尋寶率、道具欄都還沒讀。
+/// - 刻意沒有 diff、loot、cards、serverLoot、got、deity：遠征難度、戰利品圖示（要認圖）、撿到幾個、神祇格都還沒讀。
+/// - treasure、items 是最後一次讀道具欄的結果（<see cref="TreasureReader"/>，<see cref="SetTreasure"/>）；items 是 OCR 的說明框第一行，小字偶爾漏字。
 /// - result／exp／dps／dpsTotal 來自 <see cref="ResultReader"/> 的 OCR（dps 每一筆只有 text，沒有 JS 的 key、name：那兩個是網頁屬性）。
 /// - 只記小幫手自己的選卡動作：JS 另外記使用者自己點的卡（manual: true，靠網頁的 isTrusted 點擊事件），視覺模式分不出來。
 /// - mode 是 "event"（活動）或 "expe"（自動遠征按的前往野外）。
@@ -25,6 +26,8 @@ public sealed class RunRecorder
     private DateTime _start;
     private readonly List<JsonObject> _picks = [];
     private int _hpMin = 100;
+    private double _treasure;
+    private IReadOnlyList<string> _items = [];
 
     /// <summary>這一局正在記錄（Start 之後、Finish 之前）</summary>
     public bool Active => _rec is not null;
@@ -35,6 +38,8 @@ public sealed class RunRecorder
         _start = now;
         _picks.Clear();
         _hpMin = 100;
+        _treasure = 0;
+        _items = [];
         _rec = new JsonObject
         {
             ["v"] = 1,
@@ -56,6 +61,13 @@ public sealed class RunRecorder
             _rec["stage"] = stage;
         if (job.Length > 0)
             _rec["job"] = job;
+    }
+
+    /// <summary>讀到道具欄：累計尋寶率（%）與每個道具說明框的第一行（同 JS st.treasure、st.items）</summary>
+    public void SetTreasure(double treasure, IReadOnlyList<string> items)
+    {
+        _treasure = treasure;
+        _items = items;
     }
 
     /// <summary>一次選卡動作（同 JS recPick）：kind＝pick／banish／reroll／focus／gameAuto，有卡片時附卡片資訊；gt＝遊戲時間「mm:ss」</summary>
@@ -125,6 +137,8 @@ public sealed class RunRecorder
         run["exp"] = r?.Exp ?? "";
         run["dps"] = new JsonArray((r?.Dps ?? []).Select(t => (JsonNode?)new JsonObject { ["text"] = t }).ToArray());
         run["dpsTotal"] = r?.DpsTotal ?? "";
+        run["treasure"] = (int)Math.Round(_treasure);
+        run["items"] = new JsonArray(_items.Select(i => (JsonNode?)i).ToArray());
         run["counts"] = new JsonObject
         {
             ["pick"] = _picks.Count(p => (string?)p["kind"] == "pick"),

@@ -124,4 +124,22 @@ public class RunRecorderTests
         Assert.Equal(5, (int)arr[0]!["secs"]!);
         Assert.Equal(54, (int)arr[49]!["secs"]!);
     }
+
+    [Fact]
+    public void Treasure_LastReadIsRecorded_NewRunResets()
+    {
+        var rec = new RunRecorder();
+        rec.Start(T0, "魔法師", paused: false);
+        rec.SetTreasure(12.4, ["範圍藥水 +0"]);
+        rec.SetTreasure(35.6, ["範圍藥水 +0", "尋寶藥水 +2"]);
+
+        var run = rec.Finish(null, T0)!;
+        rec.Start(T0, "魔法師", paused: false);
+        var next = rec.Finish(null, T0)!;
+
+        Assert.Equal(36, (int)run["treasure"]!);
+        Assert.Equal(["範圍藥水 +0", "尋寶藥水 +2"], run["items"]!.AsArray().Select(i => (string?)i));
+        Assert.Equal(0, (int)next["treasure"]!);
+        Assert.Empty(next["items"]!.AsArray());
+    }
 }

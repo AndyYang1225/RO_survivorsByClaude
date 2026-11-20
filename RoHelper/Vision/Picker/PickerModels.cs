@@ -53,6 +53,7 @@ public sealed record PickDecision(PickDo Do, int? Index, string Why, string? Foc
 /// Picked＝已經學過的「學到後放逐」技能；Focused＝已經專注過的技能或道具；DeityLock＝這局選定的神祇（空字串＝還沒選）。
 /// Banished＝放逐過的清單項目（學到後放逐、直接放逐、一出現就放逐的字詞），判斷何時改按遊戲「自動」用（exe 新增，JS 沒有）。
 /// GameAuto＝這局已經按過遊戲的「自動」。
+/// Treasure＝這局累計的尋寶率（%，同 JS st.treasure）：VisionEngine 把滑鼠移到道具欄、讀說明框加總（<see cref="Field.TreasureReader"/>），還沒讀到時是 0。
 /// </summary>
 public sealed class RunPickState
 {
@@ -61,4 +62,5 @@ public sealed class RunPickState
     public bool GameAuto { get; set; }
     public HashSet<string> Focused { get; } = [];
     public string DeityLock { get; set; } = "";
+    public double Treasure { get; set; }
 }

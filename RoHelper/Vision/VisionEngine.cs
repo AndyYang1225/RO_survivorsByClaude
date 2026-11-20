@@ -84,6 +84,20 @@ public sealed class VisionEngine : IAutomation, IDisposable
     /// <summary>累積升級按 B（autoUpgrade、preMvp）</summary>
     private readonly BankPresser _bank = new();
 
+    /// <summary>
+    /// 讀尋寶率（<see cref="TreasureReader"/>：滑鼠移到道具欄每一格、OCR 說明框）。移滑鼠會打斷走位（那一輪不走），所以不照 JS 每 5 秒讀，改成：
+    /// 選卡畫面關掉後 <see cref="TreasureSettle"/>（選了卡，尋寶率可能變了）、道具欄有東西的格數變了就讀；其餘每 <see cref="TreasureEvery"/> 補讀一次；
+    /// 讀失敗（等不到說明框）<see cref="TreasureRetry"/> 後再試；兩次讀之間至少隔 <see cref="TreasureGap"/>。
+    /// </summary>
+    private const long TreasureSettle = 1500;
+    private const long TreasureEvery = 30_000;
+    private const long TreasureRetry = 10_000;
+    private const long TreasureGap = 3000;
+    private TreasureReader? _treasureReader;
+    private long _treasureDue = long.MinValue / 2;
+    private long _treasureAt = long.MinValue / 2;
+    private int _treasureSlots = -1;
+
     /// <summary>面板「下一隻」那一行（不在野外時空字串）</summary>
     private string _next = "";
     private VisionKit? _kit;
@@ -141,6 +155,10 @@ public sealed class VisionEngine : IAutomation, IDisposable
     /// <summary>躲鐘的狀態（給開發介面看：躲到什麼時候、最近找到的鐘）</summary>
     public BellDodger Bell => _planner.Bell;
 
+    /// <summary>最近一次讀道具欄的結果與時間（給開發介面看；null＝這局還沒讀到）</summary>
+    public TreasureRead? LastTreasure { get; private set; }
+    public long LastTreasureAt => _treasureAt;
+
     /// <summary>引擎推算的遊戲時間（秒；null＝還沒讀到或計時器已經變成倒數）與這一局讀到的地名（給開發介面看）</summary>
     public int? GameSecs => _clock.Now(Environment.TickCount64);
     public string Stage => _stage;
@@ -156,6 +174,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
         _pickerReader = kit.Ocr is { } ocr ? new PickerReader(ocr) : null;
         _hudReader = kit.Ocr is null ? null : new HudReader(kit.Ocr);
         _bannerReader = kit.Ocr is null ? null : new BannerReader(kit.Ocr);
+        _treasureReader = kit.Ocr is null ? null : new TreasureReader(kit.Ocr);
         var jobs = Schema.JobSkills.Select(j => j.Key).ToList();
         _resultReader = kit.Ocr is null ? null : new ResultReader(kit.Ocr, jobs);
         _infoReader = kit.Ocr is null ? null : new FieldInfoReader(kit.Ocr, jobs, Schema.Stages);
@@ -217,6 +236,8 @@ public sealed class VisionEngine : IAutomation, IDisposable
                 {
                     // 按 B 打開的選卡出現了（同 JS 選卡時清 bankTry）
                     _bank.PickerSeen();
+                    // 選了卡，尋寶率可能變了：選卡畫面關掉後再讀
+                    _treasureDue = Environment.TickCount64 + TreasureSettle;
                     return;
                 }
                 unreadable = note;
@@ -382,6 +403,10 @@ public sealed class VisionEngine : IAutomation, IDisposable
         _clock.Reset();
         _clockAt = long.MinValue / 2;
         _bank.NewRun();
+        _treasureDue = long.MinValue / 2;
+        _treasureAt = long.MinValue / 2;
+        _treasureSlots = -1;
+        LastTreasure = null;
         _next = "";
     }
 
@@ -395,6 +420,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
     /// 進野外滿 ZoomDelay 後也讀地名與職業（<see cref="ReadInfoAsync"/>，讀到為止）。
     /// 每 <see cref="ClockEvery"/> OCR 一次遊戲時間（<see cref="GameClock"/>）。
     /// 不在躲鐘時先看累積升級（<see cref="BankAsync"/>，同 JS 順序：躲鐘 → 升級 → 走位）：這一輪要按 B 或等選卡畫面時不走位。
+    /// 接著是讀尋寶率（<see cref="TreasureAsync"/>，躲鐘、撿取倒數時不讀）：有移滑鼠讀的那一輪不走位。
     /// 回傳面板文字：走位的狀態前面加「走位：」，升級的狀態照 JS 原文；升級打不開的附註接在最後（同 JS bankNote）。空字串＝什麼都沒做。
     /// </summary>
     private async Task<string> FieldStepAsync(Frame frame, double dpr, long now)
@@ -427,6 +453,9 @@ public sealed class VisionEngine : IAutomation, IDisposable
                 return bank.Status;
             note = bank.Note;
         }
+        // 讀尋寶率要移滑鼠：躲鐘、撿取倒數時不讀，讀的這一輪不走位
+        if (bell is null && !lootPhase && await TreasureAsync(frame, dpr, now))
+            return "讀道具欄（尋寶率）";
         // 躲鐘中不做別的走位，不用找扭蛋
         var balls = s.SeekBall && !lootPhase && bell is null ? BallFinder.Find(frame, dpr) : null;
         var d = _planner.Step(MinimapReader.Read(frame, dpr), s, now, s.CanAffordChest(_hud), HpReader.Read(frame, dpr), lootPhase, balls, bell);
@@ -437,6 +466,52 @@ public sealed class VisionEngine : IAutomation, IDisposable
         }
         var walk = d.Status.Length > 0 ? "走位：" + d.Status : "";
         return note.Length == 0 ? walk : walk.Length == 0 ? note : walk + " " + note;
+    }
+
+    /// <summary>
+    /// 讀尋寶率（時機見 <see cref="TreasureSettle"/>）。進野外滿 <see cref="ZoomDelay"/> 後才讀（畫面載入完）。
+    /// 道具欄全空時不移滑鼠，尋寶率直接是 0、這一輪照常走位（回 false）；有移滑鼠讀（不管成功與否）回 true＝這一輪不走位。
+    /// 讀失敗（中途跳出選卡畫面之類）保留上次的值。
+    /// </summary>
+    private async Task<bool> TreasureAsync(Frame frame, double dpr, long now)
+    {
+        if (_treasureReader is null || now - _gate.Since < ZoomDelay)
+            return false;
+        var slots = TreasureReader.FilledSlots(frame, dpr);
+        if (slots.Count != _treasureSlots)
+            _treasureDue = Math.Min(_treasureDue, now);
+        if (now < _treasureDue || now - _treasureAt < TreasureGap)
+            return false;
+        _treasureSlots = slots.Count;
+        _treasureAt = now;
+        if (slots.Count == 0)
+        {
+            SetTreasure(new TreasureRead(0, [], 0));
+            _treasureDue = now + TreasureEvery;
+            return false;
+        }
+        var kit = _kit!;
+        var r = await _treasureReader.ReadAsync(frame, dpr, kit.Grabber.CaptureAsync, p =>
+        {
+            var (x, y) = kit.Viewport.ToCss(p.X, p.Y);
+            return kit.Input.MoveAsync(x, y);
+        }, () => Environment.TickCount64);
+        var end = Environment.TickCount64;
+        if (r is null)
+        {
+            _treasureDue = end + TreasureRetry;
+            return true;
+        }
+        SetTreasure(r);
+        _treasureDue = end + TreasureEvery;
+        return true;
+    }
+
+    private void SetTreasure(TreasureRead r)
+    {
+        LastTreasure = r;
+        _picker.State.Treasure = r.Total;
+        _recorder.SetTreasure(r.Total, r.Items);
     }
 
     /// <summary>
@@ -575,14 +650,14 @@ public sealed class VisionEngine : IAutomation, IDisposable
             ["t"] = DateTime.Now.ToString("HH:mm:ss"),
             ["job"] = s.Job,
             ["title"] = info.IsChest ? "寶箱" : "升級",
-            ["treasure"] = 0,
+            ["treasure"] = (int)Math.Round(_picker.State.Treasure),
             ["cards"] = cards,
             ["act"] = status,
             ["why"] = d.Why,
         });
     }
 
-    /// <summary>送狀態給面板（格式同 JS 的 status 訊息；尋寶率還沒做，下一隻王見 <see cref="ClockAsync"/>）</summary>
+    /// <summary>送狀態給面板（格式同 JS 的 status 訊息；尋寶率見 <see cref="TreasureAsync"/>，下一隻王見 <see cref="ClockAsync"/>）</summary>
     private void Report(string action)
     {
         History.Add(DateTime.Now, action);
@@ -591,7 +666,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
         {
             ["runs"] = s.Runs,
             ["runLimit"] = s.RunLimit ? s.RunLimitN : 0,
-            ["treasure"] = 0,
+            ["treasure"] = (int)Math.Round(_picker.State.Treasure),
             ["next"] = _next,
             ["action"] = "［視覺］" + action,
             ["paused"] = s.Paused,
