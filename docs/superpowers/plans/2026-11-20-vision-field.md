@@ -139,3 +139,30 @@
   1. 「前往寶箱」與「卡住了，繞路」反覆交替（00:05～00:10 約 10 次）：疑似寶箱在雕像後面走不到或錢不夠開。待查（可能要 chestMoney，或卡住 3 次後的忽略時間加長）。
   2. 遊戲 0.7.8 更新後，被中斷的局再上線會跳「未完成的一局（捨棄／繼續）」與「已捨棄本局（OK）」，大廳流程不認得 → 這次手動按掉。
   3. 「前往野外」範本（62×24）在首頁（0.906）和大廳（0.908）都誤判；目前只在交談後的時間窗內會點，所以沒誤點，但要重存大一點的範本。
+
+---
+
+## 追加（實機後）
+
+### Task 6: 錢不夠就不追寶箱（chestMoney）
+
+**Files:** Create `RoHelper/Vision/Field/HudReader.cs`；Modify `FieldSettings.cs`、`FieldPlanner.cs`、`VisionEngine.cs`、`DevApiHost.cs`（/field 附上 hud）；Test `HudReaderTests.cs`、`FieldPlannerTests.cs`
+
+- 畫面正上方計時器下面有兩個小框：「<金錢> z」和「寶箱 <價格> z」（實測 dpr 1、寬 1904：約 x 860～1060、y 45～72，以畫面水平中心為準）。
+- `HudReader(OcrReader ocr)`：`Task<Hud?> ReadAsync(Frame f, double dpr)`，OCR 區塊＝以 W/2 為中心、寬 260·dpr、y 42～76·dpr；`Hud(int Money, int ChestCost)`；解析：去掉逗號與空白後，`寶箱` 後面的數字＝價格，其他第一個數字＝金錢；任一讀不到回 null。
+- Fixtures（已複製）：`野外3錢不夠`＝(1537, 3009)、`野外4`＝(36, 30)、`野外2寶箱`＝(0, 30)。若 OCR 實測讀不準，可以調整區塊或放大倍數，但預期值不能改。
+- `FieldSettings` 加 `ChestMoney`（cfg `chestMoney`，預設 true）。`FieldPlanner.Step` 加參數 `bool chestAffordable`（呼叫端算），`SeekChest && chestAffordable` 才追寶箱（同 JS `canAffordChest()`）。
+- `VisionEngine`：在野外時每 3 秒（不是每輪，OCR 約 100～300 ms）讀一次 HUD 並快取；`chestAffordable = !ChestMoney || hud is null || hud.Money >= hud.ChestCost`（讀不到就當買得起，同 JS 的保守行為）。沒有 OCR 時一律 true。
+- 從 `FieldPlanner`／`FieldSettings` summary 的「刻意不做」移除 chestMoney。
+- commit `feat: 錢不夠開寶箱時不追寶箱`
+
+### Task 7: 「未完成的一局」對話框
+
+**Files:** Modify `RoHelper/Vision/ScreenState.cs`、`ScreenReader.cs`、`LobbyFlow.cs`；Test `LobbyFlowTests.cs`、`ScreenReaderTests.cs`（若適用）
+
+- 遊戲 0.7.8：被中斷的局再上線時，大廳跳「未完成的一局 → 捨棄／繼續」，按捨棄後跳「已捨棄本局 → OK」。範本已由 Claude 存好（`%AppData%\RoHelper\templates\捨棄本局`、`確定捨棄`，門檻 0.98，整張畫面找）；Fixtures `未完成的一局.png`、`已捨棄本局.png`。
+- `ScreenTemplates` 加 `Discard = "捨棄本局"`、`DiscardOk = "確定捨棄"`，但**不列入 `All`／Missing**（選用範本：沒存也不提醒）；`ScreenState` 加 `Discard`、`DiscardOk`。`ScreenReader` 一律找這兩個（在按鈕那一組）。
+- `LobbyFlow.Decide`：最優先（在單人大廳之前）：看到 `DiscardOk` → 立刻點（`"關閉已捨棄本局"`）；看到 `Discard` → 等 500 ms 後點（`"捨棄未完成的一局"`）。刻意選「捨棄」不選「繼續」：繼續的話不會經過「前往野外」，視覺模式不知道已在野外、不會走位；註解寫原因。
+- `FieldGate.LobbyVisible` 也要包含這兩個。
+- 用真實 fixture 測 ScreenReader 找得到（需要範本：測試可以從 fixture 裁出範本建 TemplateLibrary，或只測 LobbyFlow 邏輯，自行判斷）。
+- commit `feat: 大廳流程處理「未完成的一局」對話框`
