@@ -7,7 +7,7 @@ namespace RoHelper.Forms;
 
 /// <summary>
 /// 控制面板（獨立視窗，可以跟遊戲分開擺、單獨最小化）。
-/// 介面不是寫死的：遊戲頁面載入後，JS 引擎送來規則清單（<see cref="EngineSchema"/>），面板照著產生分頁和控制項。
+/// 介面不是寫死的：引擎就緒後送來規則清單（<see cref="EngineSchema"/>；JS 引擎的 hello 訊息，或視覺模式的內建 schema.json），面板照著產生分頁和控制項。
 /// 資料流向是單向循環：使用者操作 → <see cref="IAutomation.SendPatch"/> → 引擎改 cfg → 存回 ConfigStore →
 /// <see cref="ConfigStore.Changed"/> → <see cref="ApplyConfig"/> 把畫面對齊設定。
 /// 刻意不在操作當下直接改畫面以外的狀態：所有顯示都以 JS 回傳的設定為準，兩邊才不會不同步。

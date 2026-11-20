@@ -32,6 +32,19 @@ public class TemplateMatcherTests
     }
 
     [Fact]
+    public void Find_LargeRegion_ShortWideTemplate_StillExact()
+    {
+        var f = TestFrames.Pattern(800, 600);
+        var t = f.Crop(new Rectangle(457, 331, 90, 18));
+
+        var m = TemplateMatcher.Find(f, t, new Rectangle(0, 0, f.Width, f.Height));
+
+        Assert.NotNull(m);
+        Assert.Equal(new Rectangle(457, 331, 90, 18), m.Value.Bounds);
+        Assert.Equal(1.0, m.Value.Score, 3);
+    }
+
+    [Fact]
     public void Find_StaysInsideRegion()
     {
         var f = TestFrames.Pattern();

@@ -35,4 +35,17 @@ public sealed class ConfigStoreTests : IDisposable
 
         Assert.Equal(decimal.MaxValue, store.GetNumber("x"));
     }
+
+    [Fact]
+    public void GetInt_SaturatesHugeValues()
+    {
+        var store = new ConfigStore(_path);
+
+        store.Replace(new JsonObject { ["big"] = JsonNode.Parse("1e10"), ["small"] = JsonNode.Parse("-1e10"), ["n"] = 3 });
+
+        Assert.Equal(int.MaxValue, store.GetInt("big"));
+        Assert.Equal(int.MinValue, store.GetInt("small"));
+        Assert.Equal(3, store.GetInt("n"));
+        Assert.Equal(7, store.GetInt("missing", 7));
+    }
 }

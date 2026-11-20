@@ -4,8 +4,9 @@ namespace RoHelper.Storage;
 
 /// <summary>
 /// 遊戲規則設定（JS 引擎的 cfg）的鏡像與存檔。
-/// 設定的唯一擁有者是 JS 引擎：面板要改設定時送 patch 給 JS，JS 改完把整份 cfg 回傳，這裡再 <see cref="Replace"/> 並存檔。
-/// 刻意不在 C# 直接改 <see cref="Current"/>：兩邊各改各的會不同步（例如 JS 自動偵測到職業、局數 +1 的同時，面板也在改）。
+/// JS 模式：設定由 JS 引擎擁有，面板要改設定時送 patch 給 JS，JS 改完把整份 cfg 回傳，這裡再 <see cref="Replace"/> 並存檔。
+/// 視覺模式：設定由 VisionEngine 擁有，它改完整份 cfg 後直接 <see cref="Replace"/>。
+/// 刻意不在引擎以外的地方直接改 <see cref="Current"/>：兩邊各改各的會不同步（例如自動偵測到職業、局數 +1 的同時，面板也在改）。
 /// </summary>
 public sealed class ConfigStore
 {
@@ -20,7 +21,7 @@ public sealed class ConfigStore
     /// <summary>目前的設定（唯讀用途；要改請透過引擎送 patch）</summary>
     public JsonObject Current { get; private set; }
 
-    /// <summary>JS 回傳新的整份設定後觸發</summary>
+    /// <summary>引擎（JS 或 VisionEngine）換上新的整份設定後觸發</summary>
     public event Action? Changed;
 
     public void Replace(JsonObject cfg)
@@ -55,6 +56,20 @@ public sealed class ConfigStore
         if (v.TryGetValue(out double f) && double.IsFinite(f))
             return ToDecimal(f);
         return fallback;
+    }
+
+    /// <summary>
+    /// 讀整數，超出 int 範圍的夾到 int.MinValue／MaxValue。
+    /// 匯入的設定可能有 1e10 這種數字，直接 (int) 轉型會拋 OverflowException，而主迴圈每輪都會讀設定，不能讓它掛掉。
+    /// </summary>
+    public int GetInt(string key, int fallback = 0)
+    {
+        var n = GetNumber(key, fallback);
+        if (n >= int.MaxValue)
+            return int.MaxValue;
+        if (n <= int.MinValue)
+            return int.MinValue;
+        return (int)n;
     }
 
     /// <summary>

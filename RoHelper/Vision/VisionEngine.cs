@@ -55,6 +55,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
         foreach (var (k, v) in patch)
             cfg[k] = v?.DeepClone();
         ConfigDefaults.ClampTimes(cfg, Schema);
+        _flow.Reset();
         _config.Replace(cfg);
         UpdateInterval();
     }
@@ -77,6 +78,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
             var settings = FlowSettings.From(_config);
             if (settings.Paused)
             {
+                _flow.Reset();
                 Report("已暫停");
                 return;
             }
@@ -99,7 +101,14 @@ public sealed class VisionEngine : IAutomation, IDisposable
         }
         catch (Exception ex)
         {
-            Report($"視覺判斷失敗 : {ex.Message}");
+            try
+            {
+                Report($"視覺判斷失敗 : {ex.Message}");
+            }
+            catch
+            {
+                // 為什麼吞掉：Report 會讀設定，若問題就出在設定，這裡再拋會從 async void 的計時器事件逃出去讓程式結束
+            }
         }
         finally
         {
@@ -111,7 +120,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
     private void CountRun()
     {
         var cfg = (JsonObject)_config.Current.DeepClone();
-        cfg["runs"] = (int)_config.GetNumber("runs") + 1;
+        cfg["runs"] = (int)Math.Min((long)_config.GetInt("runs") + 1, int.MaxValue);
         _config.Replace(cfg);
     }
 
@@ -135,7 +144,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
         StatusReceived?.Invoke(status);
     }
 
-    private int TickMs() => (int)_config.GetNumber("tTickN", 250);
+    private int TickMs() => _config.GetInt("tTickN", 250);
 
     /// <summary>間隔有變才設：設定 Interval 會讓計時器重新計時，面板每切一次分頁都重設的話主迴圈會被拖慢</summary>
     private void UpdateInterval()

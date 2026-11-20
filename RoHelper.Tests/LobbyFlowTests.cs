@@ -171,4 +171,28 @@ public class LobbyFlowTests
 
         Assert.Equal("視覺模式還不支援遠征", d.Action);
     }
+
+    [Fact]
+    public void Return_MissedOneFrame_DoesNotCountAgain()
+    {
+        var flow = new LobbyFlow();
+
+        Assert.True(flow.Decide(Screen() with { Return = Btn }, Cfg(), 0).CountRun);
+        flow.Decide(Screen(), Cfg(), 300);
+
+        Assert.False(flow.Decide(Screen() with { Return = Btn }, Cfg(), 600).CountRun);
+    }
+
+    [Fact]
+    public void Reset_ClearsPendingDelay()
+    {
+        var flow = new LobbyFlow();
+        var s = Screen() with { Solo = Btn };
+
+        flow.Decide(s, Cfg(), 0);
+        flow.Reset();
+
+        Assert.Null(flow.Decide(s, Cfg(), 600).Click);
+        Assert.Equal(BtnCenter, flow.Decide(s, Cfg(), 1200).Click);
+    }
 }

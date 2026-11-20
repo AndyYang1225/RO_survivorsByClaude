@@ -9,8 +9,8 @@ public sealed record FlowSettings(
 {
     public static FlowSettings From(ConfigStore c) => new(
         c.GetBool("paused"), c.GetBool("soloLobby"), c.GetBool("autoEvent"), c.GetBool("autoExpe"), c.GetBool("autoReturn"),
-        c.GetBool("runLimit"), (int)c.GetNumber("runLimitN", 10), (int)c.GetNumber("runs"),
-        (int)c.GetNumber("tStartN", 800), (int)c.GetNumber("tReturnN", 1500), (int)c.GetNumber("tLobbyN", 700));
+        c.GetBool("runLimit"), c.GetInt("runLimitN", 10), c.GetInt("runs"),
+        c.GetInt("tStartN", 800), c.GetInt("tReturnN", 1500), c.GetInt("tLobbyN", 700));
 }
 
 /// <summary>這一輪的決定：顯示在面板上的動作文字、要點的位置（截圖像素，null＝不點）、要不要把局數 +1</summary>
@@ -42,12 +42,27 @@ public sealed class LobbyFlow
     /// <summary>點地面時離畫面邊緣至少多少 CSS px（邊緣是 UI，點到會開別的東西）</summary>
     private const int EdgeMargin = 20;
 
+    /// <summary>
+    /// 「返回角色」消失超過多久才算結算畫面真的結束（才允許下一次記局）。
+    /// 範本比對在單一畫面可能因雜訊漏判一次（JS 看 DOM 不會），不寬限的話漏一格就會重複記一局
+    /// </summary>
+    private const long ReturnGrace = 2_000;
+
     private long? _soloAt;
     private long? _returnAt;
+    private long _returnSeenAt;
     private long? _startAt;
     private long? _talkedAt;
     private long _festAt = long.MinValue / 2;
     private long _lastWalk = long.MinValue / 2;
+
+    /// <summary>清掉所有等待中的計時（同 JS：改了設定或暫停後就重新開始流程，避免用到過期的時間）</summary>
+    public void Reset()
+    {
+        _soloAt = _returnAt = _startAt = _talkedAt = null;
+        _returnSeenAt = 0;
+        _festAt = _lastWalk = long.MinValue / 2;
+    }
 
     public FlowDecision Decide(ScreenState s, FlowSettings c, long now)
     {
@@ -68,15 +83,21 @@ public sealed class LobbyFlow
         // 步驟 2：結算畫面 → 第一次看到時記一局；等 tReturn 後按「返回角色」
         if (s.Return is { } back)
         {
+            // 消失太久才當成新的一次結算（惰性判斷，Decide 沒被呼叫的期間也算）
+            if (_returnAt is not null && now - _returnSeenAt > ReturnGrace)
+                _returnAt = null;
             var first = _returnAt is null;
             _returnAt ??= now;
+            _returnSeenAt = now;
             if (first)
                 _talkedAt = null;
             if (!c.AutoReturn)
                 return new("結算中", CountRun: first);
             return new("準備返回角色", now - _returnAt > c.TReturn ? Center(back) : null, first);
         }
-        _returnAt = null;
+        // 沒看到「返回角色」：寬限期內不清 _returnAt（可能只是漏判一格），其餘步驟照常往下走
+        if (_returnAt is not null && now - _returnSeenAt > ReturnGrace)
+            _returnAt = null;
 
         // 步驟 3：「開始遊戲」／活動的「前往野外」→ 等 tStart 後按
         var limit = c.RunLimit && c.Runs >= c.RunLimitN;

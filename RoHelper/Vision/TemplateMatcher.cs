@@ -16,13 +16,13 @@ public static class TemplateMatcher
     /// <summary>搜尋範圍超過這個面積（像素）才用金字塔；小範圍直接找比較準，也夠快</summary>
     private const int PyramidArea = 250_000;
 
-    /// <summary>範本太小時縮一半就看不出形狀了，不用金字塔</summary>
-    private const int PyramidMinSize = 24;
+    /// <summary>範本短邊至少多少 px 才用金字塔：縮一半後至少 6 px 還看得出形狀；名字標籤這種又扁又寬的也要走金字塔</summary>
+    private const int PyramidMinSide = 12;
 
     public static MatchResult? Find(Frame frame, Frame template, Rectangle region)
     {
         region = Rectangle.Intersect(region, new Rectangle(0, 0, frame.Width, frame.Height));
-        if ((long)region.Width * region.Height <= PyramidArea || template.Width < PyramidMinSize || template.Height < PyramidMinSize)
+        if ((long)region.Width * region.Height <= PyramidArea || Math.Min(template.Width, template.Height) < PyramidMinSide)
             return FindDirect(frame, template, region);
 
         // 步驟 1：在一半大小的圖上找大概位置；範本縮一半後比範圍大（不太可能）就退回直接找

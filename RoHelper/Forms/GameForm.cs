@@ -141,12 +141,14 @@ public sealed class GameForm : Form
     }
 
     /// <summary>
-    /// F8 暫停、F9 面板。焦點在遊戲畫面（WebView2）時，WebView2 控制項會把功能鍵當加速鍵轉給 WinForms 的 ProcessCmdKey，
-    /// 所以兩種模式都在這裡處理（視覺模式沒有 JS 可以聽按鍵）。回傳 true＝已處理，網頁不會再收到這個按鍵，
-    /// JS 模式下 engine.js 自己的 F8／F9 監聽也就不會重複觸發。
+    /// F8 暫停、F9 面板，只在視覺模式處理：焦點在遊戲畫面（WebView2）時，WebView2 控制項會把功能鍵當加速鍵轉給 WinForms 的 ProcessCmdKey，
+    /// 而視覺模式沒有 JS 可以聽按鍵。JS 模式維持 engine.js 自己的處理，避免 WebView2 沒擋下按鍵時切兩次（使用者決定）。
+    /// 回傳 true＝已處理，網頁不會再收到這個按鍵。
     /// </summary>
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
+        if (_visionEngine is null)
+            return base.ProcessCmdKey(ref msg, keyData);
         switch (keyData)
         {
             case Keys.F8:
@@ -371,7 +373,7 @@ public sealed class GameForm : Form
     }
 
     /// <summary>
-    /// 顯示／隱藏面板。遊戲裡按 F9 時由 JS 送 togglePanel 訊息觸發：焦點在 WebView2 裡時按鍵不會經過 WinForms。
+    /// 顯示／隱藏面板。JS 模式：遊戲裡按 F9 時由 engine.js 送 togglePanel 訊息觸發（焦點在 WebView2 裡時按鍵不一定經過 WinForms）；視覺模式：由 <see cref="ProcessCmdKey"/> 觸發。
     /// </summary>
     private void TogglePanel()
     {
