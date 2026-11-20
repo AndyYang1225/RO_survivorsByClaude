@@ -50,6 +50,14 @@ public class ConfigDefaultsTests
     }
 
     [Fact]
+    public void Apply_HugeNumber_ClampsToMax()
+    {
+        var cfg = ConfigDefaults.Apply(ConfigDefaults.Build(Schema), new JsonObject { ["tTickN"] = JsonNode.Parse("1e30") }, Schema, reset: false);
+
+        Assert.Equal(2000m, cfg["tTickN"]!.GetValue<decimal>());
+    }
+
+    [Fact]
     public void Apply_InvalidTab_ResetsToFirstTab()
     {
         var cfg = ConfigDefaults.Apply(ConfigDefaults.Build(Schema), new JsonObject { ["tab"] = "不存在" }, Schema, reset: false);

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json.Nodes;
 
 using RoHelper.Bridge;
+using RoHelper.Storage;
 
 namespace RoHelper.Engine;
 
@@ -112,7 +113,7 @@ public static class ConfigDefaults
         JsonValue v when v.TryGetValue(out decimal d) => d,
         JsonValue v when v.TryGetValue(out int i) => i,
         JsonValue v when v.TryGetValue(out long l) => l,
-        JsonValue v when v.TryGetValue(out double f) && double.IsFinite(f) => (decimal)f,
+        JsonValue v when v.TryGetValue(out double f) && double.IsFinite(f) => ConfigStore.ToDecimal(f),
         JsonValue v when v.TryGetValue(out string? s) && decimal.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var p) => p,
         _ => null,
     };

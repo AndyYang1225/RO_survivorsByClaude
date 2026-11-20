@@ -52,9 +52,22 @@ public sealed class ConfigStore
             return i;
         if (v.TryGetValue(out long l))
             return l;
-        if (v.TryGetValue(out double f))
-            return (decimal)f;
+        if (v.TryGetValue(out double f) && double.IsFinite(f))
+            return ToDecimal(f);
         return fallback;
+    }
+
+    /// <summary>
+    /// double 轉 decimal，超出 decimal 範圍的夾到 MaxValue／MinValue。
+    /// 超出範圍的數字直接轉型會拋 OverflowException；匯入壞掉的設定時要夾到上下限（之後由 ClampTimes 夾到規則的上下限），不能讓程式掛掉。
+    /// </summary>
+    public static decimal ToDecimal(double f)
+    {
+        if (f >= (double)decimal.MaxValue)
+            return decimal.MaxValue;
+        if (f <= (double)decimal.MinValue)
+            return decimal.MinValue;
+        return (decimal)f;
     }
 
     public List<string> GetStringList(string key)
