@@ -93,6 +93,9 @@ public sealed class VisionEngine : IAutomation, IDisposable
     /// <summary>現在是不是在野外（給開發介面看）</summary>
     public bool InField => _gate.InField;
 
+    /// <summary>走位判定的王死掉地點（給開發介面看；null＝沒有）</summary>
+    public BossSpot? BossSpot => _planner.BossSpot;
+
     public event Action<EngineSchema>? SchemaReceived;
     public event Action<JsonObject>? StatusReceived;
 

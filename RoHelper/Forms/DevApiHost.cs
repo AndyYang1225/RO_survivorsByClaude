@@ -161,6 +161,10 @@ public sealed class DevApiHost(Control ui, VisionKit kit, VisionEngine engine, P
             ["dpr"] = dpr,
             ["inField"] = engine.InField,
             ["hp"] = hp is null ? null : Math.Round(hp.Value, 3),
+            // 引擎的走位狀態（預覽用的新決策沒有追蹤紀錄）；ageMs＝判定死掉到現在多久
+            ["bossSpot"] = engine.BossSpot is { } spot
+                ? new JsonObject { ["x"] = Math.Round(spot.X, 1), ["y"] = Math.Round(spot.Y, 1), ["ageMs"] = Environment.TickCount64 - spot.At }
+                : null,
             ["hud"] = hud is null ? null : new JsonObject { ["money"] = hud.Money, ["chestCost"] = hud.ChestCost },
             ["chestAffordable"] = s.CanAffordChest(hud),
             ["minimap"] = mm is null ? null : new JsonObject

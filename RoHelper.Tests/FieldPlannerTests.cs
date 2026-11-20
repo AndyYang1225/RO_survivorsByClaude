@@ -22,8 +22,8 @@ public sealed class FieldPlannerTests : IDisposable
 
     private static MinimapBlob B(double x, double y) => new(x, y, 5);
 
-    private static MinimapInfo Mm(MinimapBlob me, MinimapBlob[]? magnets = null, MinimapBlob[]? chests = null, MinimapBlob[]? loot = null)
-        => new(me, magnets ?? [], chests ?? [], loot ?? [], [], Map);
+    private static MinimapInfo Mm(MinimapBlob me, MinimapBlob[]? magnets = null, MinimapBlob[]? chests = null, MinimapBlob[]? loot = null, MinimapBlob[]? bosses = null)
+        => new(me, magnets ?? [], chests ?? [], loot ?? [], bosses ?? [], Map);
 
     [Fact]
     public void Step_AllOff_DoesNothing()
@@ -201,6 +201,106 @@ public sealed class FieldPlannerTests : IDisposable
         Assert.Equal("前往寶箱", d.Status);
     }
 
+    // 王死掉的地點：每次呼叫時自己的位置都換一點（> 0.8 px），才不會被當成卡住
+
+    [Fact]
+    public void Step_BossGoneFor2Seconds_RunsToWhereItDied()
+    {
+        var p = Planner();
+        p.Step(Mm(B(1810, 105), bosses: [B(1790, 90)]), All, 10_000);
+        p.Step(Mm(B(1812, 105), bosses: [B(1791, 90)]), All, 10_600);
+
+        var d = p.Step(Mm(B(1814, 105)), All, 12_200);
+
+        Assert.Equal("跑到王死掉的地方", d.Status);
+        Assert.True(d.Click!.Value.X < 0.5 && d.Click.Value.Y < 0.5, $"{d.Click}");
+        Assert.Equal(new BossSpot(1791, 90, 12_200), p.BossSpot);
+    }
+
+    [Fact]
+    public void Step_BossBlinksUnder1500ms_NotDead()
+    {
+        var p = Planner();
+        p.Step(Mm(B(1810, 105), bosses: [B(1790, 90)]), All, 10_000);
+        p.Step(Mm(B(1812, 105)), All, 11_000);
+        p.Step(Mm(B(1814, 105), bosses: [B(1790, 90)]), All, 11_400);
+
+        Assert.NotEqual("跑到王死掉的地方", p.Step(Mm(B(1816, 105)), All, 12_000).Status);
+        Assert.Null(p.BossSpot);
+    }
+
+    [Fact]
+    public void Step_AtBossSpot_Waits1500ms_ThenClears()
+    {
+        var p = Planner();
+        p.Step(Mm(B(1810, 105), bosses: [B(1790, 90)]), All, 10_000);
+
+        Assert.Equal(new FieldDecision("在王死掉的地方撿東西", null), p.Step(Mm(B(1791, 90)), All, 12_000));
+        Assert.Equal(new FieldDecision("在王死掉的地方撿東西", null), p.Step(Mm(B(1790.5, 90)), All, 12_800));
+        Assert.Equal("在王死掉的地方撿東西", p.Step(Mm(B(1791, 90.5)), All, 13_600).Status);
+        Assert.Null(p.BossSpot);
+        Assert.NotEqual("在王死掉的地方撿東西", p.Step(Mm(B(1795, 95)), All, 14_200).Status);
+    }
+
+    [Fact]
+    public void Step_BossLeftAtMinimapEdge_NotDead()
+    {
+        // 地圖本體左邊在 1731：1733 離邊緣只有 2 px（要 > 4 px 才算在小地圖裡面）→ 是跑出去了，不是死了
+        var p = Planner();
+        p.Step(Mm(B(1810, 105), bosses: [B(1733, 90)]), All, 10_000);
+
+        Assert.NotEqual("跑到王死掉的地方", p.Step(Mm(B(1812, 105)), All, 12_200).Status);
+        Assert.Null(p.BossSpot);
+    }
+
+    [Fact]
+    public void Step_BossSpot_ExpiresAfter12Seconds()
+    {
+        var p = Planner();
+        p.Step(Mm(B(1850, 140), bosses: [B(1740, 60)]), All, 10_000);
+        var decisions = new List<string>();
+        for (var i = 0; i < 20; i++)
+            decisions.Add(p.Step(Mm(B(1849 - i, 140 - i)), All, 11_600 + i * 600L).Status);
+
+        // 11_600 判定死掉；23_000 時還在 12 秒內，23_700 就過期了
+        Assert.All(decisions, d => Assert.Equal("跑到王死掉的地方", d));
+        Assert.NotEqual("跑到王死掉的地方", p.Step(Mm(B(1825, 115)), All, 23_700).Status);
+        Assert.Null(p.BossSpot);
+    }
+
+    [Fact]
+    public void Step_BossSpot_LootOnMinimap_PicksLootInstead()
+    {
+        var p = Planner();
+        p.Step(Mm(B(1810, 105), bosses: [B(1790, 90)]), All, 10_000);
+
+        Assert.Equal("撿王的掉落物", p.Step(Mm(B(1812, 105), loot: [B(1830, 120)]), All, 12_200).Status);
+        Assert.NotNull(p.BossSpot);
+    }
+
+    [Fact]
+    public void Step_BossSpotOff_DoesNotRunThere()
+    {
+        var p = Planner();
+        var off = All with { BossSpot = false };
+        p.Step(Mm(B(1810, 105), bosses: [B(1790, 90)]), off, 10_000);
+
+        Assert.NotEqual("跑到王死掉的地方", p.Step(Mm(B(1812, 105)), off, 12_200).Status);
+    }
+
+    [Fact]
+    public void NewRun_ClearsBossSpot()
+    {
+        var p = Planner();
+        p.Step(Mm(B(1810, 105), bosses: [B(1790, 90)]), All, 10_000);
+        p.Step(Mm(B(1812, 105)), All, 12_200);
+        Assert.NotNull(p.BossSpot);
+
+        p.NewRun();
+
+        Assert.Null(p.BossSpot);
+    }
+
     [Fact]
     public void FieldSettings_From_DefaultsAndValues()
     {
@@ -213,9 +313,9 @@ public sealed class FieldPlannerTests : IDisposable
         {
             ["seekLoot"] = true, ["seekMagnet"] = true, ["seekChest"] = false, ["autoWander"] = true,
             ["stayCenter"] = true, ["zoomOut"] = true, ["tSeekN"] = 800, ["tWanderN"] = 1400, ["chestMoney"] = false,
-            ["lowHpStop"] = true, ["lowHpStopN"] = 45, ["farLimit"] = false,
+            ["lowHpStop"] = true, ["lowHpStopN"] = 45, ["farLimit"] = false, ["bossSpot"] = false,
         });
-        Assert.Equal(new FieldSettings(true, true, false, true, true, true, 800, 1400, false, LowHpStop: true, LowHpStopN: 45, FarLimit: false), FieldSettings.From(store));
+        Assert.Equal(new FieldSettings(true, true, false, true, true, true, 800, 1400, false, LowHpStop: true, LowHpStopN: 45, FarLimit: false, BossSpot: false), FieldSettings.From(store));
     }
 
     [Fact]

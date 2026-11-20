@@ -5,10 +5,9 @@ public sealed record FieldDecision(string Status, PointF? Click);
 
 /// <summary>
 /// 野外走位決策（移植 engine.js fieldStep 的「小地圖模式」、wanderStep、checkStuck）：
-/// 撿王的掉落物 → 磁鐵 → 寶箱（farLimit：太遠的先不追）→ 回地圖中間／繞圈；一直下指令但小地圖上的自己沒動就繞路；站在掉落物上 3 秒還在就忽略它。
+/// 王死掉的地點（bossSpot）→ 撿王的掉落物 → 磁鐵 → 寶箱（farLimit：太遠的先不追）→ 回地圖中間／繞圈；一直下指令但小地圖上的自己沒動就繞路；站在掉落物上 3 秒還在就忽略它。
 /// 純邏輯：時間與亂數由呼叫端傳入（亂數注入才能寫測試），不截圖、不送輸入。
-/// 刻意不做（第二批）：節慶扭蛋、精確模式（JS 讀遊戲資料）、吃肉、躲鐘、王死掉的地點（要 OCR 小地圖座標）、
-/// MVP 倒數撿取階段。
+/// 刻意不做（第二批）：節慶扭蛋、精確模式（JS 讀遊戲資料）、吃肉、躲鐘、MVP 倒數撿取階段。
 /// 小地圖座標用截圖像素：假設 dpr 1 時跟 JS 的小地圖畫布像素同尺度，所以 JS 以像素為單位的門檻（0.8、3、len·0.03）直接沿用。
 /// </summary>
 public sealed class FieldPlanner(Func<double> random)
@@ -30,6 +29,11 @@ public sealed class FieldPlanner(Func<double> random)
     private long _escUntil;
     private readonly List<(double X, double Y, long Until)> _blocked = [];
     private long _lootNear;
+    private readonly BossTracker _bosses = new();
+    private long _bossArrive;
+
+    /// <summary>最近判定的王死掉地點（給開發介面看；null＝沒有）</summary>
+    public BossSpot? BossSpot => _bosses.Spot;
 
     /// <summary>新的一局：全部重設</summary>
     public void NewRun()
@@ -43,6 +47,8 @@ public sealed class FieldPlanner(Func<double> random)
         _escUntil = 0;
         _blocked.Clear();
         _lootNear = 0;
+        _bosses.Reset();
+        _bossArrive = 0;
     }
 
     /// <summary>
@@ -55,6 +61,10 @@ public sealed class FieldPlanner(Func<double> random)
         // 同 JS：在「走位開關都關了」和 SeekEvery 之前檢查
         if (s.LowHpStop && hp < s.LowHpStopN / 100.0)
             return new("HP 過低，停止走位", null);
+        // 刻意每輪都追蹤王（JS 只在 SeekEvery 之後才追蹤）：王的標記會閃，視覺模式一輪又比較久，
+        // 被 SeekEvery 跳過的那幾輪也要記到「最後看到的時間」，才不會把閃爍誤判成死掉
+        if (mm is not null)
+            _bosses.Update(mm, now);
         if (!s.SeekLoot && !s.SeekMagnet && !s.SeekChest && !s.AutoWander)
             return new("", null);
         if (now - _lastMove < s.SeekEvery)
@@ -69,6 +79,20 @@ public sealed class FieldPlanner(Func<double> random)
         if (mm is null)
             return Wander(null, s, now);
         var me = mm.Me;
+
+        // 王剛死：跑到死掉的地點（最多 12 秒；到了之後停 1.5 秒讓東西被撿起來）
+        if (_bosses.Spot is { } spot)
+        {
+            if (now - spot.At >= 12_000)
+            {
+                _bosses.Spot = null;
+                _bossArrive = 0;
+            }
+            // 小地圖上有掉落物就交給下面的撿掉落物（同 JS 1124 行）。跟 JS 小差異：JS 這時已經往地點點了一次、下面又往掉落物點一次；
+            // 這裡一輪只出一個決策，有掉落物就直接不走地點這段（地點留著，撿完掉落物還沒過 12 秒就接著去）
+            else if (s.BossSpot && mm.Loot.Count == 0)
+                return BossSpotStep(me, spot, now);
+        }
 
         // 王的掉落物最優先
         if (s.SeekLoot && Nearest(me, mm.Loot, now) is { } loot)
@@ -105,6 +129,31 @@ public sealed class FieldPlanner(Func<double> random)
         }
 
         return Wander(mm, s, now);
+    }
+
+    /// <summary>
+    /// 王死掉的地點（同 JS mapStep 的 bossSpot 段，距離改成小地圖像素）：離地點 &lt; 2 px（JS 3 格）算到了，停 1.5 秒後清掉，不點；
+    /// 還沒到就往那邊走（步伐同撿掉落物）。卡住時回繞路的決策。
+    /// </summary>
+    private FieldDecision BossSpotStep(MinimapBlob me, BossSpot spot, long now)
+    {
+        double dx = spot.X - me.X, dy = spot.Y - me.Y;
+        var len = Math.Sqrt(dx * dx + dy * dy);
+        if (len < 2)
+        {
+            if (_bossArrive == 0)
+                _bossArrive = now;
+            if (now - _bossArrive > 1500)
+            {
+                _bosses.Spot = null;
+                _bossArrive = 0;
+            }
+            return new(_lastAct = "在王死掉的地方撿東西", null);
+        }
+        _bossArrive = 0;
+        if (CheckStuck(now, me, Math.Atan2(dy, dx), null))
+            return Escape(now);
+        return Go("跑到王死掉的地方", dx, dy, len, now);
     }
 
     /// <summary>
