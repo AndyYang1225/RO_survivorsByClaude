@@ -3,13 +3,14 @@ using System.Text.Json.Nodes;
 using RoHelper.Bridge;
 using RoHelper.Engine;
 using RoHelper.Storage;
+using RoHelper.Vision.Field;
 using RoHelper.Vision.Picker;
 
 namespace RoHelper.Vision;
 
 /// <summary>
 /// 視覺模式的引擎：每 tTick 毫秒截一張圖 → <see cref="ScreenReader"/> 辨識 → <see cref="LobbyFlow"/> 決定 → CDP 真實點擊。
-/// 選卡畫面優先於大廳流程（<see cref="PickAsync"/>）。
+/// 選卡畫面優先於大廳流程（<see cref="PickAsync"/>）；在野外（<see cref="FieldGate"/>）而且畫面上沒有大廳按鈕時走位（<see cref="FieldStepAsync"/>）。
 /// 全程不在遊戲網頁執行任何 JS。設定由這裡擁有（JS 模式是 JS 擁有）：面板的修改、匯入都在這裡套用後存回 <see cref="ConfigStore"/>。
 /// 失敗處理：截圖或點擊丟例外時（頁面重新載入中、視窗大小是 0）這一輪跳過，把原因顯示在面板上，下一輪照常再試，不停掉主迴圈。
 /// 暫停時連截圖都不做：省 CPU，使用者暫停後畫面完全不受干擾。
@@ -21,6 +22,18 @@ public sealed class VisionEngine : IAutomation, IDisposable
     private readonly LogStore _log;
     private readonly LobbyFlow _flow = new();
     private readonly PickerFlow _picker = new();
+    private readonly FieldGate _gate = new();
+    private readonly FieldPlanner _planner = new(Random.Shared.NextDouble);
+
+    /// <summary>進野外多久後才拉遠鏡頭（等野外畫面載入；JS 是 1.2 秒，截圖辨識比較慢，多等一點）</summary>
+    private const long ZoomDelay = 3000;
+
+    /// <summary>拉遠鏡頭：滾輪幾次、每次多少（deltaY 正＝往下滾＝拉遠，同 JS 的 WheelEvent deltaY 300）</summary>
+    private const int ZoomSteps = 3;
+    private const double ZoomDelta = 300;
+
+    /// <summary>這一局已經拉遠過鏡頭</summary>
+    private bool _zoomed;
     private VisionKit? _kit;
     private ScreenReader? _reader;
     private PickerReader? _pickerReader;
@@ -52,6 +65,9 @@ public sealed class VisionEngine : IAutomation, IDisposable
 
     /// <summary>本局選卡狀態（唯讀，給開發介面預覽「現在會怎麼選」）</summary>
     public RunPickState PickState => _picker.State;
+
+    /// <summary>現在是不是在野外（給開發介面看）</summary>
+    public bool InField => _gate.InField;
 
     public event Action<EngineSchema>? SchemaReceived;
     public event Action<JsonObject>? StatusReceived;
@@ -124,17 +140,32 @@ public sealed class VisionEngine : IAutomation, IDisposable
             var screen = _reader.Read(frame, dpr, lobby: settings.AutoEvent);
 
             // 步驟 3：決定並執行（點擊座標是截圖像素，換成網頁 CSS 座標再送）
-            var decision = _flow.Decide(screen, settings, Environment.TickCount64);
+            var now = Environment.TickCount64;
+            var decision = _flow.Decide(screen, settings, now);
             if (decision.CountRun)
                 CountRun();
             if (decision.StartsRun)
+            {
                 _picker.NewRun();
+                NewFieldRun();
+            }
+            _gate.Update(screen, decision, now);
             if (decision.Click is { } p)
             {
                 var (x, y) = _kit.Viewport.ToCss(p.X, p.Y);
                 await _kit.Input.ClickAsync(x, y);
             }
-            Report(unreadable is not null && decision.Action == "待機" ? unreadable : decision.Action);
+
+            // 步驟 4：在野外、畫面上沒有大廳按鈕時走位。
+            // 看起來像選卡但讀不到卡名時（unreadable）不走位：點地面可能點到卡片
+            var action = unreadable is not null && decision.Action == "待機" ? unreadable : decision.Action;
+            if (_gate.InField && decision.Click is null && unreadable is null && !FieldGate.LobbyVisible(screen))
+            {
+                var walk = await FieldStepAsync(frame, dpr, now);
+                if (decision.Action == "待機" && walk.Length > 0)
+                    action = "走位：" + walk;
+            }
+            Report(action);
         }
         catch (Exception ex)
         {
@@ -185,6 +216,39 @@ public sealed class VisionEngine : IAutomation, IDisposable
         cfg["runs"] = (int)Math.Min((long)_config.GetInt("runs") + 1, int.MaxValue);
         _config.Replace(cfg);
         _picker.NewRun();
+        NewFieldRun();
+    }
+
+    /// <summary>新的一局：走位狀態（卡住、忽略清單、繞圈角度）清掉，鏡頭要重新拉遠</summary>
+    private void NewFieldRun()
+    {
+        _planner.NewRun();
+        _zoomed = false;
+    }
+
+    /// <summary>
+    /// 野外走位一輪：進野外滿 <see cref="ZoomDelay"/> 後拉遠鏡頭一次（設定 zoomOut），再讀小地圖 → <see cref="FieldPlanner"/> 決定 → 點擊。
+    /// 小地圖找不到自己時傳 null 給決策（它會繞圈）。點擊是世界畫面比例：野外時遊戲畫布佔滿視窗，所以乘上截圖寬高就是截圖像素。
+    /// 回傳面板文字（空字串＝走位的開關都關了）。
+    /// </summary>
+    private async Task<string> FieldStepAsync(Frame frame, double dpr, long now)
+    {
+        var kit = _kit!;
+        var s = FieldSettings.From(_config);
+        if (s.ZoomOut && !_zoomed && now - _gate.Since >= ZoomDelay)
+        {
+            var (cx, cy) = kit.Viewport.ToCss(frame.Width / 2.0, frame.Height / 2.0);
+            for (var i = 0; i < ZoomSteps; i++)
+                await kit.Input.WheelAsync(cx, cy, ZoomDelta);
+            _zoomed = true;
+        }
+        var d = _planner.Step(MinimapReader.Read(frame, dpr), s, now);
+        if (d.Click is { } c)
+        {
+            var (x, y) = kit.Viewport.ToCss(c.X * frame.Width, c.Y * frame.Height);
+            await kit.Input.ClickAsync(x, y);
+        }
+        return d.Status;
     }
 
     /// <summary>
