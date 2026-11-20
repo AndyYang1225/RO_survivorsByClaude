@@ -1,4 +1,7 @@
+using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
+
+[assembly: InternalsVisibleTo("RoHelper.Tests")]
 
 namespace RoHelper.Vision.Picker;
 
@@ -79,12 +82,13 @@ public sealed partial class PickerReader(OcrReader ocr)
     // 先找出範圍內的藍色圓底，再看圓裡的白色數字。
     // 為什麼不用 OCR：實測 Windows OCR 讀不了這種 5×8 px 的單一數字（原圖、放大 2～12 倍、二值化、補上下文字都試過，幾乎都讀成空白或「0」），
     // 所以改成比對字形：把圓內的白字切出來，縮成固定格子後跟系統字型畫的 0～9 比對。
-    private static int ReadLeft(Frame f, int right, int top, bool enabled, double dpr)
+    internal static int ReadLeft(Frame f, int right, int top, bool enabled, double dpr)
     {
         var area = Rectangle.Intersect(
             new Rectangle(right - (int)(18 * dpr), top - (int)(24 * dpr), (int)(32 * dpr), (int)(32 * dpr)),
             new Rectangle(0, 0, f.Width, f.Height));
-        if (area.Width > 0 && area.Height > 0 && ReadDigits(f.Crop(area), dpr) is { } n)
+        // 能按的按鈕不可能剩 0 次（剩 0 次按鈕會是灰的），讀到 0 代表讀錯，當讀不到
+        if (area.Width > 0 && area.Height > 0 && ReadDigits(f.Crop(area), dpr) is { } n && (n > 0 || !enabled))
             return n;
         return enabled ? 99 : 0;
     }
@@ -99,7 +103,7 @@ public sealed partial class PickerReader(OcrReader ocr)
 
     // 找藍色圓底（以重心為圓心、面積換算半徑），圓內的白字依紅色通道的對比算出「白的程度」（0～1），再依欄位的空隙切成一個個數字比對。
     // 找不到圓或讀不出就回 null
-    private static int? ReadDigits(Frame crop, double dpr)
+    internal static int? ReadDigits(Frame crop, double dpr)
     {
         long sx = 0, sy = 0;
         var count = 0;
@@ -150,7 +154,16 @@ public sealed partial class PickerReader(OcrReader ocr)
         return digits == 0 ? null : result;
     }
 
-    // 把欄位 x0～x1 內的白字（裁到有字的列）縮成固定格子，跟 0～9 的字形比，取差最小的
+    // 信心門檻（實測 13 個真實圓圈：最佳字形的距離 3.1～9.6，最佳與次佳數字的差距最小 1.5）：
+    // 最佳距離超過 MaxBestDist，或最佳與「另一個數字」的最佳距離差不到 MinMargin，就當讀不準（回 null，由呼叫端走 99／0 的退路）。
+    // 門檻抓在實測範圍外一點，合成的雜訊色塊（實心方塊、寬白條）的距離遠大於此，會被擋下。
+    private const double MaxBestDist = 12.0;
+    private const double MinMargin = 1.0;
+
+    // 單一數字的寬高比上限（實測 0.6～0.9）：超過代表像兩個數字黏在一起，不硬猜
+    private const double MaxAspect = 1.3;
+
+    // 把欄位 x0～x1 內的白字（裁到有字的列）縮成固定格子，跟 0～9 的字形比，取差最小的；信心不夠回 null
     private static int? Classify(double[,] white, int x0, int x1, int height)
     {
         int y0 = height, y1 = -1;
@@ -164,22 +177,34 @@ public sealed partial class PickerReader(OcrReader ocr)
         // 太矮：是雜點不是數字
         if (y1 - y0 + 1 < 4)
             return null;
+        if ((x1 - x0 + 1) / (double)(y1 - y0 + 1) > MaxAspect)
+            return null;
+
+        double[][] templates;
+        try
+        {
+            templates = Templates.Value;
+        }
+        catch (Exception)
+        {
+            // 系統字型畫不出來（沒有字型、GDI+ 失敗）：Lazy 會把例外快取起來每次都重丟，這裡吃掉並改回傳讀不到，讓呼叫端走退路
+            return null;
+        }
 
         var cell = Sample((x, y) => white[x, y], x0, y0, x1 - x0 + 1, y1 - y0 + 1);
-        var templates = Templates.Value;
-        var best = -1;
-        var bestDist = double.MaxValue;
+        var perDigit = new double[10];
+        Array.Fill(perDigit, double.MaxValue);
         for (var i = 0; i < templates.Length; i++)
         {
             var dist = 0.0;
             for (var k = 0; k < cell.Length; k++)
                 dist += (cell[k] - templates[i][k]) * (cell[k] - templates[i][k]);
-            if (dist < bestDist)
-            {
-                bestDist = dist;
-                best = i % 10;
-            }
+            perDigit[i % 10] = Math.Min(perDigit[i % 10], dist);
         }
+        var best = Array.IndexOf(perDigit, perDigit.Min());
+        var second = perDigit.Where((_, d) => d != best).Min();
+        if (perDigit[best] > MaxBestDist || second - perDigit[best] < MinMargin)
+            return null;
         return best;
     }
 
