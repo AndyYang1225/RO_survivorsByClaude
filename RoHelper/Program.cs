@@ -1,6 +1,8 @@
 using RoHelper.Bridge;
+using RoHelper.Engine;
 using RoHelper.Forms;
 using RoHelper.Storage;
+using RoHelper.Vision;
 
 namespace RoHelper;
 
@@ -26,7 +28,10 @@ internal static class Program
         using var log = new LogStore(AppPaths.LogFile);
         var runs = new RunStore(AppPaths.RunsFile);
         var bridge = new EngineBridge(config, log, runs);
-        using var panel = new PanelForm(config, log, runs, bridge, settings);
-        Application.Run(new GameForm(settings, bridge, panel));
+        // 視覺模式：面板改接視覺引擎；EngineBridge 仍建立，但遊戲視窗不會把它接到網頁上
+        using var vision = settings.VisionMode ? new VisionEngine(config, BuiltInSchema.Load()) : null;
+        IAutomation automation = vision is null ? bridge : vision;
+        using var panel = new PanelForm(config, log, runs, automation, settings);
+        Application.Run(new GameForm(settings, bridge, vision, panel));
     }
 }

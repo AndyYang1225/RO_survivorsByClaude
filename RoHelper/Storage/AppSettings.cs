@@ -22,6 +22,12 @@ public sealed class AppSettings
 
     public string EngineUpdateUrl { get; set; } = AppPaths.DefaultEngineUpdateUrl;
 
+    /// <summary>
+    /// 視覺模式：不在遊戲網頁注入 JS，只靠截圖判斷、用瀏覽器層級的真實輸入操作。開發中（目前只有大廳流程），預設關閉。
+    /// 從遊戲視窗選單切換，重新開啟後生效：兩種模式不能同時跑，否則兩邊會同時點畫面。
+    /// </summary>
+    public bool VisionMode { get; set; }
+
     public static AppSettings Load()
     {
         try

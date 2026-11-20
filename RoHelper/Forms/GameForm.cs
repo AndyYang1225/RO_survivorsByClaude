@@ -30,6 +30,9 @@ public sealed class GameForm : Form
     private readonly AppSettings _settings;
     private readonly EngineBridge _bridge;
     private readonly PanelForm _panel;
+
+    /// <summary>視覺模式的引擎；JS 模式是 null</summary>
+    private readonly VisionEngine? _visionEngine;
     private readonly EngineUpdater _updater;
     private readonly WebView2 _webView = new() { Dock = DockStyle.Fill };
     private readonly ToolStripMenuItem _engineItem = new() { Alignment = ToolStripItemAlignment.Right, Enabled = false };
@@ -44,11 +47,12 @@ public sealed class GameForm : Form
 
     private VisionDebugForm? _visionDebug;
 
-    public GameForm(AppSettings settings, EngineBridge bridge, PanelForm panel)
+    public GameForm(AppSettings settings, EngineBridge bridge, VisionEngine? visionEngine, PanelForm panel)
     {
         _settings = settings;
         _bridge = bridge;
         _panel = panel;
+        _visionEngine = visionEngine;
         _updater = new EngineUpdater(settings);
 
         Text = "RO Survivors 小幫手";
@@ -70,6 +74,7 @@ public sealed class GameForm : Form
         menu.Items.Add(new ToolStripMenuItem("開啟資料夾", null, (_, _) => OpenDataFolder()));
         menu.Items.Add(new ToolStripMenuItem("檢查更新", null, async (_, _) => await CheckUpdateManuallyAsync()));
         menu.Items.Add(new ToolStripMenuItem("視覺除錯", null, (_, _) => OpenVisionDebug()));
+        menu.Items.Add(new ToolStripMenuItem(settings.VisionMode ? "模式：視覺" : "模式：JS", null, (_, _) => ToggleMode()));
         menu.Items.Add(_engineItem);
 
         // 先加 Fill 再加 Top：WinForms 依 z-order 反向處理 Dock，這樣選單才不會蓋住遊戲畫面
@@ -103,6 +108,14 @@ public sealed class GameForm : Form
         var core = _webView.CoreWebView2;
         core.Settings.IsStatusBarEnabled = false;
         core.DocumentTitleChanged += (_, _) => Text = $"RO Survivors 小幫手 - {core.DocumentTitle}";
+        // 視覺模式：完全不注入 JS、不接網頁訊息、不檢查引擎更新，只截圖和送輸入
+        if (_visionEngine is not null)
+        {
+            _engineItem.Text = "視覺模式（開發中）";
+            _visionEngine.Start(VisionKitFor(core));
+            core.Navigate(AppPaths.GameUrl);
+            return;
+        }
         _bridge.TogglePanelRequested += TogglePanel;
         _bridge.Attach(core);
 
@@ -125,6 +138,25 @@ public sealed class GameForm : Form
         await UseEngineAsync(engine);
         _engineItem.Text += note;
         core.Navigate(AppPaths.GameUrl);
+    }
+
+    /// <summary>
+    /// F8 暫停、F9 面板。焦點在遊戲畫面（WebView2）時，WebView2 控制項會把功能鍵當加速鍵轉給 WinForms 的 ProcessCmdKey，
+    /// 所以兩種模式都在這裡處理（視覺模式沒有 JS 可以聽按鍵）。回傳 true＝已處理，網頁不會再收到這個按鍵，
+    /// JS 模式下 engine.js 自己的 F8／F9 監聽也就不會重複觸發。
+    /// </summary>
+    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+    {
+        switch (keyData)
+        {
+            case Keys.F8:
+                _panel.TogglePause();
+                return true;
+            case Keys.F9:
+                TogglePanel();
+                return true;
+        }
+        return base.ProcessCmdKey(ref msg, keyData);
     }
 
     #region 最小化時繼續掛機（移到螢幕外）
@@ -265,6 +297,11 @@ public sealed class GameForm : Form
 
     private async Task CheckUpdateManuallyAsync()
     {
+        if (_visionEngine is not null)
+        {
+            MessageBox.Show(this, "視覺模式不使用 JS 引擎，不需要更新。", Text);
+            return;
+        }
         if (_engine is null || _webView.CoreWebView2 is null)
             return;
         if (EngineUpdater.UsingOverride)
@@ -301,19 +338,36 @@ public sealed class GameForm : Form
         }
     }
 
-    /// <summary>
-    /// 開視覺除錯視窗。dpr＝控制項的 DPI 縮放 × 頁面縮放：WebView2 依控制項的 DPI 決定實體像素，
-    /// 刻意不從頁面讀 window.devicePixelRatio，那要在頁面執行 JS。
-    /// </summary>
+    /// <summary>開視覺除錯視窗（截圖、點擊測試、OCR、存範本、找範本）</summary>
     private void OpenVisionDebug()
     {
         if (_webView.CoreWebView2 is not { } core)
             return;
-        _vision ??= new VisionKit(core, _webView.Handle, () => _webView.DeviceDpi / 96.0 * _webView.ZoomFactor);
+        var kit = VisionKitFor(core);
         if (_visionDebug is null || _visionDebug.IsDisposed)
-            _visionDebug = new VisionDebugForm(_vision);
+            _visionDebug = new VisionDebugForm(kit);
         _visionDebug.Show();
         _visionDebug.Activate();
+    }
+
+    /// <summary>
+    /// 視覺工具組（視覺引擎和除錯視窗共用一份）。dpr＝控制項的 DPI 縮放 × 頁面縮放：WebView2 依控制項的 DPI 決定實體像素，
+    /// 刻意不從頁面讀 window.devicePixelRatio，那要在頁面執行 JS。
+    /// </summary>
+    private VisionKit VisionKitFor(CoreWebView2 core)
+        => _vision ??= new VisionKit(core, _webView.Handle, () => _webView.DeviceDpi / 96.0 * _webView.ZoomFactor);
+
+    /// <summary>切換 JS／視覺模式。重新開啟後生效：執行中切換的話，已經注入的 JS 拿不掉，兩邊會同時點畫面</summary>
+    private void ToggleMode()
+    {
+        var toVision = !_settings.VisionMode;
+        var message = toVision
+            ? "切換到視覺模式：不在遊戲網頁注入任何 JS，只看截圖判斷。\n\n目前只會：選單人大廳、走到節慶主持人、開始遊戲、前往野外、返回角色。\n選卡和野外走位還沒做，進野外後要自己選卡。\n\n要切換嗎？重新開啟小幫手後生效。"
+            : "切換回 JS 模式（原本的全自動）？重新開啟小幫手後生效。";
+        if (MessageBox.Show(this, message, Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+            return;
+        _settings.VisionMode = toVision;
+        _settings.Save();
     }
 
     /// <summary>
