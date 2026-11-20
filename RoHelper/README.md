@@ -78,6 +78,8 @@ exe 啟動時會到 Gist 抓 `ro_engine.js`，比目前新就換上（也可以�
 | `POST /templates/save?name=&shot=&x=&y=&w=&h=[&threshold=0.9]` | 從 `shots\` 底下的截圖裁一塊存成範本（同名範本沿用原搜尋範圍） |
 | `GET /evidence?n=20` | 最近自動存的證據 |
 
-- 範例：`curl -s 127.0.0.1:8765/status`、`curl -s -X POST "127.0.0.1:8765/click?x=950&y=640"`
+- 範例：`curl -s 127.0.0.1:8765/status`、`curl -s -d "" "127.0.0.1:8765/click?x=950&y=640"`
+- POST 要帶 `-d ""`：只寫 `-X POST` 時 curl 不送 Content-Length，Windows 的 HTTP.sys 會直接回 411，請求到不了程式。
+- 中文參數要自己先編成 UTF-8 的 %XX（例如 `node -p "encodeURIComponent('返回角色')"`）：Git Bash 的 curl 用 `--data-urlencode` 時會把中文轉成 Big5 送出，存出來的檔名是亂碼。
 - **自動存證據**：讀不到卡名、選卡按鍵沒反應、例外時（同一種 60 秒內只存一次），以及每 5 分鐘一張，存到 `%AppData%\RoHelper\shots\auto\`（PNG＋同名 JSON，最多 150 張，超過刪最舊的）。
 - 安全：只聽 127.0.0.1（其他電腦連不到）、不加驗證、不提供輸入文字（不碰帳密，登入由使用者自己做一次）。

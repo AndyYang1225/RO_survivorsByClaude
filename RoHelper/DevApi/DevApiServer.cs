@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Web;
 
 namespace RoHelper.DevApi;
 
@@ -57,7 +58,9 @@ public sealed class DevApiServer(DevApiRouter router, int port) : IDisposable
         try
         {
             var req = ctx.Request;
-            var result = await router.HandleAsync(req.HttpMethod, req.Url?.AbsolutePath ?? "/", req.QueryString).ConfigureAwait(false);
+            // 不用 req.QueryString：實測它不是用 UTF-8 解碼，中文參數（範本名稱、檔名）會變亂碼
+            var query = HttpUtility.ParseQueryString(req.Url?.Query ?? "", Encoding.UTF8);
+            var result = await router.HandleAsync(req.HttpMethod, req.Url?.AbsolutePath ?? "/", query).ConfigureAwait(false);
             var bytes = Encoding.UTF8.GetBytes(result.Body.ToJsonString(JsonOptions));
             ctx.Response.StatusCode = result.Status;
             ctx.Response.ContentType = "application/json; charset=utf-8";

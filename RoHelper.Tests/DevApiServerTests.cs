@@ -58,6 +58,16 @@ public sealed class DevApiServerTests : IDisposable
         Assert.Contains("沒有這個端點", await res.Content.ReadAsStringAsync());
     }
 
+    /// <summary>實測 HttpListener 的 QueryString 不是用 UTF-8 解碼，中文檔名會變亂碼（2026-11-20）</summary>
+    [Fact]
+    public async Task ChineseQuery_DecodedAsUtf8()
+    {
+        using var res = await _http.GetAsync("/shot?name=%E9%A6%96%E9%A0%81");
+
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.Equal(["Shot(首頁)"], _host.Calls);
+    }
+
     [Fact]
     public async Task Key_200()
     {
