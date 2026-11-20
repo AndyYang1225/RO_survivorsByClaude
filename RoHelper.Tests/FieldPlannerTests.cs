@@ -147,8 +147,8 @@ public sealed class FieldPlannerTests : IDisposable
     [Fact]
     public void Step_FarTarget_StepCappedAt030()
     {
-        // 很遠的磁鐵：k＝0.06＋len·0.03 夾到 0.30，點 (0.2, 0.5)
-        var d = Planner().Step(Mm(B(1880, 105), magnets: [B(1740, 105)]), All, 10_000);
+        // 40 px 外的磁鐵（在 farLimit 的 78.5 px 內）：k＝0.06＋len·0.03 夾到 0.30，點 (0.2, 0.5)
+        var d = Planner().Step(Mm(B(1880, 105), magnets: [B(1840, 105)]), All, 10_000);
 
         Assert.InRange(d.Click!.Value.X, 0.05f, 0.95f);
         Assert.Equal(0.2f, d.Click.Value.X, 3);
@@ -180,6 +180,28 @@ public sealed class FieldPlannerTests : IDisposable
     }
 
     [Fact]
+    public void Step_FarLimit_SkipsFarChestAndMagnet_ButNotLoot()
+    {
+        // 地圖 157×129 → farMax＝78.5 px；(1730,45) 離自己 (1810,105) 100 px、(1790,90) 只有 25 px
+        var me = B(1810, 105);
+        var far = B(1730, 45);
+
+        Assert.Equal("繞圈", Planner().Step(Mm(me, chests: [far]), All, 10_000).Status);
+        Assert.Equal("繞圈", Planner().Step(Mm(me, magnets: [far]), All, 10_000).Status);
+        Assert.Equal("前往寶箱", Planner().Step(Mm(me, chests: [far, B(1790, 90)]), All, 10_000).Status);
+        Assert.Equal("撿王的掉落物", Planner().Step(Mm(me, loot: [far]), All, 10_000).Status);
+        Assert.Equal("前往寶箱", Planner().Step(Mm(me, chests: [far]), All with { FarLimit = false }, 10_000).Status);
+    }
+
+    [Fact]
+    public void Step_FarLimit_PicksNearChestEvenIfFarMagnet()
+    {
+        var d = Planner().Step(Mm(B(1810, 105), magnets: [B(1730, 45)], chests: [B(1790, 90)]), All, 10_000);
+
+        Assert.Equal("前往寶箱", d.Status);
+    }
+
+    [Fact]
     public void FieldSettings_From_DefaultsAndValues()
     {
         var empty = new ConfigStore(_path);
@@ -191,9 +213,9 @@ public sealed class FieldPlannerTests : IDisposable
         {
             ["seekLoot"] = true, ["seekMagnet"] = true, ["seekChest"] = false, ["autoWander"] = true,
             ["stayCenter"] = true, ["zoomOut"] = true, ["tSeekN"] = 800, ["tWanderN"] = 1400, ["chestMoney"] = false,
-            ["lowHpStop"] = true, ["lowHpStopN"] = 45,
+            ["lowHpStop"] = true, ["lowHpStopN"] = 45, ["farLimit"] = false,
         });
-        Assert.Equal(new FieldSettings(true, true, false, true, true, true, 800, 1400, false, LowHpStop: true, LowHpStopN: 45), FieldSettings.From(store));
+        Assert.Equal(new FieldSettings(true, true, false, true, true, true, 800, 1400, false, LowHpStop: true, LowHpStopN: 45, FarLimit: false), FieldSettings.From(store));
     }
 
     [Fact]

@@ -5,10 +5,10 @@ public sealed record FieldDecision(string Status, PointF? Click);
 
 /// <summary>
 /// 野外走位決策（移植 engine.js fieldStep 的「小地圖模式」、wanderStep、checkStuck）：
-/// 撿王的掉落物 → 磁鐵 → 寶箱 → 回地圖中間／繞圈；一直下指令但小地圖上的自己沒動就繞路；站在掉落物上 3 秒還在就忽略它。
+/// 撿王的掉落物 → 磁鐵 → 寶箱（farLimit：太遠的先不追）→ 回地圖中間／繞圈；一直下指令但小地圖上的自己沒動就繞路；站在掉落物上 3 秒還在就忽略它。
 /// 純邏輯：時間與亂數由呼叫端傳入（亂數注入才能寫測試），不截圖、不送輸入。
 /// 刻意不做（第二批）：節慶扭蛋、精確模式（JS 讀遊戲資料）、吃肉、躲鐘、王死掉的地點（要 OCR 小地圖座標）、
-/// MVP 倒數撿取階段、farLimit（JS 在小地圖模式本來就沒用）。
+/// MVP 倒數撿取階段。
 /// 小地圖座標用截圖像素：假設 dpr 1 時跟 JS 的小地圖畫布像素同尺度，所以 JS 以像素為單位的門檻（0.8、3、len·0.03）直接沿用。
 /// </summary>
 public sealed class FieldPlanner(Func<double> random)
@@ -92,9 +92,10 @@ public sealed class FieldPlanner(Func<double> random)
             return Go("撿王的掉落物", dx, dy, len, now);
         }
 
-        // 磁鐵優先於寶箱
-        var magnet = s.SeekMagnet ? Nearest(me, mm.Magnets, now) : null;
-        var chest = s.SeekChest && chestAffordable ? Nearest(me, mm.Chests, now) : null;
+        // 磁鐵優先於寶箱；太遠的先不追（掉落物不受限，同 JS）
+        var farMax = FarMax(mm, s);
+        var magnet = s.SeekMagnet ? Nearest(me, Near(me, mm.Magnets, farMax), now) : null;
+        var chest = s.SeekChest && chestAffordable ? Nearest(me, Near(me, mm.Chests, farMax), now) : null;
         if ((magnet ?? chest) is { } pick)
         {
             var (dx, dy, len) = Delta(me, pick);
@@ -201,8 +202,19 @@ public sealed class FieldPlanner(Func<double> random)
         return (dx, dy, len > 0 ? len : 1);
     }
 
+    /// <summary>
+    /// farLimit（同 JS preciseStep 的 farMax）：目標離自己超過地圖長邊的一半就先不追，免得追到地圖角落。
+    /// JS 用格子換算地圖大小；視覺模式直接用小地圖像素（地圖本體的外框）。外框太小（≤ 20 px，多半是沒讀到）時不限制，同 JS 的 M.h > 20。
+    /// </summary>
+    private static double FarMax(MinimapInfo mm, FieldSettings s)
+        => s.FarLimit && mm.Map.Width > 20 && mm.Map.Height > 20 ? Math.Max(mm.Map.Width, mm.Map.Height) * 0.5 : double.PositiveInfinity;
+
+    /// <summary>離自己 farMax 以內的目標</summary>
+    private static IEnumerable<MinimapBlob> Near(MinimapBlob me, IReadOnlyList<MinimapBlob> list, double farMax)
+        => list.Where(t => Math.Sqrt((t.X - me.X) * (t.X - me.X) + (t.Y - me.Y) * (t.Y - me.Y)) < farMax);
+
     /// <summary>最近而且不在忽略範圍（忽略點 3 px 內）的目標，同 JS nearest＋notBlocked</summary>
-    private MinimapBlob? Nearest(MinimapBlob me, IReadOnlyList<MinimapBlob> list, long now)
+    private MinimapBlob? Nearest(MinimapBlob me, IEnumerable<MinimapBlob> list, long now)
         => list
             .Where(t => !_blocked.Any(b => b.Until > now && Math.Sqrt((b.X - t.X) * (b.X - t.X) + (b.Y - t.Y) * (b.Y - t.Y)) < 3))
             .MinBy(t => (t.X - me.X) * (t.X - me.X) + (t.Y - me.Y) * (t.Y - me.Y));
