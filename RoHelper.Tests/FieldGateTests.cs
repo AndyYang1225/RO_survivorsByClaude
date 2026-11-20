@@ -53,20 +53,36 @@ public class FieldGateTests
     [InlineData(ScreenTemplates.Solo)]
     [InlineData(ScreenTemplates.Start)]
     [InlineData(ScreenTemplates.FestivalHost)]
-    [InlineData(ScreenTemplates.Return)]
-    public void LobbyTemplate_Leaves(string name)
+    public void LobbyTemplate_TwoTicks_Leaves(string name)
     {
         var gate = new FieldGate();
         gate.Enter(0);
 
         gate.Update(With(name), new FlowDecision("待機"), 1);
+        Assert.True(gate.InField);
+        gate.Update(With(name), new FlowDecision("待機"), 2);
 
         Assert.False(gate.InField);
+    }
+
+    /// <summary>實測野外畫面偶爾有一格讓範本誤判：只看到一格不能離開野外</summary>
+    [Fact]
+    public void LobbyTemplate_OneFrame_StaysInside()
+    {
+        var gate = new FieldGate();
+        gate.Enter(0);
+
+        gate.Update(With(ScreenTemplates.Start), new FlowDecision("待機"), 1);
+        gate.Update(Screen(), new FlowDecision("待機"), 2);
+        gate.Update(With(ScreenTemplates.Start), new FlowDecision("待機"), 3);
+
+        Assert.True(gate.InField);
     }
 
     [Theory]
     [InlineData(ScreenTemplates.GoField)]
     [InlineData(ScreenTemplates.TalkPrompt)]
+    [InlineData(ScreenTemplates.Return)]
     public void OtherTemplates_DoNotLeave(string name)
     {
         var gate = new FieldGate();

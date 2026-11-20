@@ -51,8 +51,15 @@ public sealed class LobbyFlow
     /// </summary>
     private const long ReturnGrace = 2_000;
 
+    /// <summary>
+    /// 「返回角色」要連續幾輪都看到才當成結算畫面（記一局、按按鈕）。
+    /// 實測（2026-11-20）野外畫面偶爾有一格讓範本誤判，只看一格就會多記一局、讓野外走位以為離開野外。
+    /// </summary>
+    private const int ReturnConfirmHits = 2;
+
     private long? _soloAt;
     private long? _returnAt;
+    private int _returnHits;
     private long _returnSeenAt;
     private long? _startAt;
     private long? _talkedAt;
@@ -92,6 +99,10 @@ public sealed class LobbyFlow
             // 消失太久才當成新的一次結算（惰性判斷，Decide 沒被呼叫的期間也算）
             if (_returnAt is not null && now - _returnSeenAt > ReturnGrace)
                 _returnAt = null;
+            // 還沒確認過的結算畫面：連續看到 ReturnConfirmHits 輪才算（已確認的漏判一格不受影響，靠上面的寬限）
+            if (_returnAt is null && ++_returnHits < ReturnConfirmHits)
+                return new("確認結算畫面");
+            _returnHits = 0;
             var first = _returnAt is null;
             _returnAt ??= now;
             _returnSeenAt = now;
@@ -102,6 +113,7 @@ public sealed class LobbyFlow
             return new("準備返回角色", now - _returnAt > c.TReturn ? Center(back) : null, first);
         }
         // 沒看到「返回角色」：寬限期內不清 _returnAt（可能只是漏判一格），其餘步驟照常往下走
+        _returnHits = 0;
         if (_returnAt is not null && now - _returnSeenAt > ReturnGrace)
             _returnAt = null;
 

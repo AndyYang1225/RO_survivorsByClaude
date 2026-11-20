@@ -24,12 +24,21 @@ public sealed class FieldGate
     public void Leave() => InField = false;
 
     /// <summary>
+    /// 大廳範本要連續幾輪都看到才離開野外。實測野外畫面偶爾有一格讓範本誤判，只看一格就離開的話，這局剩下的時間都不會走位。
+    /// 結算畫面不在這裡判斷：LobbyFlow 確認過的結算畫面會送 CountRun。
+    /// </summary>
+    private const int LeaveHits = 2;
+
+    private int _lobbyHits;
+
+    /// <summary>
     /// 每輪辨識完、大廳流程決定後呼叫一次。先處理離開再處理進入：
     /// 同一輪按了「前往野外」時以進入為準（按鈕在野外畫面出現前的最後一格）。
     /// </summary>
     public void Update(ScreenState s, FlowDecision d, long now)
     {
-        if (d.CountRun || s.Solo is not null || s.Start is not null || s.FestivalHost is not null || s.Return is not null)
+        _lobbyHits = s.Solo is not null || s.Start is not null || s.FestivalHost is not null ? _lobbyHits + 1 : 0;
+        if (d.CountRun || _lobbyHits >= LeaveHits)
             Leave();
         if (d.StartsRun)
             Enter(now);

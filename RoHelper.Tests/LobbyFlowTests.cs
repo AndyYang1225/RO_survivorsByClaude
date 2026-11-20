@@ -39,6 +39,7 @@ public class LobbyFlowTests
         var flow = new LobbyFlow();
         var s = Screen() with { Return = Btn };
 
+        Assert.Equal("確認結算畫面", flow.Decide(s, Cfg(), -300).Action);
         var first = flow.Decide(s, Cfg(), 0);
         var waiting = flow.Decide(s, Cfg(), 1000);
         var click = flow.Decide(s, Cfg(), 1600);
@@ -56,10 +57,27 @@ public class LobbyFlowTests
     {
         var flow = new LobbyFlow();
 
+        flow.Decide(Screen() with { Return = Btn }, Cfg(), -300);
         flow.Decide(Screen() with { Return = Btn }, Cfg(), 0);
         flow.Decide(Screen(), Cfg(), 2000);
 
+        flow.Decide(Screen() with { Return = Btn }, Cfg(), 2700);
         Assert.True(flow.Decide(Screen() with { Return = Btn }, Cfg(), 3000).CountRun);
+    }
+
+    /// <summary>實測野外畫面偶爾有一格讓「返回角色」範本誤判：只看到一格不能記一局、不能點</summary>
+    [Fact]
+    public void Return_SingleFalseFrame_NotCounted()
+    {
+        var flow = new LobbyFlow();
+
+        var d = flow.Decide(Screen() with { Return = Btn }, Cfg(), 0);
+        flow.Decide(Screen(), Cfg(), 300);
+        var again = flow.Decide(Screen() with { Return = Btn }, Cfg(), 600);
+
+        Assert.False(d.CountRun);
+        Assert.Null(d.Click);
+        Assert.False(again.CountRun);
     }
 
     [Fact]
@@ -191,6 +209,7 @@ public class LobbyFlowTests
     {
         var flow = new LobbyFlow();
 
+        flow.Decide(Screen() with { Return = Btn }, Cfg(), -300);
         Assert.True(flow.Decide(Screen() with { Return = Btn }, Cfg(), 0).CountRun);
         flow.Decide(Screen(), Cfg(), 300);
 
@@ -216,6 +235,7 @@ public class LobbyFlowTests
         var flow = new LobbyFlow();
         var s = Screen() with { Return = Btn };
 
+        flow.Decide(s, Cfg(), -300);
         Assert.True(flow.Decide(s, Cfg(), 0).CountRun);
         flow.Reset();
 
