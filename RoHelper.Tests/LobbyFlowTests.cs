@@ -371,6 +371,21 @@ public class LobbyFlowTests
         Assert.Null(flow.Decide(select, Cfg(autoEvent: false), 3100).Click);
     }
 
+    /// <summary>實測（2026-11-21）：切成自動遠征（自動活動關）後重開程式，停在首頁不動</summary>
+    [Fact]
+    public void TitleCharSelectDiscard_Clicked_WhenAutoExpeOn()
+    {
+        var flow = new LobbyFlow();
+        var cfg = Cfg(autoEvent: false, autoExpe: true);
+
+        flow.Decide(Screen() with { Title = Btn }, cfg, 0);
+        Assert.Equal(BtnCenter, flow.Decide(Screen() with { Title = Btn }, cfg, 1100).Click);
+        flow.Decide(Screen() with { CharSelect = Btn }, cfg, 2000);
+        Assert.Equal(BtnCenter, flow.Decide(Screen() with { CharSelect = Btn }, cfg, 3100).Click);
+        flow.Decide(Screen() with { Discard = Btn }, cfg, 4000);
+        Assert.Equal(BtnCenter, flow.Decide(Screen() with { Discard = Btn }, cfg, 4600).Click);
+    }
+
     [Fact]
     public void Title_GoneThenBack_WaitsAgain()
     {

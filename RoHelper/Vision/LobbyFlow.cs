@@ -114,10 +114,10 @@ public sealed class LobbyFlow
 
         // 步驟 0：遊戲 0.7.8 起，被中斷的局再上線會先跳「未完成的一局（捨棄／繼續）」，按捨棄後再跳「已捨棄本局（OK）」，兩個都會擋住大廳。
         // 刻意選「捨棄」不選「繼續」：繼續的話會直接回到野外、不經過「前往野外」，視覺模式不知道已在野外（FieldGate 只信自己按的前往野外），不會走位。
-        // 捨棄只在開了自動活動時才按：沒開的話是使用者自己在玩，要不要繼續那一局由使用者決定。OK 只是關掉通知，一律按。
+        // 捨棄只在開了自動活動或自動遠征時才按：都沒開的話是使用者自己在玩，要不要繼續那一局由使用者決定。OK 只是關掉通知，一律按。
         if (s.DiscardOk is { } ok)
             return new("關閉已捨棄本局", Center(ok));
-        if (c.AutoEvent && s.Discard is { } discard)
+        if ((c.AutoEvent || c.AutoExpe) && s.Discard is { } discard)
         {
             _discardAt ??= now;
             if (now - _discardAt <= DiscardDelay)
@@ -128,9 +128,9 @@ public sealed class LobbyFlow
         _discardAt = null;
 
         // 步驟 0.5：重開程式或斷線後會回到首頁（開始遊戲！）→ 角色選擇（開始遊戲）。
-        // 只在開了自動活動時才按，理由同捨棄：沒開的話是使用者自己在玩，不要搶。
+        // 只在開了自動活動或自動遠征時才按，理由同捨棄：都沒開的話是使用者自己在玩，不要搶。
         // 角色選擇刻意直接按目前選中的角色、不切換角色：用哪隻由使用者自己決定（遊戲會記住上次選的）。
-        if (c.AutoEvent && s.Title is { } title)
+        if ((c.AutoEvent || c.AutoExpe) && s.Title is { } title)
         {
             _titleAt ??= now;
             if (now - _titleAt <= TitleDelay)
@@ -139,7 +139,7 @@ public sealed class LobbyFlow
             return new("首頁：開始遊戲", Center(title));
         }
         _titleAt = null;
-        if (c.AutoEvent && s.CharSelect is { } select)
+        if ((c.AutoEvent || c.AutoExpe) && s.CharSelect is { } select)
         {
             _charSelectAt ??= now;
             if (now - _charSelectAt <= TitleDelay)
