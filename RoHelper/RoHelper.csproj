@@ -39,6 +39,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Engine\engine.js" LogicalName="RoHelper.engine.js" />
+    <EmbeddedResource Include="Engine\schema.json" LogicalName="RoHelper.schema.json" />
   </ItemGroup>
 
 </Project>

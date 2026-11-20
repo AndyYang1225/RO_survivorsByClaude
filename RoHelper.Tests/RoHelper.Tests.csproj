@@ -24,4 +24,9 @@
     <ProjectReference Include="..\RoHelper\RoHelper.csproj" />
   </ItemGroup>
 
+  <!-- BuiltInSchemaTests 要比對 engine.js 的 RULES 和內建的 schema.json 有沒有對齊 -->
+  <ItemGroup>
+    <None Include="..\RoHelper\Engine\engine.js" Link="engine.js" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

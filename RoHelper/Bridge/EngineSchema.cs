@@ -25,6 +25,9 @@ public sealed class EngineSchema
     /// <summary>技能設定的狀態選項（值, 顯示文字）</summary>
     public List<Choice> SkillStates { get; private init; } = [];
 
+    /// <summary>預設的遠征地圖清單（JS 的 DEFAULT_STAGES）。只有內建 schema.json 有；JS 的 hello 訊息不帶，JS 模式下是空的</summary>
+    public List<string> Stages { get; private init; } = [];
+
     /// <summary>二轉職業也會帶一轉技能（同 JS 的 skillsOf）</summary>
     public List<string> SkillsOf(string job)
     {
@@ -61,6 +64,7 @@ public sealed class EngineSchema
             DeityAttr = ConfigStore.ToStringList(o["deityAttr"]),
             Items = ToGroups(o["items"]),
             SkillStates = Choice.ParsePairs(o["skStates"]),
+            Stages = ConfigStore.ToStringList(o["stages"]),
         };
     }
 
@@ -99,6 +103,9 @@ public sealed class RuleDef
     /// <summary>只有數字、沒有勾選框（例如時間設定，一定生效）</summary>
     public bool NoCheck { get; private init; }
 
+    /// <summary>勾選或下拉的預設值（JS 的 def）。視覺模式由 C# 補預設值時用</summary>
+    public JsonNode? Default { get; private init; }
+
     public static RuleDef Parse(JsonObject r, string tab)
     {
         var opts = r["options"];
@@ -122,6 +129,7 @@ public sealed class RuleDef
             },
             Excl = EngineSchema.Str(r["excl"]),
             NoCheck = r["nocheck"] is JsonValue nc && nc.TryGetValue(out bool b2) && b2,
+            Default = r["def"]?.DeepClone(),
         };
     }
 
