@@ -156,4 +156,37 @@ public sealed class ScreenReaderTests : IDisposable
         Assert.DoesNotContain(ScreenTemplates.Title, s.Missing);
         Assert.DoesNotContain(ScreenTemplates.CharSelect, s.Missing);
     }
+
+    [Fact]
+    public void Read_InField_OnlyFindsReturn()
+    {
+        var lib = Library((ScreenTemplates.Return, ButtonArea), (ScreenTemplates.Start, ButtonArea), (ScreenTemplates.FestivalHost, LabelArea));
+
+        var s = new ScreenReader(lib).Read(TestFrames.Pattern(), 1.0, lobby: true, inField: true);
+
+        Assert.Equal(ButtonArea, s.Return);
+        Assert.Null(s.Start);
+        Assert.Null(s.FestivalHost);
+        Assert.Contains(ScreenTemplates.Solo, s.Missing);
+    }
+
+    [Fact]
+    public void Read_InField_SkipsNpcTemplates_EvenWithoutReturn()
+    {
+        var lib = Library((ScreenTemplates.FestivalHost, LabelArea), (ScreenTemplates.TalkPrompt, LabelArea));
+
+        var s = new ScreenReader(lib).Read(TestFrames.Pattern(), 1.0, lobby: true, inField: true);
+
+        Assert.Null(s.Return);
+        Assert.Null(s.FestivalHost);
+        Assert.Null(s.TalkPrompt);
+    }
+
+    [Fact]
+    public void Read_InField_IgnoresTitleScreen()
+    {
+        var s = new ScreenReader(TitleLibrary()).Read(CardLayoutTests.Fixture("首頁"), 1.0, lobby: true, inField: true);
+
+        Assert.Null(s.Title);
+    }
 }

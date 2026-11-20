@@ -35,6 +35,22 @@ public sealed class VisionEngine : IAutomation, IDisposable
     /// <summary>在野外時多久讀一次金錢與寶箱價格：OCR 一次約 100～300 ms，每輪都讀會拖慢走位；金錢變化也沒那麼快</summary>
     private const long HudEvery = 3000;
 
+    /// <summary>
+    /// 在野外時多久做一次完整辨識（找全部大廳範本）；其餘輪只找「返回角色」。
+    /// 離開野外平常靠結算畫面（返回角色）就夠，完整辨識只是為了涵蓋斷線回首頁、局被中斷之類的情況，慢幾秒發現沒關係。
+    /// </summary>
+    private const long FullReadEvery = 5000;
+
+    /// <summary>上次完整辨識的時間；不在野外時每輪都是完整辨識，所以剛進野外的頭 5 秒只找返回角色</summary>
+    private long _fullReadAt = long.MinValue / 2;
+
+    /// <summary>
+    /// 上一輪是完整辨識而且看到大廳的東西：下一輪也要完整辨識。
+    /// 為什麼：FieldGate 要連續 2 輪看到大廳範本才離開野外、LobbyFlow 的首頁／捨棄要持續看到一段時間才按，
+    /// 中間插一輪只找返回角色的話，那些欄位變 null，計數和計時都會被清掉，永遠離不開野外。
+    /// </summary>
+    private bool _lobbySeen;
+
     /// <summary>這一局已經拉遠過鏡頭</summary>
     private bool _zoomed;
 
@@ -145,8 +161,14 @@ public sealed class VisionEngine : IAutomation, IDisposable
             else
                 _picker.Gone();
 
-            // 步驟 2：辨識
-            var screen = _reader.Read(frame, dpr, lobby: settings.AutoEvent);
+            // 步驟 2：辨識。在野外時只找返回角色，每 FullReadEvery 才完整辨識一次（看到大廳的東西後就每輪完整辨識，見 _lobbySeen）
+            var readAt = Environment.TickCount64;
+            var full = !_gate.InField || _lobbySeen || readAt - _fullReadAt >= FullReadEvery;
+            if (full)
+                _fullReadAt = readAt;
+            var screen = _reader.Read(frame, dpr, lobby: settings.AutoEvent, inField: !full);
+            // 返回角色不算：只找返回角色的那幾輪也找得到它，不必為了它改成每輪完整辨識
+            _lobbySeen = full && FieldGate.LobbyVisible(screen with { Return = null });
 
             // 步驟 3：決定並執行（點擊座標是截圖像素，換成網頁 CSS 座標再送）
             var now = Environment.TickCount64;
