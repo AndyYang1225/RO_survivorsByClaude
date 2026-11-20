@@ -304,7 +304,7 @@ public sealed class VisionDebugForm : Form
     #endregion
 
     /// <summary>
-    /// 把目前的截圖原尺寸存成 PNG（檔名是時間）。給設計新的判讀方式用：要看真實畫面上的文字和按鈕排在哪裡。
+    /// 把目前的截圖原尺寸存成 PNG（檔名用「範本名稱」欄，空的就用時間；同名會覆蓋）。給設計新的判讀方式用：要看真實畫面上的文字和按鈕排在哪裡。
     /// 刻意存「引擎截到的那張」而不是另外截螢幕：兩者的大小、縮放、邊框可能不同，判讀要以引擎看到的為準。
     /// </summary>
     private void SaveShot()
@@ -314,8 +314,12 @@ public sealed class VisionDebugForm : Form
             Log("要先有截圖");
             return;
         }
+        // 有填「範本名稱」就用它當檔名（方便說明這張是什麼畫面），沒填或有不合法字元就用時間
+        var name = _templateName.Text.Trim();
+        if (name.Length == 0 || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            name = $"{DateTime.Now:yyyyMMdd-HHmmss}";
         Directory.CreateDirectory(AppPaths.ShotsDir);
-        var path = Path.Combine(AppPaths.ShotsDir, $"{DateTime.Now:yyyyMMdd-HHmmss}.png");
+        var path = Path.Combine(AppPaths.ShotsDir, name + ".png");
         using (var bmp = _frame.ToBitmap())
             bmp.Save(path, System.Drawing.Imaging.ImageFormat.Png);
         Log($"已存截圖：{path}");
