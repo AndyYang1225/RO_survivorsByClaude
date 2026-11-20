@@ -47,9 +47,13 @@ public static class BallFinder
     /// <summary>長寬比上限：扭蛋 1.5；傷害數字的碎片 20×10～22×10（2.0～2.2）</summary>
     private const double MaxAspect = 1.7;
 
-    /// <summary>找出所有像扭蛋的色塊，離畫面中心近的在前面（同 JS 的排序）</summary>
-    public static IReadOnlyList<BallBlob> Find(Frame f, double dpr)
-        => Scan(f, dpr).Where(b => IsBall(b, dpr)).OrderBy(b => b.D).ToList();
+    /// <summary>
+    /// 找出所有像扭蛋的色塊，離畫面中心近的在前面（同 JS 的排序）。
+    /// includeWhite 預設關（2026-11-21 Claude 決定，使用者允許改善 JS 的做法）：「白」會把閃電特效當成扭蛋，
+    /// 魔法師／巫師的雷擊術、雷爆術幾乎一直在放，角色會一直去追火花；實際只看過珊瑚粉紅的節慶扭蛋，等有白色扭蛋的截圖校正後再打開
+    /// </summary>
+    public static IReadOnlyList<BallBlob> Find(Frame f, double dpr, bool includeWhite = false)
+        => Scan(f, dpr).Where(b => IsBall(b, dpr) && (includeWhite || b.Kind != "白")).OrderBy(b => b.D).ToList();
 
     /// <summary>大小、形狀像不像扭蛋（門檻見各常數的實測值）</summary>
     private static bool IsBall(BallBlob b, double dpr)

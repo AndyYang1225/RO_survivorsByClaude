@@ -31,11 +31,16 @@ public class BallFinderTests
         Assert.Empty(BallFinder.Find(CardLayoutTests.Fixture(fixture), 1.0));
     }
 
+    /// <summary>預設不找「白」：閃電火花會被當成白色扭蛋（見 BallFinder.Find 的說明）</summary>
+    [Fact]
+    public void Find_Field2_WhiteOffByDefault_NoSparkles()
+        => Assert.Empty(BallFinder.Find(CardLayoutTests.Fixture("野外2寶箱"), 1.0));
+
     [Fact]
     public void Find_Field2_OnlyLightningSparklesAsWhite()
     {
         // 已知限制：野外2寶箱 右側的閃電火花大小形狀跟扭蛋一樣，會被當成「白」；燈籠色、HUD、經驗寶石、傷害數字都不會
-        var balls = BallFinder.Find(CardLayoutTests.Fixture("野外2寶箱"), 1.0);
+        var balls = BallFinder.Find(CardLayoutTests.Fixture("野外2寶箱"), 1.0, includeWhite: true);
 
         Assert.All(balls, b =>
         {
@@ -55,7 +60,7 @@ public class BallFinderTests
         var f = TestFrames.Solid(1904, 682, 30, 30, 40);
         TestFrames.Fill(f, new Rectangle(1300, 400, 18, 18), r, g, b);
 
-        var ball = Assert.Single(BallFinder.Find(f, 1.0));
+        var ball = Assert.Single(BallFinder.Find(f, 1.0, includeWhite: true));
 
         Assert.Equal(kind, ball.Kind);
         Assert.InRange(ball.X, 1305, 1313);
