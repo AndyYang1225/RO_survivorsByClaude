@@ -152,9 +152,10 @@ public sealed class DevApiHost(Control ui, VisionKit kit, VisionEngine engine, P
         var hud = kit.Ocr is null ? null : await new HudReader(kit.Ocr).ReadAsync(frame, dpr);
         var hp = HpReader.Read(frame, dpr);
         var timer = TimerReader.Read(frame, dpr);
+        var balls = BallFinder.Find(frame, dpr);
         var s = FieldSettings.From(config);
         // 只預覽：用一個新的走位決策（沒有上次移動時間、卡住紀錄），不動引擎的走位狀態，也不點
-        var d = new FieldPlanner(Random.Shared.NextDouble).Step(mm, s, Environment.TickCount64, s.CanAffordChest(hud), hp, timer == TimerPhase.Loot);
+        var d = new FieldPlanner(Random.Shared.NextDouble).Step(mm, s, Environment.TickCount64, s.CanAffordChest(hud), hp, timer == TimerPhase.Loot, balls);
         return new JsonObject
         {
             ["width"] = frame.Width,
@@ -168,6 +169,18 @@ public sealed class DevApiHost(Control ui, VisionKit kit, VisionEngine engine, P
             ["bossSpot"] = engine.BossSpot is { } spot
                 ? new JsonObject { ["x"] = Math.Round(spot.X, 1), ["y"] = Math.Round(spot.Y, 1), ["ageMs"] = Environment.TickCount64 - spot.At }
                 : null,
+            // 畫面上像扭蛋的色塊（離畫面中心近的在前面；截圖像素）
+            ["balls"] = new JsonArray(balls.Select(b => (JsonNode?)new JsonObject
+            {
+                ["kind"] = b.Kind,
+                ["x"] = b.X,
+                ["y"] = b.Y,
+                ["w"] = b.Width,
+                ["h"] = b.Height,
+                ["n"] = b.N,
+                ["fill"] = Math.Round(b.Fill, 2),
+                ["rgb"] = $"{b.Rgb.R}/{b.Rgb.G}/{b.Rgb.B}",
+            }).ToArray()),
             ["hud"] = hud is null ? null : new JsonObject { ["money"] = hud.Money, ["chestCost"] = hud.ChestCost },
             ["chestAffordable"] = s.CanAffordChest(hud),
             ["minimap"] = mm is null ? null : new JsonObject

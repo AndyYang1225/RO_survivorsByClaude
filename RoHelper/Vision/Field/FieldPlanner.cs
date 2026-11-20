@@ -5,10 +5,10 @@ public sealed record FieldDecision(string Status, PointF? Click);
 
 /// <summary>
 /// 野外走位決策（移植 engine.js fieldStep 的「小地圖模式」、wanderStep、checkStuck）：
-/// 王死掉的地點（bossSpot）→ 撿王的掉落物 → 磁鐵 → 寶箱（farLimit：太遠的先不追）→ 回地圖中間／繞圈；一直下指令但小地圖上的自己沒動就繞路；站在掉落物上 3 秒還在就忽略它。
+/// 王死掉的地點（bossSpot）→ 撿王的掉落物 → 節慶扭蛋（畫面顏色，見 <see cref="BallFinder"/>）→ 磁鐵 → 寶箱（farLimit：太遠的先不追）→ 回地圖中間／繞圈；一直下指令但小地圖上的自己沒動就繞路；站在掉落物上 3 秒還在就忽略它。
 /// MVP 死後的撿取倒數（lootPhase，見 <see cref="TimerReader"/>）只撿掉落物，沒有掉落物就在附近小範圍繞圈找。
 /// 純邏輯：時間與亂數由呼叫端傳入（亂數注入才能寫測試），不截圖、不送輸入。
-/// 刻意不做（第二批）：節慶扭蛋、精確模式（JS 讀遊戲資料）、吃肉、躲鐘。
+/// 刻意不做（第二批）：精確模式（JS 讀遊戲資料）、吃肉、躲鐘。
 /// 小地圖座標用截圖像素：假設 dpr 1 時跟 JS 的小地圖畫布像素同尺度，所以 JS 以像素為單位的門檻（0.8、3、len·0.03）直接沿用。
 /// </summary>
 public sealed class FieldPlanner(Func<double> random)
@@ -31,6 +31,8 @@ public sealed class FieldPlanner(Func<double> random)
     private readonly List<(double X, double Y, long Until)> _blocked = [];
     private long _lootNear;
     private (MinimapBlob T, long At)? _lastLoot;
+    private long _ballSince;
+    private long _ballMute;
     private readonly BossTracker _bosses = new();
     private long _bossArrive;
 
@@ -50,6 +52,8 @@ public sealed class FieldPlanner(Func<double> random)
         _blocked.Clear();
         _lootNear = 0;
         _lastLoot = null;
+        _ballSince = 0;
+        _ballMute = 0;
         _bosses.Reset();
         _bossArrive = 0;
     }
@@ -58,9 +62,11 @@ public sealed class FieldPlanner(Func<double> random)
     /// 決定這一輪怎麼走。chestAffordable＝錢夠不夠開寶箱（呼叫端讀 HUD 算，見 <see cref="FieldSettings.CanAffordChest"/>）：
     /// 不夠就不追寶箱（同 JS：seekChest 且 canAffordChest() 才追），開不了的寶箱追過去只會一直站在上面或卡在旁邊。
     /// hp＝HP 比例（0～1，見 <see cref="HpReader"/>；null＝讀不到，不檢查）：lowHpStop 開著而且低於 lowHpStopN% 就不走位（同 JS）。
-    /// lootPhase＝MVP 死後的撿取倒數中（計時器變紅字，見 <see cref="TimerReader"/>）：只撿掉落物，不追寶箱、磁鐵（同 JS 1126～1148 行）。
+    /// lootPhase＝MVP 死後的撿取倒數中（計時器變紅字，見 <see cref="TimerReader"/>）：只撿掉落物，不追扭蛋、寶箱、磁鐵（同 JS 1126～1148 行）。
+    /// balls＝畫面上像扭蛋的色塊（<see cref="BallFinder.Find"/>，離畫面中心近的在前面；null 或空＝沒看到）。
     /// </summary>
-    public FieldDecision Step(MinimapInfo? mm, FieldSettings s, long now, bool chestAffordable = true, double? hp = null, bool lootPhase = false)
+    public FieldDecision Step(MinimapInfo? mm, FieldSettings s, long now, bool chestAffordable = true, double? hp = null, bool lootPhase = false,
+        IReadOnlyList<BallBlob>? balls = null)
     {
         // 同 JS：在「走位開關都關了」和 SeekEvery 之前檢查
         if (s.LowHpStop && hp < s.LowHpStopN / 100.0)
@@ -69,7 +75,7 @@ public sealed class FieldPlanner(Func<double> random)
         // 被 SeekEvery 跳過的那幾輪也要記到「最後看到的時間」，才不會把閃爍誤判成死掉
         if (mm is not null)
             _bosses.Update(mm, now);
-        if (!s.SeekLoot && !s.SeekMagnet && !s.SeekChest && !s.AutoWander)
+        if (!s.SeekLoot && !s.SeekBall && !s.SeekMagnet && !s.SeekChest && !s.AutoWander)
             return new("", null);
         if (now - _lastMove < s.SeekEvery)
             return new(_lastAct, null);
@@ -80,8 +86,13 @@ public sealed class FieldPlanner(Func<double> random)
         if (_escUntil > now)
             return Escape(now);
 
+        // 讀不到小地圖：倒數中照樣小範圍繞圈；扭蛋是看畫面找的，不需要小地圖（只是沒辦法做卡住偵測）
         if (mm is null)
-            return lootPhase ? LootWander(s, now) : Wander(null, s, now);
+        {
+            if (lootPhase)
+                return LootWander(s, now);
+            return BallStep(null, balls, s, now) ?? Wander(null, s, now);
+        }
         var me = mm.Me;
 
         // 王剛死：跑到死掉的地點（最多 12 秒；到了之後停 1.5 秒讓東西被撿起來）
@@ -130,6 +141,10 @@ public sealed class FieldPlanner(Func<double> random)
         if (lootPhase)
             return LootWander(s, now);
 
+        // 節慶扭蛋：直接點球所在的位置
+        if (BallStep(me, balls, s, now) is { } ball)
+            return ball;
+
         // 磁鐵優先於寶箱；太遠的先不追（掉落物不受限，同 JS）
         var farMax = FarMax(mm, s);
         var magnet = s.SeekMagnet ? Nearest(me, Near(me, mm.Magnets, farMax), now) : null;
@@ -168,6 +183,35 @@ public sealed class FieldPlanner(Func<double> random)
         if (CheckStuck(now, me, Math.Atan2(dy, dx), null))
             return Escape(now);
         return Go("跑到王死掉的地方", dx, dy, len, now);
+    }
+
+    /// <summary>
+    /// 節慶扭蛋（同 JS ballTarget＋mapStep 的扭蛋段）：往最近的一顆走，點球的位置（往下 8 px，見 <see cref="BallBlob.Click"/>），狀態「前往扭蛋（顏色）」。
+    /// 一直看到扭蛋超過 6 秒（多半不是球，例如技能特效）→ 先忽略 15 秒；看不到就重新計時。有小地圖時照樣做卡住偵測（往扭蛋的方向）。
+    /// 沒有要追的扭蛋時回 null，交給下面的磁鐵、寶箱。
+    /// </summary>
+    private FieldDecision? BallStep(MinimapBlob? me, IReadOnlyList<BallBlob>? balls, FieldSettings s, long now)
+    {
+        if (!s.SeekBall || now < _ballMute)
+            return null;
+        if (balls is not { Count: > 0 })
+        {
+            _ballSince = 0;
+            return null;
+        }
+        if (_ballSince == 0)
+            _ballSince = now;
+        if (now - _ballSince > 6000)
+        {
+            _ballMute = now + 15_000;
+            _ballSince = 0;
+            return null;
+        }
+        var b = balls[0];
+        if (me is not null && CheckStuck(now, me, Math.Atan2(b.Click.Y - 0.5, b.Click.X - 0.5), null))
+            return Escape(now);
+        _lastMove = now;
+        return Click(_lastAct = $"前往扭蛋（{b.Kind}）", b.Click.X, b.Click.Y);
     }
 
     /// <summary>

@@ -339,6 +339,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
     /// 小地圖找不到自己時傳 null 給決策（它會繞圈）。點擊是世界畫面比例：野外時遊戲畫布佔滿視窗，所以乘上截圖寬高就是截圖像素。
     /// chestMoney 開著時每 <see cref="HudEvery"/> 讀一次金錢與寶箱價格，錢不夠就不追寶箱；沒有繁中 OCR 時一律當買得起。
     /// HP 與計時器顏色（MVP 死後的撿取倒數）每輪都讀（純像素，很便宜），lowHpStop、撿取倒數用。
+    /// seekBall 開著、不在撿取倒數時每輪掃一次畫面找扭蛋（<see cref="BallFinder"/>，實測一張約 4～6 ms；JS 每 0.5 秒掃一次，這裡夠便宜就每輪掃，看到的位置比較新）。
     /// 進野外滿 ZoomDelay 後也讀地名與職業（<see cref="ReadInfoAsync"/>，讀到為止）。
     /// 回傳面板文字（空字串＝走位的開關都關了）。
     /// </summary>
@@ -361,7 +362,8 @@ public sealed class VisionEngine : IAutomation, IDisposable
             _hudAt = now;
         }
         var lootPhase = TimerReader.Read(frame, dpr) == TimerPhase.Loot;
-        var d = _planner.Step(MinimapReader.Read(frame, dpr), s, now, s.CanAffordChest(_hud), HpReader.Read(frame, dpr), lootPhase);
+        var balls = s.SeekBall && !lootPhase ? BallFinder.Find(frame, dpr) : null;
+        var d = _planner.Step(MinimapReader.Read(frame, dpr), s, now, s.CanAffordChest(_hud), HpReader.Read(frame, dpr), lootPhase, balls);
         if (d.Click is { } c)
         {
             var (x, y) = kit.Viewport.ToCss(c.X * frame.Width, c.Y * frame.Height);

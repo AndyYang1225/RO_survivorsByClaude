@@ -313,9 +313,9 @@ public sealed class FieldPlannerTests : IDisposable
         {
             ["seekLoot"] = true, ["seekMagnet"] = true, ["seekChest"] = false, ["autoWander"] = true,
             ["stayCenter"] = true, ["zoomOut"] = true, ["tSeekN"] = 800, ["tWanderN"] = 1400, ["chestMoney"] = false,
-            ["lowHpStop"] = true, ["lowHpStopN"] = 45, ["farLimit"] = false, ["bossSpot"] = false,
+            ["lowHpStop"] = true, ["lowHpStopN"] = 45, ["farLimit"] = false, ["bossSpot"] = false, ["seekBall"] = false,
         });
-        Assert.Equal(new FieldSettings(true, true, false, true, true, true, 800, 1400, false, LowHpStop: true, LowHpStopN: 45, FarLimit: false, BossSpot: false), FieldSettings.From(store));
+        Assert.Equal(new FieldSettings(true, true, false, true, true, true, 800, 1400, false, LowHpStop: true, LowHpStopN: 45, FarLimit: false, BossSpot: false, SeekBall: false), FieldSettings.From(store));
     }
 
     [Fact]
@@ -401,6 +401,82 @@ public sealed class FieldPlannerTests : IDisposable
             var d = p.Step(Mm(B(loot.X + (i % 2 == 0 ? 1 : -1), loot.Y), loot: [loot]), All, now, lootPhase: true);
             Assert.Equal("倒數中！撿王的掉落物", d.Status);
         }
+    }
+
+    private static BallBlob Ball(string kind, float fx, float fy) => new(kind, (int)(fx * 1904), (int)(fy * 682), 34, 18, 12, (221, 142, 119), 0, 0.63, new PointF(fx, fy));
+
+    [Fact]
+    public void Step_Ball_ClicksBall_AfterLoot_BeforeMagnetAndChest()
+    {
+        var me = B(1810, 105);
+        var balls = new[] { Ball("粉紅", 0.53f, 0.55f) };
+
+        var d = Planner().Step(Mm(me, magnets: [B(1830, 120)], chests: [B(1790, 90)]), All, 10_000, balls: balls);
+        Assert.Equal("前往扭蛋（粉紅）", d.Status);
+        Assert.Equal(new PointF(0.53f, 0.55f), d.Click);
+
+        Assert.Equal("撿王的掉落物", Planner().Step(Mm(me, loot: [B(1820, 80)]), All, 10_000, balls: balls).Status);
+    }
+
+    [Fact]
+    public void Step_Ball_FirstInListWins()
+    {
+        var d = Planner().Step(Mm(B(1810, 105)), All, 10_000, balls: [Ball("綠", 0.6f, 0.5f), Ball("粉紅", 0.9f, 0.9f)]);
+
+        Assert.Equal("前往扭蛋（綠）", d.Status);
+    }
+
+    [Fact]
+    public void Step_Ball_IgnoredInLootPhaseOrWhenSeekBallOff()
+    {
+        var mm = Mm(B(1810, 105), chests: [B(1790, 90)]);
+        var balls = new[] { Ball("粉紅", 0.53f, 0.55f) };
+
+        Assert.Equal("倒數中：找掉落物", Planner().Step(mm, All, 10_000, lootPhase: true, balls: balls).Status);
+        Assert.Equal("前往寶箱", Planner().Step(mm, All with { SeekBall = false }, 10_000, balls: balls).Status);
+    }
+
+    [Fact]
+    public void Step_Ball_NullMinimap_StillGoesToBall()
+    {
+        Assert.Equal("前往扭蛋（橘）", Planner().Step(null, All, 10_000, balls: [Ball("橘", 0.3f, 0.4f)]).Status);
+    }
+
+    [Fact]
+    public void Step_Ball_OnlySeekBallOn_StillActs()
+    {
+        var s = new FieldSettings(false, false, false, false, true, true, 500, 500, true, SeekBall: true);
+
+        Assert.Equal("前往扭蛋（粉紅）", Planner().Step(Mm(B(1810, 105)), s, 10_000, balls: [Ball("粉紅", 0.53f, 0.55f)]).Status);
+    }
+
+    [Fact]
+    public void Step_Ball_SeenOver6Seconds_Muted15Seconds()
+    {
+        var p = Planner();
+        var balls = new[] { Ball("白", 0.53f, 0.55f) };
+        // 自己一直在動（不觸發卡住偵測）
+        MinimapInfo At(int i) => Mm(B(1810 + (i % 2 == 0 ? 1 : -1), 105));
+        var i = 0;
+        for (var now = 10_000L; now <= 16_000; now += 600, i++)
+            Assert.Equal("前往扭蛋（白）", p.Step(At(i), All, now, balls: balls).Status);
+
+        Assert.NotEqual("前往扭蛋（白）", p.Step(At(i++), All, 16_600, balls: balls).Status);
+        Assert.NotEqual("前往扭蛋（白）", p.Step(At(i++), All, 31_000, balls: balls).Status);
+        Assert.Equal("前往扭蛋（白）", p.Step(At(i), All, 31_700, balls: balls).Status);
+    }
+
+    [Fact]
+    public void Step_Ball_GoneResetsTimer()
+    {
+        var p = Planner();
+        var balls = new[] { Ball("白", 0.53f, 0.55f) };
+        MinimapInfo At(int i) => Mm(B(1810 + (i % 2 == 0 ? 1 : -1), 105));
+        p.Step(At(0), All, 10_000, balls: balls);
+        p.Step(At(1), All, 14_000, balls: balls);
+        p.Step(At(2), All, 15_000, balls: []);
+
+        Assert.Equal("前往扭蛋（白）", p.Step(At(3), All, 17_000, balls: balls).Status);
     }
 
     [Fact]
