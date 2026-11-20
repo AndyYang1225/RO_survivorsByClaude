@@ -25,17 +25,23 @@ public sealed class VisionEngine : IAutomation, IDisposable
     private ScreenReader? _reader;
     private PickerReader? _pickerReader;
 
+    /// <summary>自動存證據（<c>--dev-api</c> 啟動時才有；null＝不存）</summary>
+    private readonly EvidenceStore? _evidence;
+    private readonly EvidencePolicy? _evidencePolicy;
+
     /// <summary>這一輪還沒跑完（截圖＋找範本偶爾會超過間隔），下一輪直接跳過，不重疊</summary>
     private bool _busy;
 
     /// <summary>上次送給面板的狀態；沒變就不送，避免每 250 ms 重畫一次面板</summary>
     private string _lastStatus = "";
 
-    public VisionEngine(ConfigStore config, LogStore log, EngineSchema schema)
+    public VisionEngine(ConfigStore config, LogStore log, EngineSchema schema, EvidenceStore? evidence = null)
     {
         _config = config;
         _log = log;
         Schema = schema;
+        _evidence = evidence;
+        _evidencePolicy = evidence is null ? null : new EvidencePolicy();
         _timer.Tick += async (_, _) => await TickAsync();
     }
 
@@ -86,6 +92,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
         if (_busy || _kit is null || _reader is null)
             return;
         _busy = true;
+        Frame? frame = null;
         try
         {
             var settings = FlowSettings.From(_config);
@@ -97,7 +104,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
                 return;
             }
 
-            var frame = await _kit.Grabber.CaptureAsync();
+            frame = await _kit.Grabber.CaptureAsync();
             var dpr = _kit.Viewport.Dpr;
 
             // 步驟 1：選卡畫面優先（選卡會擋住整局，大廳流程的按鈕這時也不會出現）
@@ -142,7 +149,32 @@ public sealed class VisionEngine : IAutomation, IDisposable
         }
         finally
         {
+            // 暫停時這一輪在截圖前就 return，frame 是 null，自然不存
+            if (frame is not null)
+                SaveEvidence(frame);
             _busy = false;
+        }
+    }
+
+    /// <summary>每輪結束時問一次要不要存證據（異常或定時），要的話存這一輪的截圖＋當下動作＋最近 20 筆狀態紀錄</summary>
+    private void SaveEvidence(Frame frame)
+    {
+        if (_evidence is null || _evidencePolicy is null)
+            return;
+        try
+        {
+            if (_evidencePolicy.Check(History.Last, Environment.TickCount64) is not { } reason)
+                return;
+            var history = new JsonArray(History.Recent(20).Select(e => (JsonNode?)new JsonObject
+            {
+                ["t"] = e.Time.ToString("HH:mm:ss"),
+                ["a"] = e.Action,
+            }).ToArray());
+            _evidence.Save(frame, reason, DateTime.Now, new JsonObject { ["action"] = History.Last, ["history"] = history });
+        }
+        catch
+        {
+            // 為什麼吞掉：存證據只是開發輔助，磁碟滿、檔案被占用時不能讓主迴圈（async void 的計時器事件）掛掉
         }
     }
 

@@ -38,6 +38,12 @@ public static class AppPaths
     /// <summary>視覺除錯視窗「存截圖」的輸出位置（原尺寸 PNG，跟引擎看到的畫面一模一樣，設計判讀方式用）</summary>
     public static string ShotsDir => Path.Combine(DataDir, "shots");
 
+    /// <summary>自動存證據（異常與定時截圖＋紀錄，<c>--dev-api</c> 啟動時才存）</summary>
+    public static string EvidenceDir => Path.Combine(ShotsDir, "auto");
+
+    /// <summary>開發介面 /shot 的輸出位置</summary>
+    public static string ApiShotsDir => Path.Combine(ShotsDir, "api");
+
     public const string GameUrl = "https://ro-survivors.com/";
 
     /// <summary>
