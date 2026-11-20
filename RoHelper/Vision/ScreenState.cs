@@ -23,6 +23,16 @@ public static class ScreenTemplates
     /// <summary>走到 NPC 旁邊時出現、點了會開始交談的提示（存範本時要勾「整張畫面找」）</summary>
     public const string TalkPrompt = "交談提示";
 
+    /// <summary>「未完成的一局」對話框的「捨棄」按鈕（遊戲 0.7.8 起，被中斷的局再上線時出現）</summary>
+    public const string Discard = "捨棄本局";
+
+    /// <summary>按了捨棄之後「已捨棄本局」對話框的「OK」按鈕</summary>
+    public const string DiscardOk = "確定捨棄";
+
+    /// <summary>
+    /// 一定要有的範本（沒存的會列在 <see cref="ScreenState.Missing"/> 提醒使用者）。
+    /// 刻意不含 <see cref="Discard"/>、<see cref="DiscardOk"/>：那兩個對話框只在局被中斷時才出現，是選用範本，沒存也不提醒。
+    /// </summary>
     public static readonly string[] All = [Solo, Start, GoField, Return, FestivalHost, TalkPrompt];
 }
 
@@ -38,5 +48,7 @@ public sealed record ScreenState(Size FrameSize, double Dpr)
     public Rectangle? Return { get; init; }
     public Rectangle? FestivalHost { get; init; }
     public Rectangle? TalkPrompt { get; init; }
+    public Rectangle? Discard { get; init; }
+    public Rectangle? DiscardOk { get; init; }
     public IReadOnlyList<string> Missing { get; init; } = [];
 }

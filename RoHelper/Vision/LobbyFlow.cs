@@ -30,6 +30,9 @@ public sealed class LobbyFlow
     /// <summary>「選擇大廳」出現後等多久才按（同 JS：500 ms，等視窗動畫跑完）</summary>
     private const long SoloDelay = 500;
 
+    /// <summary>「未完成的一局」出現後等多久才按「捨棄」（同單人大廳，等對話框動畫跑完）</summary>
+    private const long DiscardDelay = 500;
+
     /// <summary>按「開始遊戲」後多久內出現的「前往野外」算活動流程（同 JS 的 festAt 10 秒；遠征的「前往野外」不能亂按）</summary>
     private const long FestivalWindow = 10_000;
 
@@ -58,6 +61,7 @@ public sealed class LobbyFlow
     private const int ReturnConfirmHits = 2;
 
     private long? _soloAt;
+    private long? _discardAt;
     private long? _returnAt;
     private int _returnHits;
     private long _returnSeenAt;
@@ -67,13 +71,13 @@ public sealed class LobbyFlow
     private long _lastWalk = long.MinValue / 2;
 
     /// <summary>
-    /// 只清等待中的計時（_soloAt／_startAt／_talkedAt／_lastWalk），改了設定或暫停後重新開始等待（同 JS：set 只重設 npcDone／npcTalked）。
+    /// 只清等待中的計時（_soloAt／_discardAt／_startAt／_talkedAt／_lastWalk），改了設定或暫停後重新開始等待（同 JS：set 只重設 npcDone／npcTalked）。
     /// 刻意保留 _returnAt 和最後看到返回角色的時間：結算畫面上暫停或切分頁就清掉的話，恢復後會把同一局再記一次（JS 的 returnSeenAt 也不清）。
     /// 刻意保留 _festAt：按完開始遊戲 10 秒內改設定或暫停就清掉的話，之後的「前往野外」會被當成遠征而不按（JS 的 festAt 也不清）。
     /// </summary>
     public void Reset()
     {
-        _soloAt = _startAt = _talkedAt = null;
+        _soloAt = _discardAt = _startAt = _talkedAt = null;
         _lastWalk = long.MinValue / 2;
     }
 
@@ -81,6 +85,21 @@ public sealed class LobbyFlow
     {
         if (c.Paused)
             return new("已暫停");
+
+        // 步驟 0：遊戲 0.7.8 起，被中斷的局再上線會先跳「未完成的一局（捨棄／繼續）」，按捨棄後再跳「已捨棄本局（OK）」，兩個都會擋住大廳。
+        // 刻意選「捨棄」不選「繼續」：繼續的話會直接回到野外、不經過「前往野外」，視覺模式不知道已在野外（FieldGate 只信自己按的前往野外），不會走位。
+        // 捨棄只在開了自動活動時才按：沒開的話是使用者自己在玩，要不要繼續那一局由使用者決定。OK 只是關掉通知，一律按。
+        if (s.DiscardOk is { } ok)
+            return new("關閉已捨棄本局", Center(ok));
+        if (c.AutoEvent && s.Discard is { } discard)
+        {
+            _discardAt ??= now;
+            if (now - _discardAt <= DiscardDelay)
+                return new("捨棄未完成的一局");
+            _discardAt = null;
+            return new("捨棄未完成的一局", Center(discard));
+        }
+        _discardAt = null;
 
         // 步驟 1：「選擇大廳」→ 等 0.5 秒按「單人大廳」
         if (c.SoloLobby && s.Solo is { } solo)

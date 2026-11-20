@@ -56,4 +56,52 @@ public sealed class ScreenReaderTests : IDisposable
         Assert.Equal(LabelArea, reader.Read(TestFrames.Pattern(), 1.0, lobby: true).FestivalHost);
         Assert.Null(reader.Read(TestFrames.Pattern(), 1.0, lobby: false).FestivalHost);
     }
+
+    /// <summary>「未完成的一局」的捨棄按鈕、「已捨棄本局」的 OK 按鈕（截圖像素），範本從真實截圖裁出來，同 Claude 存的範本（整張畫面找、門檻 0.98）</summary>
+    private static readonly Rectangle DiscardArea = new(1012, 370, 56, 26);
+    private static readonly Rectangle DiscardOkArea = new(1092, 381, 50, 26);
+
+    private TemplateLibrary DiscardLibrary()
+    {
+        var lib = new TemplateLibrary(_dir);
+        lib.Save(ScreenTemplates.Discard, CardLayoutTests.Fixture("未完成的一局").Crop(DiscardArea), new RectangleF(0, 0, 1, 1), 0.98, 1.0);
+        lib.Save(ScreenTemplates.DiscardOk, CardLayoutTests.Fixture("已捨棄本局").Crop(DiscardOkArea), new RectangleF(0, 0, 1, 1), 0.98, 1.0);
+        return lib;
+    }
+
+    [Fact]
+    public void Read_FindsDiscardDialogs_OnRealScreens()
+    {
+        var reader = new ScreenReader(DiscardLibrary());
+
+        var unfinished = reader.Read(CardLayoutTests.Fixture("未完成的一局"), 1.0, lobby: true);
+        Assert.Equal(DiscardArea, unfinished.Discard);
+        Assert.Null(unfinished.DiscardOk);
+
+        var discarded = reader.Read(CardLayoutTests.Fixture("已捨棄本局"), 1.0, lobby: true);
+        Assert.Equal(DiscardOkArea, discarded.DiscardOk);
+        Assert.Null(discarded.Discard);
+    }
+
+    [Theory]
+    [InlineData("野外1")]
+    [InlineData("野外2寶箱")]
+    [InlineData("野外3錢不夠")]
+    [InlineData("升級選卡2")]
+    public void Read_NoDiscardDialogs_OnOtherScreens(string fixture)
+    {
+        var s = new ScreenReader(DiscardLibrary()).Read(CardLayoutTests.Fixture(fixture), 1.0, lobby: true);
+
+        Assert.Null(s.Discard);
+        Assert.Null(s.DiscardOk);
+    }
+
+    [Fact]
+    public void Read_DiscardTemplatesAreOptional_NotListedAsMissing()
+    {
+        var s = new ScreenReader(Library()).Read(TestFrames.Pattern(), 1.0, lobby: true);
+
+        Assert.DoesNotContain(ScreenTemplates.Discard, s.Missing);
+        Assert.DoesNotContain(ScreenTemplates.DiscardOk, s.Missing);
+    }
 }

@@ -96,6 +96,8 @@ public sealed class DevApiHost(Control ui, VisionKit kit, VisionEngine engine, P
                 [ScreenTemplates.Return] = Rect(s.Return),
                 [ScreenTemplates.FestivalHost] = Rect(s.FestivalHost),
                 [ScreenTemplates.TalkPrompt] = Rect(s.TalkPrompt),
+                [ScreenTemplates.Discard] = Rect(s.Discard),
+                [ScreenTemplates.DiscardOk] = Rect(s.DiscardOk),
                 ["missing"] = Strings(s.Missing),
             },
         };

@@ -258,4 +258,49 @@ public class LobbyFlowTests
         Assert.Equal(BtnCenter, d.Click);
         Assert.Equal("準備前往野外", d.Action);
     }
+
+    [Fact]
+    public void Discard_ClicksAfterHalfSecond_BeforeSoloLobby()
+    {
+        var flow = new LobbyFlow();
+        var s = Screen() with { Discard = Btn, Solo = new Rectangle(0, 0, 10, 10) };
+
+        var first = flow.Decide(s, Cfg(), 0);
+        Assert.Equal("捨棄未完成的一局", first.Action);
+        Assert.Null(first.Click);
+        Assert.Equal(BtnCenter, flow.Decide(s, Cfg(), 600).Click);
+    }
+
+    [Fact]
+    public void Discard_NotClicked_WhenAutoEventOff()
+    {
+        var flow = new LobbyFlow();
+        var s = Screen() with { Discard = Btn };
+
+        flow.Decide(s, Cfg(autoEvent: false), 0);
+        Assert.Null(flow.Decide(s, Cfg(autoEvent: false), 600).Click);
+    }
+
+    [Fact]
+    public void DiscardOk_ClicksImmediately()
+    {
+        var d = new LobbyFlow().Decide(Screen() with { DiscardOk = Btn, Solo = new Rectangle(0, 0, 10, 10) }, Cfg(autoEvent: false), 0);
+
+        Assert.Equal("關閉已捨棄本局", d.Action);
+        Assert.Equal(BtnCenter, d.Click);
+        Assert.False(d.CountRun);
+        Assert.False(d.StartsRun);
+    }
+
+    [Fact]
+    public void Discard_GoneThenBack_WaitsAgain()
+    {
+        var flow = new LobbyFlow();
+        var s = Screen() with { Discard = Btn };
+
+        flow.Decide(s, Cfg(), 0);
+        flow.Decide(Screen(), Cfg(), 300);
+        Assert.Null(flow.Decide(s, Cfg(), 600).Click);
+        Assert.Equal(BtnCenter, flow.Decide(s, Cfg(), 1200).Click);
+    }
 }

@@ -97,7 +97,7 @@ public class FieldGateTests
     public void LobbyVisible_AnyTemplate()
     {
         Assert.False(FieldGate.LobbyVisible(Screen()));
-        foreach (var name in ScreenTemplates.All)
+        foreach (var name in ScreenTemplates.All.Append(ScreenTemplates.Discard).Append(ScreenTemplates.DiscardOk))
             Assert.True(FieldGate.LobbyVisible(With(name)), name);
     }
 
@@ -109,6 +109,8 @@ public class FieldGateTests
         ScreenTemplates.Return => Screen() with { Return = Btn },
         ScreenTemplates.FestivalHost => Screen() with { FestivalHost = Btn },
         ScreenTemplates.TalkPrompt => Screen() with { TalkPrompt = Btn },
+        ScreenTemplates.Discard => Screen() with { Discard = Btn },
+        ScreenTemplates.DiscardOk => Screen() with { DiscardOk = Btn },
         _ => throw new ArgumentException(name),
     };
 }
