@@ -56,12 +56,15 @@ public sealed class LobbyFlow
     private long _festAt = long.MinValue / 2;
     private long _lastWalk = long.MinValue / 2;
 
-    /// <summary>清掉所有等待中的計時（同 JS：改了設定或暫停後就重新開始流程，避免用到過期的時間）</summary>
+    /// <summary>
+    /// 只清等待中的計時（_soloAt／_startAt／_talkedAt／_lastWalk），改了設定或暫停後重新開始等待（同 JS：set 只重設 npcDone／npcTalked）。
+    /// 刻意保留 _returnAt 和最後看到返回角色的時間：結算畫面上暫停或切分頁就清掉的話，恢復後會把同一局再記一次（JS 的 returnSeenAt 也不清）。
+    /// 刻意保留 _festAt：按完開始遊戲 10 秒內改設定或暫停就清掉的話，之後的「前往野外」會被當成遠征而不按（JS 的 festAt 也不清）。
+    /// </summary>
     public void Reset()
     {
-        _soloAt = _returnAt = _startAt = _talkedAt = null;
-        _returnSeenAt = 0;
-        _festAt = _lastWalk = long.MinValue / 2;
+        _soloAt = _startAt = _talkedAt = null;
+        _lastWalk = long.MinValue / 2;
     }
 
     public FlowDecision Decide(ScreenState s, FlowSettings c, long now)

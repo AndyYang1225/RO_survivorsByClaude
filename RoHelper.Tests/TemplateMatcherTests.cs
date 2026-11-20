@@ -34,6 +34,7 @@ public class TemplateMatcherTests
     [Fact]
     public void Find_LargeRegion_ShortWideTemplate_StillExact()
     {
+        // 只驗證又扁又寬的範本在大範圍找得對（正確性），不能證明有走金字塔那條路
         var f = TestFrames.Pattern(800, 600);
         var t = f.Crop(new Rectangle(457, 331, 90, 18));
 

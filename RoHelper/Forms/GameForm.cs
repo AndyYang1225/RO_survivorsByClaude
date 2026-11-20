@@ -143,7 +143,7 @@ public sealed class GameForm : Form
     /// <summary>
     /// F8 暫停、F9 面板，只在視覺模式處理：焦點在遊戲畫面（WebView2）時，WebView2 控制項會把功能鍵當加速鍵轉給 WinForms 的 ProcessCmdKey，
     /// 而視覺模式沒有 JS 可以聽按鍵。JS 模式維持 engine.js 自己的處理，避免 WebView2 沒擋下按鍵時切兩次（使用者決定）。
-    /// 回傳 true＝已處理，網頁不會再收到這個按鍵。
+    /// 回傳 true＝已處理；預期 WebView2 會把按鍵標成已處理而不再轉給網頁（實機驗證時確認）。
     /// </summary>
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {

@@ -195,4 +195,33 @@ public class LobbyFlowTests
         Assert.Null(flow.Decide(s, Cfg(), 600).Click);
         Assert.Equal(BtnCenter, flow.Decide(s, Cfg(), 1200).Click);
     }
+
+    [Fact]
+    public void Reset_KeepsCountedResultScreen()
+    {
+        var flow = new LobbyFlow();
+        var s = Screen() with { Return = Btn };
+
+        Assert.True(flow.Decide(s, Cfg(), 0).CountRun);
+        flow.Reset();
+
+        Assert.False(flow.Decide(s, Cfg(), 300).CountRun);
+    }
+
+    [Fact]
+    public void Reset_KeepsFestivalWindow()
+    {
+        var flow = new LobbyFlow();
+        var start = Screen() with { Start = Btn };
+        var go = Screen() with { GoField = Btn };
+
+        flow.Decide(start, Cfg(), 0);
+        Assert.Equal(BtnCenter, flow.Decide(start, Cfg(), 900).Click);
+        flow.Reset();
+
+        Assert.Null(flow.Decide(go, Cfg(), 2000).Click);
+        var d = flow.Decide(go, Cfg(), 2900);
+        Assert.Equal(BtnCenter, d.Click);
+        Assert.Equal("準備前往野外", d.Action);
+    }
 }
