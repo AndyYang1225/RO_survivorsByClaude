@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 using RoHelper.Bridge;
+using RoHelper.DevApi;
 using RoHelper.Engine;
 using RoHelper.Storage;
 using RoHelper.Vision;
@@ -47,9 +48,22 @@ public sealed class GameForm : Form
 
     private VisionDebugForm? _visionDebug;
 
-    public GameForm(AppSettings settings, EngineBridge bridge, VisionEngine? visionEngine, PanelForm panel)
+    /// <summary>開發介面（<c>--dev-api</c> 啟動時才有）</summary>
+    private readonly ConfigStore _config;
+    private readonly DevApiOptions? _devApi;
+    private readonly EvidenceStore? _evidence;
+    private DevApiServer? _devApiServer;
+
+    /// <param name="config">設定（開發介面讀暫停狀態、選卡設定用）</param>
+    /// <param name="devApi">命令列的 <c>--dev-api</c>；null＝不開開發介面</param>
+    /// <param name="evidence">自動存證據（開發介面列出最近的證據用）；沒開時是 null</param>
+    public GameForm(AppSettings settings, EngineBridge bridge, VisionEngine? visionEngine, PanelForm panel,
+        ConfigStore config, DevApiOptions? devApi, EvidenceStore? evidence)
     {
         _settings = settings;
+        _config = config;
+        _devApi = devApi;
+        _evidence = evidence;
         _bridge = bridge;
         _panel = panel;
         _visionEngine = visionEngine;
@@ -114,6 +128,7 @@ public sealed class GameForm : Form
         {
             _engineItem.Text = "視覺模式（開發中）";
             _visionEngine.Start(VisionKitFor(core));
+            StartDevApi(VisionKitFor(core), _visionEngine);
             core.Navigate(AppPaths.GameUrl);
             return;
         }
@@ -341,6 +356,35 @@ public sealed class GameForm : Form
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 break;
         }
+    }
+
+    /// <summary>
+    /// 有 <c>--dev-api</c> 時開本機開發介面，結果附在選單右邊的模式文字後面。
+    /// 開不起來（port 被占用等）只顯示原因、不擋程式：開發介面只是輔助。
+    /// </summary>
+    private void StartDevApi(VisionKit kit, VisionEngine engine)
+    {
+        if (_devApi is null)
+            return;
+        var host = new DevApiHost(this, kit, engine, _panel, _config, _evidence);
+        var server = new DevApiServer(new DevApiRouter(host), _devApi.Port);
+        try
+        {
+            server.Start();
+            _devApiServer = server;
+            _engineItem.Text += $"｜開發介面 127.0.0.1:{_devApi.Port}";
+        }
+        catch (Exception ex)
+        {
+            server.Dispose();
+            _engineItem.Text += $"｜開發介面開不起來 : {ex.Message}";
+        }
+    }
+
+    protected override void OnFormClosed(FormClosedEventArgs e)
+    {
+        _devApiServer?.Dispose();
+        base.OnFormClosed(e);
     }
 
     /// <summary>開視覺除錯視窗（截圖、點擊測試、OCR、存範本、找範本）</summary>

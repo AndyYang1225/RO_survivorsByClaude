@@ -8,7 +8,7 @@ namespace RoHelper.Tests;
 
 public class DevApiRouterTests
 {
-    private readonly FakeHost _host = new();
+    private readonly FakeDevApiHost _host = new();
     private readonly DevApiRouter _router;
 
     public DevApiRouterTests() => _router = new DevApiRouter(_host);
@@ -148,33 +148,33 @@ public class DevApiRouterTests
         Assert.Equal(500, r.Status);
         Assert.Equal("boom", (string)r.Body["error"]!);
     }
+}
 
-    /// <summary>記下每次呼叫（方法名稱＋參數），回空物件</summary>
-    private sealed class FakeHost : IDevApiHost
+/// <summary>假的開發介面 host：記下每次呼叫（方法名稱＋參數），回空物件</summary>
+internal sealed class FakeDevApiHost : IDevApiHost
+{
+    public List<string> Calls { get; } = [];
+    public bool Throw { get; set; }
+
+    private Task<JsonObject> Record(string call)
     {
-        public List<string> Calls { get; } = [];
-        public bool Throw { get; set; }
-
-        private Task<JsonObject> Record(string call)
-        {
-            if (Throw)
-                throw new InvalidOperationException("boom");
-            Calls.Add(call);
-            return Task.FromResult(new JsonObject());
-        }
-
-        public Task<JsonObject> StatusAsync(int n) => Record($"Status({n})");
-        public Task<JsonObject> ShotAsync(string? name) => Record($"Shot({name})");
-        public Task<JsonObject> ScreenAsync() => Record("Screen()");
-        public Task<JsonObject> PickerAsync() => Record("Picker()");
-        public Task ClickAsync(int x, int y) => Record($"Click({x},{y})");
-        public Task KeyAsync(char key) => Record($"Key({key})");
-        public Task SetPausedAsync(bool paused) => Record($"Paused({paused})");
-        public Task ReloadTemplatesAsync() => Record("Reload()");
-
-        public Task<JsonObject> SaveTemplateAsync(string name, string shot, Rectangle crop, double threshold)
-            => Record(FormattableString.Invariant($"SaveTemplate({name},{shot},{crop.X},{crop.Y},{crop.Width},{crop.Height},{threshold})"));
-
-        public Task<JsonObject> EvidenceAsync(int n) => Record($"Evidence({n})");
+        if (Throw)
+            throw new InvalidOperationException("boom");
+        Calls.Add(call);
+        return Task.FromResult(new JsonObject());
     }
+
+    public Task<JsonObject> StatusAsync(int n) => Record($"Status({n})");
+    public Task<JsonObject> ShotAsync(string? name) => Record($"Shot({name})");
+    public Task<JsonObject> ScreenAsync() => Record("Screen()");
+    public Task<JsonObject> PickerAsync() => Record("Picker()");
+    public Task ClickAsync(int x, int y) => Record($"Click({x},{y})");
+    public Task KeyAsync(char key) => Record($"Key({key})");
+    public Task SetPausedAsync(bool paused) => Record($"Paused({paused})");
+    public Task ReloadTemplatesAsync() => Record("Reload()");
+
+    public Task<JsonObject> SaveTemplateAsync(string name, string shot, Rectangle crop, double threshold)
+        => Record(FormattableString.Invariant($"SaveTemplate({name},{shot},{crop.X},{crop.Y},{crop.Width},{crop.Height},{threshold})"));
+
+    public Task<JsonObject> EvidenceAsync(int n) => Record($"Evidence({n})");
 }
