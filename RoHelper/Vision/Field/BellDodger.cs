@@ -46,7 +46,7 @@ public sealed class BellDodger
     /// <summary>
     /// 躲鐘的一輪（同 JS bellStep）。沒在躲鐘時回 null（並清掉站好、上次位置、鐘寬，同 JS）。
     /// 找到鐘：鐘寬 bw＝max(鐘寬, 上次 × 0.8, 30·dpr)、目標點＝鐘底中間往上 0.3 bw；
-    /// 自己（畫面中心）在鐘框內（各邊內縮 0.15 bw）或離目標 &lt; 0.35 bw（已經站好時 &lt; 0.6 bw）→「在鐘下等待」不動，否則「躲到鐘下！」直接點目標點。
+    /// 自己的腳下（畫面中心往下 15 px）離目標 &lt; 0.25 bw（已經站好時 &lt; 0.4 bw）→「在鐘下等待」不動，否則「躲到鐘下！」直接點目標點（JS 的「在鐘框內」不用，見下面註解）。
     /// 找不到鐘：已經站好就原地等；1.5 秒內看過就照上次的目標點走；否則「躲鐘：找鐘中，原地等」。
     /// view 是 null（沒掃畫面）時當成找不到鐘。
     /// </summary>
@@ -72,10 +72,12 @@ public sealed class BellDodger
         var bw = Math.Max(_w, 30 * view.Dpr);
         double tx = b.X, ty = b.Y1 - bw * 0.3;
         _last = (tx / view.Width, ty / view.Height, now);
-        double cx = view.Width / 2.0, cy = view.Height / 2.0, m = bw * 0.15;
+        // 改善 JS（實測 2026-11-21 斐揚洞穴月夜貓）：JS 「自己在鐘框內就算站好」——這口鐘的框包含鐘身（甚至旁邊火盆的火焰），
+        // 角色站在鐘頂上方也在框內，被當成站好、結果被秒殺。改成只看「腳下」離目標（底座圓盤中心）多遠；
+        // 框可能被火焰撐大，門檻也從 0.35／0.6 個鐘寬收緊成 0.25／0.4。腳下＝畫面中心往下 15 px（角色血條的位置）
+        double cx = view.Width / 2.0, cy = view.Height / 2.0 + 15 * view.Dpr;
         var dist = Math.Sqrt((tx - cx) * (tx - cx) + (ty - cy) * (ty - cy));
-        var inside = cx > b.X0 + m && cx < b.X1 - m && cy > b.Y0 + m && cy < b.Y1 - m;
-        if (inside || dist < bw * 0.35 || (_parked && dist < bw * 0.6))
+        if (dist < bw * 0.25 || (_parked && dist < bw * 0.4))
         {
             _parked = true;
             return new("在鐘下等待", null);

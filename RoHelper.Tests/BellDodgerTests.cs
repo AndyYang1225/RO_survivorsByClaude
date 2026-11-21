@@ -71,24 +71,28 @@ public class BellDodgerTests
     public void Step_UnderBell_ParksAndStaysParkedWithLooserRadius()
     {
         var d = Announced();
-        // 目標點 (952, 371−30=341)＝畫面中心
-        Assert.Equal(new FieldDecision("在鐘下等待", null), d.Step(View(Bell(952, 371, 100, 20)), 10_100));
-        // 鐘框很扁、自己不在框內；離目標 50 px（0.5 個鐘寬）：還沒站好時要走，已經站好就繼續等
-        Assert.Equal(new FieldDecision("在鐘下等待", null), d.Step(View(Bell(1002, 371, 100, 20)), 10_200));
+        // 目標點 (952, 386−30=356)＝腳下（畫面中心 341 往下 15）
+        Assert.Equal(new FieldDecision("在鐘下等待", null), d.Step(View(Bell(952, 386, 100, 20)), 10_100));
+        // 離目標 30 px（0.3 個鐘寬）：還沒站好時要走（門檻 0.25），已經站好就繼續等（門檻 0.4）
+        Assert.Equal(new FieldDecision("在鐘下等待", null), d.Step(View(Bell(982, 386, 100, 20)), 10_200));
         // 看不到鐘但已經站好：原地等
         Assert.Equal(new FieldDecision("在鐘下等待", null), d.Step(View(null), 10_300));
 
         var fresh = Announced();
-        Assert.Equal("躲到鐘下！", fresh.Step(View(Bell(1002, 371, 100, 20)), 10_100)!.Status);
+        Assert.Equal("躲到鐘下！", fresh.Step(View(Bell(982, 386, 100, 20)), 10_100)!.Status);
     }
 
+    /// <summary>
+    /// 實測（2026-11-21 斐揚洞穴月夜貓，站在鐘頂）：角色站在鐘頂上方，在鐘框裡但離底座圓盤很遠，JS 的「在框內就算站好」讓角色停在那裡被秒殺。
+    /// 在框內但離目標遠 → 還要走過去
+    /// </summary>
     [Fact]
-    public void Step_InsideBellBox_Parks()
+    public void Step_OnBellTopInsideBox_StillWalksToDisc()
     {
-        // 自己在鐘框裡（離目標點遠，但在框內）
-        var d = Announced().Step(View(Bell(952, 600, 300, 400)), 10_100);
+        var d = Announced().Step(View(Bell(952, 600, 300, 400)), 10_100)!;
 
-        Assert.Equal(new FieldDecision("在鐘下等待", null), d);
+        Assert.Equal("躲到鐘下！", d.Status);
+        Assert.True(d.Click!.Value.Y > 0.5, $"{d.Click}");
     }
 
     [Fact]
