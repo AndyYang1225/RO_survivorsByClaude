@@ -48,6 +48,9 @@ public sealed class GameForm : Form
 
     private VisionDebugForm? _visionDebug;
 
+    /// <summary>視窗標題：多開時加上 profile 名稱，工作列上才分得出哪個視窗是哪個帳號</summary>
+    private static string TitleBase => AppPaths.Profile.Length == 0 ? "RO Survivors 小幫手" : $"RO Survivors 小幫手 [{AppPaths.Profile}]";
+
     /// <summary>開發介面（<c>--dev-api</c> 啟動時才有）</summary>
     private readonly ConfigStore _config;
     private readonly DevApiOptions? _devApi;
@@ -69,7 +72,7 @@ public sealed class GameForm : Form
         _visionEngine = visionEngine;
         _updater = new EngineUpdater(settings);
 
-        Text = "RO Survivors 小幫手";
+        Text = TitleBase;
         StartPosition = FormStartPosition.WindowsDefaultBounds;
         if (AppSettings.OnScreen(settings.GameBounds) is { } r)
         {
@@ -122,7 +125,7 @@ public sealed class GameForm : Form
 
         var core = _webView.CoreWebView2;
         core.Settings.IsStatusBarEnabled = false;
-        core.DocumentTitleChanged += (_, _) => Text = $"RO Survivors 小幫手 - {core.DocumentTitle}";
+        core.DocumentTitleChanged += (_, _) => Text = $"{TitleBase} - {core.DocumentTitle}";
         // 視覺模式：完全不注入 JS、不接網頁訊息、不檢查引擎更新，只截圖和送輸入
         if (_visionEngine is not null)
         {
@@ -437,7 +440,7 @@ public sealed class GameForm : Form
 
     private static void OpenDataFolder()
     {
-        Directory.CreateDirectory(AppPaths.DataDir);
-        Process.Start(new ProcessStartInfo { FileName = AppPaths.DataDir, UseShellExecute = true });
+        Directory.CreateDirectory(AppPaths.ProfileDir);
+        Process.Start(new ProcessStartInfo { FileName = AppPaths.ProfileDir, UseShellExecute = true });
     }
 }

@@ -6,23 +6,47 @@ namespace RoHelper;
 /// </summary>
 public static class AppPaths
 {
+    /// <summary>所有 profile 共用的根資料夾（範本、引擎快取放這裡）</summary>
     public static string DataDir { get; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "RoHelper");
 
-    public static string WebViewDir { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RoHelper", "WebView2");
+    private static readonly string LocalRoot = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RoHelper");
+
+    /// <summary>
+    /// 多開用的 profile 名稱（命令列 <c>--profile=名稱</c>）；空字串＝沒帶，路徑跟以前完全一樣。
+    /// 啟動時（任何路徑被用到之前）由 <see cref="UseProfile"/> 設一次。
+    /// </summary>
+    public static string Profile { get; private set; } = "";
+
+    /// <summary>設定 profile。只在程式啟動時呼叫一次（名稱要先用 <see cref="ProfileOptions.Parse"/> 檢查過）</summary>
+    public static void UseProfile(string name) => Profile = name;
+
+    /// <summary>
+    /// 這個 profile 自己的資料夾：設定、戰績、截圖、視窗位置。沒帶 profile 時就是 <see cref="DataDir"/>；
+    /// 有的話是 <c>%AppData%\RoHelper\profiles\名稱</c>。刻意不分 profile 的：範本（遊戲畫面一樣）、引擎快取
+    /// </summary>
+    public static string ProfileDir => Profile.Length == 0 ? DataDir : Path.Combine(DataDir, "profiles", Profile);
+
+    /// <summary>
+    /// WebView2 的瀏覽器資料（Cookie＝登入狀態、快取）。每個 profile 分開，才能同時登入不同帳號。
+    /// 小幫手不讀這個資料夾，只是讓內嵌瀏覽器存自己的東西
+    /// </summary>
+    public static string WebViewDir => Profile.Length == 0
+        ? Path.Combine(LocalRoot, "WebView2")
+        : Path.Combine(LocalRoot, "profiles", Profile, "WebView2");
 
     /// <summary>遊戲規則設定（JS 引擎的 cfg 原封不動存下來）</summary>
-    public static string ConfigFile => Path.Combine(DataDir, "config.json");
+    public static string ConfigFile => Path.Combine(ProfileDir, "config.json");
 
     /// <summary>選卡除錯紀錄</summary>
-    public static string LogFile => Path.Combine(DataDir, "picklog.json");
+    public static string LogFile => Path.Combine(ProfileDir, "picklog.json");
 
     /// <summary>完整對局紀錄（每局一行 JSON，給分析用）</summary>
-    public static string RunsFile => Path.Combine(DataDir, "runs.jsonl");
+    public static string RunsFile => Path.Combine(ProfileDir, "runs.jsonl");
 
     /// <summary>視窗位置、面板置頂等 exe 自己的設定</summary>
-    public static string AppSettingsFile => Path.Combine(DataDir, "app.json");
+    public static string AppSettingsFile => Path.Combine(ProfileDir, "app.json");
 
     /// <summary>
     /// 開發用：exe 旁邊放一個 engine.js 就會優先用它（改 JS 不用重新編譯），沒有就用內嵌在 exe 裡的版本。
@@ -36,7 +60,7 @@ public static class AppPaths
     public static string TemplatesDir => Path.Combine(DataDir, "templates");
 
     /// <summary>視覺除錯視窗「存截圖」的輸出位置（原尺寸 PNG，跟引擎看到的畫面一模一樣，設計判讀方式用）</summary>
-    public static string ShotsDir => Path.Combine(DataDir, "shots");
+    public static string ShotsDir => Path.Combine(ProfileDir, "shots");
 
     /// <summary>自動存證據（異常與定時截圖＋紀錄，<c>--dev-api</c> 啟動時才存）</summary>
     public static string EvidenceDir => Path.Combine(ShotsDir, "auto");

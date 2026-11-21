@@ -44,7 +44,7 @@ public sealed partial class PanelForm : Form
         _automation = automation;
         _settings = settings;
 
-        Text = "RO 小幫手 面板";
+        Text = AppPaths.Profile.Length == 0 ? "RO 小幫手 面板" : $"RO 小幫手 面板 [{AppPaths.Profile}]";
         Font = new Font("Microsoft JhengHei UI", FontSize);
         KeyPreview = true;
         ShowInTaskbar = true;

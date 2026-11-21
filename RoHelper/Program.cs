@@ -16,14 +16,34 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
-        using var mutex = new Mutex(true, @"Local\RoHelper.SingleInstance", out var isFirst);
+        // 多開：--profile=名稱 讓每個視窗有自己的設定、戰績、截圖、登入狀態（AppPaths.ProfileDir），要在任何路徑被用到之前決定
+        if (ProfileOptions.Parse(args, out var profileError) is not { } profile)
+        {
+            MessageBox.Show(profileError, "RO Survivors 小幫手", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        AppPaths.UseProfile(profile);
+
+        // 同一個 profile 同一時間只允許開一個：兩個程式共用同一份設定檔和 WebView2 資料夾，會互相蓋掉設定。不同 profile 可以同時開
+        var mutexName = profile.Length == 0 ? @"Local\RoHelper.SingleInstance" : @"Local\RoHelper.SingleInstance." + profile;
+        using var mutex = new Mutex(true, mutexName, out var isFirst);
         if (!isFirst)
         {
-            MessageBox.Show("RO Survivors 小幫手已經在執行了。", "RO Survivors 小幫手", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            var who = profile.Length == 0 ? "" : $"（profile {profile}）";
+            MessageBox.Show($"RO Survivors 小幫手{who}已經在執行了。", "RO Survivors 小幫手", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
         ApplicationConfiguration.Initialize();
+
+        // 新的 profile 第一次開：複製一份預設 profile 的規則設定當起點（職業、技能優先、放逐清單不用重設），之後各改各的。
+        // 刻意不複製 app.json（視窗位置：兩個視窗疊在同一個位置反而難用）和戰績
+        var rootConfig = Path.Combine(AppPaths.DataDir, "config.json");
+        if (profile.Length > 0 && !File.Exists(AppPaths.ConfigFile) && File.Exists(rootConfig))
+        {
+            Directory.CreateDirectory(AppPaths.ProfileDir);
+            File.Copy(rootConfig, AppPaths.ConfigFile);
+        }
 
         var settings = AppSettings.Load();
         var config = new ConfigStore(AppPaths.ConfigFile);
