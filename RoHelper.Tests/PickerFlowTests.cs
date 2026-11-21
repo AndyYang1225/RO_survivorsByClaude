@@ -41,6 +41,21 @@ public class PickerFlowTests
         Assert.Contains("雷爆術", flow.State.Picked);
     }
 
+    /// <summary>重抽、放逐都用完，只好學清單外的新技能：記下來，之後再出現就放逐</summary>
+    [Fact]
+    public void ForcedUnwantedNewSkill_IsRemembered()
+    {
+        var flow = new PickerFlow();
+        flow.Waiting(0, 350);
+        CardInfo NewSkill(int i, string name)
+            => new(i, new Rectangle(i * 240, 40, 214, 352), name, name, 0, true, true,
+                [Btn(ActKind.Focus, i * 240), new ActButton(ActKind.Banish, new Rectangle(i * 240 + 60, 400, 40, 30), true, 1)]);
+
+        flow.Act(new PickerInfo(false, [NewSkill(0, "火焰之壁"), NewSkill(1, "火球術")], null), Settings(Mage), 400);
+
+        Assert.Contains(CardDecider.SkillKey("火焰之壁"), flow.State.Unwanted);
+    }
+
     [Fact]
     public void Banish_ClicksBanishButton()
     {

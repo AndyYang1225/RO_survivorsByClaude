@@ -53,9 +53,10 @@ public static partial class CardDecider
         if (!p.IsChest)
         {
             // 2. 放逐（一次一張）
-            var b = all.FirstOrDefault(i => ShouldBanish(cards[i], s, st) && Usable(cards[i], ActKind.Banish), -1);
+            var b = all.FirstOrDefault(i => ShouldBanish(cards[i], s, st) && Usable(cards[i], ActKind.Banish)
+                && (!IsLearnedUnwanted(cards[i], st) || KeepAllows(cards[i], s, st)), -1);
             if (b >= 0)
-                return new(PickDo.Banish, b, "放逐清單");
+                return new(PickDo.Banish, b, IsLearnedUnwanted(cards[b], st) ? "學到的清單外技能" : "放逐清單");
 
             // 3. 專注：前 N 個「優先」技能（不含學到後放逐的），每個只專注一次
             if (s.AutoFocus)
@@ -226,13 +227,32 @@ public static partial class CardDecider
             return true;
         if (SkillOf(c, s.Skills.Ban) is not null)
             return true;
+        if (IsLearnedUnwanted(c, st))
+            return true;
         // 有「新！」＝還沒學 → 要選；沒有＝已經學了 → 放逐
         var w = SkillOf(c, s.Skills.After);
         return w is not null && (!c.IsNew || st.Picked.Contains(w));
     }
 
+    /// <summary>
+    /// 這局已經學到的清單外技能又出現（升級卡）：要放逐，不升級。不算進放逐清單（<see cref="BanTargets"/>），所以不影響「放逐完後按自動」。
+    /// 沒有「新！」才算（有「新！」的同名卡是另一張還沒學的，交給「不學清單外的新技能」）。
+    /// </summary>
+    private static bool IsLearnedUnwanted(CardInfo c, RunPickState st)
+        => st.Unwanted.Count > 0 && !c.IsNew && !IsDeity(c) && st.Unwanted.Contains(SkillKey(c.Name));
+
+    /// <summary>
+    /// 放逐清單外技能前，看「保留放逐次數」：放逐清單（雷爆術、屬性附加…）還沒放逐完時，至少留 BanishKeepN 次給它們，
+    /// 否則用光了就永遠按不到遊戲「自動」。清單都放逐過了就不必保留。
+    /// </summary>
+    private static bool KeepAllows(CardInfo c, PickSettings s, RunPickState st)
+        => !s.BanishKeep || BanTargets(s).All(st.Banished.Contains) || c.Button(ActKind.Banish) is { } bb && bb.Left > s.BanishKeepN;
+
+    /// <summary>記學到的清單外技能用的名字：去掉「+N」和空白，OCR 形近字換回正字</summary>
+    public static string SkillKey(string name) => Squash(PlusLevel().Replace(name, ""));
+
     /// <summary>清單外的新技能（技能欄還沒滿時不想學的）</summary>
-    private static bool IsUnwantedNew(CardInfo c, PickSettings s)
+    public static bool IsUnwantedNew(CardInfo c, PickSettings s)
         => s.SkillOn && c.IsNew && !IsDeity(c) && c.SkillBadge && SkillOf(c, s.Skills.Order) is null;
 
     /// <summary>強制不選：技能「不選」、道具 ✕（神祇不算，神祇另有 IsBannedDeity）</summary>

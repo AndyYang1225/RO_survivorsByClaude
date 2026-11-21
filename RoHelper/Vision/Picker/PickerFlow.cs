@@ -103,6 +103,9 @@ public sealed class PickerFlow
             State.DeityLock = CardDecider.DeityName(picked.Name);
         if (CardDecider.SkillOf(picked, s.Skills.After) is { } w)
             State.Picked.Add(w);
+        // 不得已學了清單外的新技能（重抽、放逐都用完）：記下來，之後再出現就放逐
+        if (!p.IsChest && picked.Name.Length > 0 && CardDecider.IsUnwantedNew(picked, s))
+            State.Unwanted.Add(CardDecider.SkillKey(picked.Name));
         _pendingPick = (idx, picked.Name, picked.Bounds);
         _readyAt = now + KeyTimeout;
         var label = name.Length > 0 ? name : $"第 {idx + 1} 張";

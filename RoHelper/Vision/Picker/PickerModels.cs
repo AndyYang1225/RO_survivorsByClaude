@@ -59,6 +59,10 @@ public sealed class RunPickState
 {
     public HashSet<string> Picked { get; } = [];
     public HashSet<string> Banished { get; } = [];
+
+    /// <summary>這局不得已學到的清單外技能（卡名去掉空白和「+N」）：之後再出現就放逐，不升級（使用者：只升級清單裡的技能，第四個技能不幸選到也直接放逐）</summary>
+    public HashSet<string> Unwanted { get; } = [];
+
     public bool GameAuto { get; set; }
     public HashSet<string> Focused { get; } = [];
     public string DeityLock { get; set; } = "";

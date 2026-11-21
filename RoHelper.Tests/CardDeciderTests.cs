@@ -54,6 +54,57 @@ public class CardDeciderTests
         Assert.Equal(1, d.Index);
     }
 
+    private static RunPickState LearnedFireWall()
+    {
+        var st = new RunPickState();
+        st.Unwanted.Add(CardDecider.SkillKey("火焰之壁"));
+        return st;
+    }
+
+    /// <summary>使用者：只升級清單裡的技能，第四個技能不幸學到了也直接放逐</summary>
+    [Fact]
+    public void LearnedUnwantedSkill_IsBanished()
+    {
+        var d = CardDecider.Decide(Picker(false, Card(0, "冰箭術"), Card(1, "火焰之壁 + 1", rarity: 3)),
+            Settings(Skills(order: ["冰箭術"])), LearnedFireWall());
+
+        Assert.Equal(new PickDecision(PickDo.Banish, 1, "學到的清單外技能"), d);
+    }
+
+    /// <summary>放逐清單還沒放逐完、放逐次數只剩保留的量：不放逐它，但也不升級它</summary>
+    [Fact]
+    public void LearnedUnwantedSkill_KeepsBanishesForBanList_ButNeverUpgrades()
+    {
+        var low = new[] { Btn(ActKind.Focus), Btn(ActKind.Banish, left: 2) };
+        var d = CardDecider.Decide(Picker(false, Card(0, "火焰之壁", rarity: 3, buttons: low), Card(1, "冰箭術", buttons: low)),
+            Settings(Skills(order: ["冰箭術"], after: ["雷爆術"]), banishKeepN: 2), LearnedFireWall());
+
+        Assert.Equal(new PickDecision(PickDo.Pick, 1, "技能第 1 優先"), d);
+    }
+
+    [Fact]
+    public void LearnedUnwantedSkill_BanListDone_UsesLastBanishes()
+    {
+        var low = new[] { Btn(ActKind.Focus), Btn(ActKind.Banish, left: 1) };
+        var st = LearnedFireWall();
+        st.Banished.Add("雷爆術");
+        var d = CardDecider.Decide(Picker(false, Card(0, "火焰之壁", buttons: low), Card(1, "冰箭術", buttons: low)),
+            Settings(Skills(order: ["冰箭術"], after: ["雷爆術"])), st);
+
+        Assert.Equal(PickDo.Banish, d.Do);
+        Assert.Equal(0, d.Index);
+    }
+
+    /// <summary>學到的清單外技能不算進放逐清單：沒放逐它也照樣可以按遊戲「自動」</summary>
+    [Fact]
+    public void LearnedUnwantedSkill_NotRequiredForGameAuto()
+    {
+        var st = LearnedFireWall();
+        st.Banished.Add("雷爆術");
+
+        Assert.True(CardDecider.ReadyForGameAuto(Settings(Skills(after: ["雷爆術"])) with { AutoAfterBan = true }, st));
+    }
+
     [Fact]
     public void OtherPrioritySkills_RarityThenOrder()
     {
