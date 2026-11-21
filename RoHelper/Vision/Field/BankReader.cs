@@ -17,13 +17,22 @@ public enum BankLook
 /// </summary>
 public sealed partial class BankReader(OcrReader ocr)
 {
-    /// <summary>框內取樣範圍（dpr 1）：水平中心 ±40、y 102～126</summary>
+    /// <summary>框內取樣範圍（dpr 1）：水平中心 ±40、y 102～126（洛陽；有天氣那一行時的位置）</summary>
     private const int HalfWidth = 40;
     private const int Top = 102;
     private const int Bottom = 127;
 
-    /// <summary>框的上方（y 90～96）、下方（y 133～140）：標籤外面是野外畫面，不會是一整片白</summary>
-    private const int AboveTop = 90, AboveBottom = 97, BelowTop = 133, BelowBottom = 141;
+    /// <summary>
+    /// 標籤可能往上移多少（dpr 1）：實測（2026-11-21）斐揚洞穴（洞穴裡沒有「早晨・晴朗」天氣那一行）標籤在 y 78～104，比洛陽高約 22 px。
+    /// 從原本位置往上每 2 px 試一次，最多 26 px
+    /// </summary>
+    private const int MaxRise = 26;
+
+    /// <summary>
+    /// 框的正上方、正下方各取幾列（緊貼框，離框 4～8 px）：標籤外面是野外畫面，不會是一整片白。
+    /// 刻意只取緊貼的幾列：標籤往上移時，再往上就是白色的金錢框，取太遠會被當成「上方是白的」而排除
+    /// </summary>
+    private const int BandGap = 4, BandRows = 4;
 
     /// <summary>
     /// 看標籤的樣子；沒有標籤（立即模式、不在野外、被擋住）回 null。
@@ -31,12 +40,24 @@ public sealed partial class BankReader(OcrReader ocr)
     /// 會被誤認成白框的：系統維護公告（野外1、野外2寶箱：白 0.76，但框下方白 0.61）、結算畫面（白 0.86，框上方白 1.0）、選卡畫面（框上下也白），
     /// 所以要求框的上方和下方白的比例都 &lt; 0.3。另外框裡要有字（深色點 ≥ 15·dpr²，實測 56、139）。
     /// </summary>
-    public static BankLook? Look(Frame f, double dpr)
+    public static BankLook? Look(Frame f, double dpr) => Locate(f, dpr)?.Look;
+
+    /// <summary>找標籤：從原本位置往上每 2 px 試到 <see cref="MaxRise"/>，回傳樣子和框內取樣範圍的上緣（截圖像素）</summary>
+    private static (BankLook Look, int Top)? Locate(Frame f, double dpr)
+    {
+        var step = Math.Max(1, (int)Math.Round(2 * dpr));
+        for (var rise = 0; rise <= (int)(MaxRise * dpr); rise += step)
+            if (LookAt(f, dpr, (int)(Top * dpr) - rise) is { } look)
+                return (look, (int)(Top * dpr) - rise);
+        return null;
+    }
+
+    private static BankLook? LookAt(Frame f, double dpr, int y0)
     {
         int cx = f.Width / 2, half = (int)(HalfWidth * dpr);
         int x0 = Math.Max(0, cx - half), x1 = Math.Min(f.Width, cx + half + 1);
-        int y0 = (int)(Top * dpr), y1 = Math.Min(f.Height, (int)(Bottom * dpr));
-        if (x1 <= x0 || y1 <= y0)
+        int y1 = Math.Min(f.Height, y0 + (int)((Bottom - Top) * dpr));
+        if (x1 <= x0 || y0 < 0 || y1 <= y0)
             return null;
         int white = 0, gray = 0, ink = 0;
         for (var y = y0; y < y1; y++)
@@ -54,8 +75,9 @@ public sealed partial class BankReader(OcrReader ocr)
         double area = (x1 - x0) * (y1 - y0);
         if (ink < 15 * dpr * dpr)
             return null;
-        if (WhiteShare(f, x0, x1, (int)(AboveTop * dpr), (int)(AboveBottom * dpr)) >= 0.3
-            || WhiteShare(f, x0, x1, (int)(BelowTop * dpr), (int)(BelowBottom * dpr)) >= 0.3)
+        int gap = (int)(BandGap * dpr), rows = Math.Max(1, (int)(BandRows * dpr));
+        if (WhiteShare(f, x0, x1, y0 - gap - rows, y0 - gap) >= 0.3
+            || WhiteShare(f, x0, x1, y1 + gap, y1 + gap + rows) >= 0.3)
             return null;
         if (white / area >= 0.5)
             return BankLook.Ready;
@@ -70,11 +92,12 @@ public sealed partial class BankReader(OcrReader ocr)
     /// </summary>
     public async Task<int?> ReadAsync(Frame f, double dpr)
     {
-        var look = Look(f, dpr);
-        if (look != BankLook.Ready)
-            return look is null ? null : 0;
+        if (Locate(f, dpr) is not { } found)
+            return null;
+        if (found.Look != BankLook.Ready)
+            return 0;
         var half = (int)(50 * dpr);
-        var area = Rectangle.Intersect(new Rectangle(f.Width / 2 - half, (int)(96 * dpr), half * 2, (int)(34 * dpr)), new Rectangle(0, 0, f.Width, f.Height));
+        var area = Rectangle.Intersect(new Rectangle(f.Width / 2 - half, found.Top - (int)(6 * dpr), half * 2, (int)(34 * dpr)), new Rectangle(0, 0, f.Width, f.Height));
         var lines = await ocr.ReadAsync(f, area, 2);
         return ParseCount(string.Join(" ", lines.Select(l => l.Text))) ?? 1;
     }

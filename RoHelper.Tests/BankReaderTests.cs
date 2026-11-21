@@ -11,6 +11,19 @@ public class BankReaderTests
         Assert.Equal(BankLook.Ready, BankReader.Look(CardLayoutTests.Fixture("升級累積3"), 1.0));
     }
 
+    /// <summary>
+    /// 實測（2026-11-21）：斐揚洞穴沒有天氣那一行，標籤往上移約 22 px（y 78～104），固定位置讀不到，
+    /// 累積了 17 次升級都沒按 B，連續十幾局都 6 分多鐘就死
+    /// </summary>
+    [Fact]
+    public async Task Look_CaveLabelHigher_ReadyAndCounted()
+    {
+        var f = CardLayoutTests.Fixture("洞穴升級17");
+
+        Assert.Equal(BankLook.Ready, BankReader.Look(f, 1.0));
+        Assert.Equal(17, await new BankReader(OcrReader.TryCreate(out _)!).ReadAsync(f, 1.0));
+    }
+
     [Fact]
     public void Look_GrayLabel_Empty()
     {
