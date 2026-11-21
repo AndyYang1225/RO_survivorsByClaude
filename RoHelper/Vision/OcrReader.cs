@@ -22,6 +22,12 @@ public sealed partial class OcrReader
 
     private readonly OcrEngine _engine;
 
+    /// <summary>
+    /// 一次只讓一個 OCR 跑：實測（2026-11-21）引擎的 OCR 進行中、開發介面 /field 又讀公告時拋「Another RecognizeAsync operation is already running!」
+    /// （同一個 OcrEngine 不能同時辨識兩張）。await 期間 UI 執行緒會處理別的事，所以光是「都在 UI 執行緒」不夠
+    /// </summary>
+    private readonly SemaphoreSlim _gate = new(1, 1);
+
     private OcrReader(OcrEngine engine) => _engine = engine;
 
     public static OcrReader? TryCreate(out string error)
@@ -54,7 +60,16 @@ public sealed partial class OcrReader
         // 步驟 2：辨識
         using var bitmap = SoftwareBitmap.CreateCopyFromBuffer(
             image.Pixels.AsBuffer(), BitmapPixelFormat.Bgra8, image.Width, image.Height, BitmapAlphaMode.Premultiplied);
-        var result = await _engine.RecognizeAsync(bitmap);
+        OcrResult result;
+        await _gate.WaitAsync();
+        try
+        {
+            result = await _engine.RecognizeAsync(bitmap);
+        }
+        finally
+        {
+            _gate.Release();
+        }
 
         // 步驟 3：座標換回截圖座標（除以放大倍數、加上裁切起點）
         var actual = (double)image.Width / crop.Width;
