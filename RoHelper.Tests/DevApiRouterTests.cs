@@ -21,6 +21,14 @@ public class DevApiRouterTests
     }
 
     [Fact]
+    public async Task Type_PassesText_AndRequiresIt()
+    {
+        Assert.Equal(200, (await Call("POST", "/type?text=abc123")).Status);
+        Assert.Equal("Type(abc123)", Assert.Single(_host.Calls));
+        Assert.Equal(400, (await Call("POST", "/type")).Status);
+    }
+
+    [Fact]
     public async Task Move_PassesCoordinates()
     {
         var r = await Call("POST", "/move?x=5&y=7");
@@ -189,6 +197,7 @@ internal sealed class FakeDevApiHost : IDevApiHost
     public Task<JsonObject> FieldAsync() => Record("Field()");
     public Task ClickAsync(int x, int y) => Record($"Click({x},{y})");
     public Task MoveAsync(int x, int y) => Record($"Move({x},{y})");
+    public Task TypeAsync(string text) => Record($"Type({text})");
     public Task KeyAsync(char key) => Record($"Key({key})");
     public Task SetPausedAsync(bool paused) => Record($"Paused({paused})");
     public Task ReloadTemplatesAsync() => Record("Reload()");

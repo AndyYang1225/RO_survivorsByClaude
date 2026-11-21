@@ -63,6 +63,12 @@ public sealed class CdpInput
         });
     }
 
+    /// <summary>
+    /// 在目前有焦點的輸入框打一段文字（CDP Input.insertText，等同輸入法送出文字，網頁會收到 input 事件）。
+    /// 只給開發介面用（例如使用者要 Claude 幫忙登入測試帳號）；自動化流程本身不輸入文字。
+    /// </summary>
+    public Task TypeAsync(string text) => SendAsync("Input.insertText", new JsonObject { ["text"] = text });
+
     private Task MouseAsync(string type, double x, double y, string button, int buttons, int clickCount)
         => SendAsync("Input.dispatchMouseEvent", new JsonObject
         {

@@ -31,6 +31,9 @@ public interface IDevApiHost
     /// <summary>只移動滑鼠不點（看道具說明框這種滑鼠移上去才出現的東西）</summary>
     Task MoveAsync(int x, int y);
 
+    /// <summary>在目前有焦點的輸入框打字（先用 /click 點輸入框）</summary>
+    Task TypeAsync(string text);
+
     /// <summary>按一個鍵（數字或英文字母）</summary>
     Task KeyAsync(char key);
 
@@ -68,6 +71,7 @@ public sealed class DevApiRouter(IDevApiHost host)
         ("GET", "/field", "截一張讀小地圖（自己、磁鐵、寶箱、掉落物、王）和上方的金錢／寶箱價格，附上現在設定下會怎麼走（只預覽，不點）"),
         ("POST", "/click", "點擊截圖像素 x、y（必填）"),
         ("POST", "/move", "滑鼠移到截圖像素 x、y（必填），不點；看滑鼠移上去才出現的說明框用"),
+        ("POST", "/type", "在目前有焦點的輸入框打字 text（必填，1～200 字；先用 /click 點輸入框）"),
         ("POST", "/key", "按一個鍵 k（必填，一個英數字元）"),
         ("POST", "/pause", "暫停"),
         ("POST", "/resume", "繼續"),
@@ -127,6 +131,11 @@ public sealed class DevApiRouter(IDevApiHost host)
                 if (!TryInt(q, "x", 0, int.MaxValue, null, out var mx, out error) || !TryInt(q, "y", 0, int.MaxValue, null, out var my, out error))
                     return Error(400, error);
                 await host.MoveAsync(mx, my);
+                return Ok();
+            case ("POST", "/type"):
+                if (q["text"] is not { Length: > 0 and <= 200 } text)
+                    return Error(400, "text 必填，1～200 字");
+                await host.TypeAsync(text);
                 return Ok();
             case ("POST", "/key"):
                 var k = q["k"];

@@ -292,6 +292,12 @@ public sealed class DevApiHost(Control ui, VisionKit kit, VisionEngine engine, P
         return true;
     });
 
+    public Task TypeAsync(string text) => OnUi(async () =>
+    {
+        await kit.Input.TypeAsync(text);
+        return true;
+    });
+
     public Task MoveAsync(int x, int y) => OnUi(async () =>
     {
         var (cx, cy) = kit.Viewport.ToCss(x, y);
