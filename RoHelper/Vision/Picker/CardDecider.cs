@@ -29,7 +29,7 @@ public static partial class CardDecider
         {
             foreach (var w in s.DeityList)
             {
-                var i = all.FirstOrDefault(i => IsDeity(cards[i]) && w.Length > 0 && cards[i].Name.Contains(w), -1);
+                var i = all.FirstOrDefault(i => IsDeity(cards[i]) && w.Length > 0 && OcrFix(cards[i].Name).Contains(OcrFix(w)), -1);
                 if (i < 0)
                     continue;
                 deityPick = new(PickDo.Pick, i, "神祇優先：" + w);
@@ -100,7 +100,7 @@ public static partial class CardDecider
         if (!p.IsChest)
         {
             var order = s.Skills.Order;
-            int Rank(int i) => order.ToList().FindIndex(w => w.Length > 0 && cards[i].Name.Contains(w));
+            int Rank(int i) => order.ToList().FindIndex(w => w.Length > 0 && OcrFix(cards[i].Name).Contains(OcrFix(w)));
 
             // 4. 技能優先：第一個有出現就選；其餘的看稀有度，同稀有度照順序
             var first = pool.FirstOrDefault(i => Rank(i) == 0, -1);
@@ -204,7 +204,17 @@ public static partial class CardDecider
     public static string DeityName(string name) => PlusLevel().Replace(name, "").Trim();
 
     /// <summary>卡名裡有沒有清單裡的某個技能（同 JS skillOfCard：卡名可能是「雷爆術」或「攻擊：屬性附加」）</summary>
-    public static string? SkillOf(CardInfo c, IReadOnlyList<string> list) => list.FirstOrDefault(w => w.Length > 0 && c.Name.Contains(w));
+    public static string? SkillOf(CardInfo c, IReadOnlyList<string> list)
+    {
+        var name = OcrFix(c.Name);
+        return list.FirstOrDefault(w => w.Length > 0 && name.Contains(OcrFix(w)));
+    }
+
+    /// <summary>
+    /// OCR 常見的形近錯字換回正字再比對。實測（2026-11-21 三開 50 局戰績）：「冰箭術」「火箭術」讀成「冰箾術」「火箾術」，
+    /// 對不上技能清單、被當成一般卡用「最稀有」選；「祝福」讀成「祝褔」「祝襵」。
+    /// </summary>
+    private static string OcrFix(string s) => s.Replace('箾', '箭').Replace('褔', '福').Replace('襵', '福');
 
     private static bool Usable(CardInfo c, ActKind kind) => c.Button(kind) is { Usable: true };
 
@@ -253,7 +263,7 @@ public static partial class CardDecider
         return pool.First(i => cards[i].Rarity == top);
     }
 
-    private static string Squash(string s) => Spaces().Replace(s, "");
+    private static string Squash(string s) => Spaces().Replace(OcrFix(s), "");
 
     [GeneratedRegex("生命|HP|血量|治癒|回復|恢復", RegexOptions.IgnoreCase)]
     private static partial Regex HpWord();

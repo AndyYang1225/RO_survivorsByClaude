@@ -34,6 +34,26 @@ public class CardDeciderTests
         Assert.Equal(new PickDecision(PickDo.Pick, 1, "技能第 1 優先"), d);
     }
 
+    /// <summary>實測：OCR 把「冰箭術」讀成「冰箾術」，要照技能優先選，不是當一般卡用最稀有選</summary>
+    [Fact]
+    public void OcrLookalike_StillMatchesSkill()
+    {
+        var d = CardDecider.Decide(Picker(false, Card(0, "智慧祝褔", rarity: 3), Card(1, "冰箾術", rarity: 0)),
+            Settings(Skills(order: ["雷爆術", "冰箭術"])), new RunPickState());
+
+        Assert.Equal(1, d.Index);
+        Assert.Equal("技能優先（稀有度 > 順序）", d.Why);
+    }
+
+    [Fact]
+    public void OcrLookalike_ItemPrio()
+    {
+        var d = CardDecider.Decide(Picker(true, Card(0, "傷害秘藥", rarity: 3), Card(1, "智慧祝褔 + 1", rarity: 0)),
+            Settings(itemPrio: ["智慧祝福"]), new RunPickState());
+
+        Assert.Equal(1, d.Index);
+    }
+
     [Fact]
     public void OtherPrioritySkills_RarityThenOrder()
     {
