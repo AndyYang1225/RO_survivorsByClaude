@@ -29,6 +29,12 @@ public static class ScreenTemplates
     /// <summary>按了捨棄之後「已捨棄本局」對話框的「OK」按鈕</summary>
     public const string DiscardOk = "確定捨棄";
 
+    /// <summary>「暫離」對話框的「接受」（5 分鐘沒動作被踢回首頁時出現，例如暫停太久）</summary>
+    public const string AfkOk = "暫離接受";
+
+    /// <summary>新帳號第一次進大廳的「中文頻道」對話框的「現在不要」</summary>
+    public const string ChannelNo = "中文頻道現在不要";
+
     /// <summary>遊戲首頁的「開始遊戲！」大藍按鈕（重開程式或斷線後會回到首頁）</summary>
     public const string Title = "首頁開始遊戲";
 
@@ -75,6 +81,8 @@ public sealed record ScreenState(Size FrameSize, double Dpr)
     public Rectangle? TalkPrompt { get; init; }
     public Rectangle? Discard { get; init; }
     public Rectangle? DiscardOk { get; init; }
+    public Rectangle? AfkOk { get; init; }
+    public Rectangle? ChannelNo { get; init; }
     public Rectangle? Title { get; init; }
     public Rectangle? CharSelect { get; init; }
     public Rectangle? ExpeLeader { get; init; }

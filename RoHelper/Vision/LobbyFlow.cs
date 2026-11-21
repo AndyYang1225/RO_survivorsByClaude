@@ -108,7 +108,7 @@ public sealed class LobbyFlow
 
         // 看到結算以外的大廳畫面＝上一次結算已經結束，之後再看到「返回角色」就是新的一局
         if (s.Solo is not null || s.Start is not null || s.GoField is not null || s.FestivalHost is not null || s.TalkPrompt is not null
-            || s.Title is not null || s.CharSelect is not null || s.Discard is not null || s.DiscardOk is not null
+            || s.Title is not null || s.CharSelect is not null || s.Discard is not null || s.DiscardOk is not null || s.AfkOk is not null || s.ChannelNo is not null
             || s.ExpeLeader is not null || s.LeaderPrompt is not null || s.StageList is not null || s.DiffTitle is not null)
             _returnAt = null;
 
@@ -117,6 +117,12 @@ public sealed class LobbyFlow
         // 捨棄只在開了自動活動或自動遠征時才按：都沒開的話是使用者自己在玩，要不要繼續那一局由使用者決定。OK 只是關掉通知，一律按。
         if (s.DiscardOk is { } ok)
             return new("關閉已捨棄本局", Center(ok));
+        // 實測（2026-11-21 多開）：「暫離」（暫停超過 5 分鐘被踢回首頁）、「中文頻道」（新帳號第一次進大廳）兩個通知會擋住流程。
+        // 都只是通知，一律關掉：暫離按「接受」（之後回首頁，由首頁步驟接手）、中文頻道按「現在不要」（不改使用者的聊天設定）
+        if (s.AfkOk is { } afk)
+            return new("關閉暫離通知", Center(afk));
+        if (s.ChannelNo is { } no)
+            return new("關閉中文頻道提示", Center(no));
         if ((c.AutoEvent || c.AutoExpe) && s.Discard is { } discard)
         {
             _discardAt ??= now;

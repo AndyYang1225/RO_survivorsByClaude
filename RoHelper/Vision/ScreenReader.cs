@@ -36,6 +36,8 @@ public sealed class ScreenReader
             GoField = Find(ScreenTemplates.GoField),
             Discard = Find(ScreenTemplates.Discard),
             DiscardOk = Find(ScreenTemplates.DiscardOk),
+            AfkOk = Find(ScreenTemplates.AfkOk),
+            ChannelNo = Find(ScreenTemplates.ChannelNo),
             Title = Find(ScreenTemplates.Title),
             CharSelect = Find(ScreenTemplates.CharSelect),
             Missing = missing,
@@ -53,7 +55,7 @@ public sealed class ScreenReader
             };
         }
         if (s.Solo is not null || s.Return is not null || s.Start is not null || s.GoField is not null
-            || s.Discard is not null || s.DiscardOk is not null || s.Title is not null || s.CharSelect is not null
+            || s.Discard is not null || s.DiscardOk is not null || s.AfkOk is not null || s.ChannelNo is not null || s.Title is not null || s.CharSelect is not null
             || s.StageList is not null || s.DiffTitle is not null)
             return s;
         if (expe)

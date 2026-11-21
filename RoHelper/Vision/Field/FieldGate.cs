@@ -50,7 +50,7 @@ public sealed class FieldGate
     /// <summary>畫面上有沒有任何大廳流程的按鈕或標籤（有的話這一輪不走位，交給大廳流程）</summary>
     public static bool LobbyVisible(ScreenState s)
         => s.Solo is not null || s.Start is not null || s.GoField is not null || s.Return is not null
-            || s.FestivalHost is not null || s.TalkPrompt is not null || s.Discard is not null || s.DiscardOk is not null
+            || s.FestivalHost is not null || s.TalkPrompt is not null || s.Discard is not null || s.DiscardOk is not null || s.AfkOk is not null || s.ChannelNo is not null
             || s.Title is not null || s.CharSelect is not null
             || s.ExpeLeader is not null || s.LeaderPrompt is not null || s.StageList is not null || s.ExpeGo is not null || s.DiffTitle is not null || s.DiffGo is not null;
 }

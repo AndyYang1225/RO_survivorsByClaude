@@ -96,6 +96,53 @@ public sealed class ScreenReaderTests : IDisposable
         Assert.Null(s.DiscardOk);
     }
 
+    /// <summary>「暫離」的接受、「中文頻道」的現在不要（截圖像素），範本從真實截圖裁出來，範圍和門檻同 Claude 存的範本（畫面中央、0.98）</summary>
+    private static readonly Rectangle AfkOkArea = new(1086, 396, 56, 24);
+    private static readonly Rectangle ChannelNoArea = new(990, 382, 76, 24);
+    private static readonly RectangleF DialogRegion = new(0.35f, 0.4f, 0.3f, 0.35f);
+
+    private TemplateLibrary NoticeLibrary()
+    {
+        var lib = new TemplateLibrary(_dir);
+        lib.Save(ScreenTemplates.AfkOk, CardLayoutTests.Fixture("暫離").Crop(AfkOkArea), DialogRegion, 0.98, 1.0);
+        lib.Save(ScreenTemplates.ChannelNo, CardLayoutTests.Fixture("中文頻道").Crop(ChannelNoArea), DialogRegion, 0.98, 1.0);
+        return lib;
+    }
+
+    /// <summary>實測（2026-11-21 多開）：暫停太久被踢回首頁的「暫離」、新帳號的「中文頻道」兩個通知擋住大廳流程</summary>
+    [Fact]
+    public void Read_FindsAfkAndChannelNotices_OnRealScreens()
+    {
+        var reader = new ScreenReader(NoticeLibrary());
+
+        var afk = reader.Read(CardLayoutTests.Fixture("暫離"), 1.0, lobby: true);
+        Assert.Equal(AfkOkArea, afk.AfkOk);
+        Assert.Null(afk.ChannelNo);
+
+        var channel = reader.Read(CardLayoutTests.Fixture("中文頻道"), 1.0, lobby: true);
+        Assert.Equal(ChannelNoArea, channel.ChannelNo);
+        Assert.Null(channel.AfkOk);
+    }
+
+    [Theory]
+    [InlineData("未完成的一局")]
+    [InlineData("已捨棄本局")]
+    [InlineData("首頁")]
+    [InlineData("選角色")]
+    [InlineData("選擇大廳")]
+    [InlineData("活動升級累積")]
+    [InlineData("遠征難度")]
+    [InlineData("野外1")]
+    [InlineData("升級選卡2")]
+    [InlineData("結算存活1")]
+    public void Read_NoAfkOrChannelNotice_OnOtherScreens(string fixture)
+    {
+        var s = new ScreenReader(NoticeLibrary()).Read(CardLayoutTests.Fixture(fixture), 1.0, lobby: true);
+
+        Assert.Null(s.AfkOk);
+        Assert.Null(s.ChannelNo);
+    }
+
     [Fact]
     public void Read_DiscardTemplatesAreOptional_NotListedAsMissing()
     {

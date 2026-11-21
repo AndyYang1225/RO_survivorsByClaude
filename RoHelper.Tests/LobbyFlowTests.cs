@@ -397,4 +397,19 @@ public class LobbyFlowTests
         Assert.Null(flow.Decide(s, Cfg(), 1100).Click);
         Assert.Equal(BtnCenter, flow.Decide(s, Cfg(), 2200).Click);
     }
+
+    /// <summary>暫離、中文頻道的通知一律馬上關掉（不管自動活動有沒有開：只是通知）</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void AfkAndChannelNotices_ClosedImmediately(bool autoEvent)
+    {
+        var flow = new LobbyFlow();
+
+        var afk = flow.Decide(Screen() with { AfkOk = Btn }, Cfg(autoEvent: autoEvent), 0);
+        var channel = flow.Decide(Screen() with { ChannelNo = Btn }, Cfg(autoEvent: autoEvent), 100);
+
+        Assert.Equal(new FlowDecision("關閉暫離通知", BtnCenter), afk);
+        Assert.Equal(new FlowDecision("關閉中文頻道提示", BtnCenter), channel);
+    }
 }
