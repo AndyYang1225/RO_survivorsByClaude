@@ -28,7 +28,7 @@ public class BannerReaderTests
     {
         var a = BannerReader.Area(TestFrames.Solid(1904, 682, 0, 0, 0), 1.0);
 
-        Assert.Equal(new Rectangle(532, 90, 840, 110), a);
+        Assert.Equal(new Rectangle(532, 90, 840, 190), a);
     }
 
     [Fact]

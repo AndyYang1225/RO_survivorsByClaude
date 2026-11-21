@@ -2,10 +2,15 @@ using System.Text.RegularExpressions;
 
 namespace RoHelper.Vision.Field;
 
-/// <summary>畫面正上方計時器的狀態：平常（深藍字，倒數到下一隻王）或 MVP 死後的撿取倒數（紅字，同 JS 的 #timer.loot）</summary>
+/// <summary>畫面正上方計時器的狀態：平常（深藍字）、MVP 戰鬥中（紅字＋MVP 血條）、MVP 死後的撿取倒數（紅字，沒有血條）</summary>
 public enum TimerPhase
 {
     Normal,
+
+    /// <summary>MVP 戰鬥中：計時器也是紅字倒數，但下方有 MVP 血條（同 JS 的 #timer.mvp）</summary>
+    Mvp,
+
+    /// <summary>MVP 死後的撿取倒數：紅字、沒有 MVP 血條（同 JS 的 #timer.loot）</summary>
     Loot,
 }
 
@@ -52,7 +57,45 @@ public static partial class TimerReader
         var area = dpr * dpr;
         if (white < MinWhite * area || Math.Max(red, blue) < MinText * area)
             return null;
-        return red > blue ? TimerPhase.Loot : TimerPhase.Normal;
+        if (red <= blue)
+            return TimerPhase.Normal;
+        return MvpBarVisible(f, dpr) ? TimerPhase.Mvp : TimerPhase.Loot;
+    }
+
+    /// <summary>
+    /// MVP 血條：實測（2026-11-21 斐揚洞穴）MVP 出現後計時器也變紅字倒數（跟撿取倒數一樣），但計時器下方多一條長血條
+    /// （x 731～1172；上下邊框是淺灰 (161～164,163～166,166～172) 的兩條橫線，相隔 16 px，dpr 1 在 y 136、152；中間是紅色血量和深色底）。
+    /// 撿取倒數時沒有這條血條。之前只看紅字，把 MVP 戰鬥誤當成撿取倒數，結果關掉了躲鐘，角色被月夜貓的鐘秒殺。
+    /// 判斷：y 100～200（× dpr）找兩列相隔 16 px、畫面中央 ±200 px 內 80% 以上是淺灰的橫線（洞穴的暗色背景、燈籠都不會這樣）。
+    /// </summary>
+    internal static bool MvpBarVisible(Frame f, double dpr)
+    {
+        int cx = f.Width / 2, half = (int)(200 * dpr), gap = (int)Math.Round(16 * dpr);
+        int x0 = Math.Max(0, cx - half), x1 = Math.Min(f.Width, cx + half);
+        int y0 = (int)(100 * dpr), y1 = Math.Min(f.Height - gap - 2, (int)(200 * dpr));
+        for (var y = y0; y < y1; y++)
+        {
+            if (GrayShare(f, x0, x1, y) < 0.8)
+                continue;
+            for (var d = -1; d <= 1; d++)
+                if (GrayShare(f, x0, x1, y + gap + d) >= 0.8)
+                    return true;
+        }
+        return false;
+    }
+
+    /// <summary>一列裡淺灰（各色 140～205、彼此差 ≤ 20）的比例。喊「躲到鐘下」時畫面染紅光，邊框變成 (193,190,186)、(175,164,173)，範圍要放寬</summary>
+    private static double GrayShare(Frame f, int x0, int x1, int y)
+    {
+        var n = 0;
+        for (var x = x0; x < x1; x++)
+        {
+            var (r, g, b) = f.At(x, y);
+            int mn = Math.Min(r, Math.Min(g, b)), mx = Math.Max(r, Math.Max(g, b));
+            if (mn >= 140 && mx <= 205 && mx - mn <= 20)
+                n++;
+        }
+        return n / (double)Math.Max(1, x1 - x0);
     }
 
     /// <summary>紅字：實測 (192,58,44)～(211,122,115)，R 都 ≥ 190、比 G、B 都多 ≥ 89；門檻放寬到 R ≥ 150、多 ≥ 70</summary>

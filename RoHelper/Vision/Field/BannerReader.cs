@@ -16,11 +16,14 @@ public sealed partial class BannerReader(OcrReader ocr)
         return string.Join(" ", lines.Select(l => l.Text));
     }
 
-    /// <summary>OCR 範圍：畫面水平中央左右各 420·dpr、y 90～200·dpr，夾在畫面內</summary>
+    /// <summary>
+    /// OCR 範圍：畫面水平中央左右各 420·dpr、y 90～280·dpr，夾在畫面內。
+    /// 實測（2026-11-21 斐揚洞穴）：「MVP 月夜貓 出現了！」「躲到鐘下！」是畫面中央的大白字，在 y 205～240；原本的 y 90～200 剛好漏掉
+    /// </summary>
     internal static Rectangle Area(Frame f, double dpr)
     {
         var half = (int)(420 * dpr);
-        var r = new Rectangle(f.Width / 2 - half, (int)(90 * dpr), half * 2, (int)(110 * dpr));
+        var r = new Rectangle(f.Width / 2 - half, (int)(90 * dpr), half * 2, (int)(190 * dpr));
         return Rectangle.Intersect(r, new Rectangle(0, 0, f.Width, f.Height));
     }
 
@@ -41,6 +44,8 @@ public sealed partial class BannerReader(OcrReader ocr)
         return ms;
     }
 
-    [GeneratedRegex("躲到鐘下|鐘開啟|躲到下面|被封印")]
+    // 「躲.{0,2}鐘下」：實測 OCR 把「躲到鐘下！」讀成「躲鐘下 !」「躲到钀下 !」「躲到釒 …」（2026-11-21 斐揚洞穴），漏字、錯字都有；
+    // 「躲到.下」：「鐘」讀錯成別的字時
+    [GeneratedRegex("躲.{0,2}鐘下|躲到.下|鐘開啟|躲到下面|被封印")]
     private static partial Regex Start();
 }

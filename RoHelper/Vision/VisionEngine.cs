@@ -63,6 +63,11 @@ public sealed class VisionEngine : IAutomation, IDisposable
     /// <summary>最近一次讀到的金錢與寶箱價格（null＝還沒讀或讀不到，當買得起）和讀的時間</summary>
     private Hud? _hud;
     private long _hudAt = long.MinValue / 2;
+
+    /// <summary>連續看到撿取倒數（紅字、沒有 MVP 血條）的開始時間；null＝這輪不是</summary>
+    private long? _lootSince;
+
+    private const long LootConfirm = 1_500;
     private HudReader? _hudReader;
 
     /// <summary>
@@ -442,7 +447,10 @@ public sealed class VisionEngine : IAutomation, IDisposable
             _hudAt = now;
         }
         var timer = TimerReader.Read(frame, dpr);
-        var lootPhase = timer == TimerPhase.Loot;
+        // 撿取倒數要連續 LootConfirm 毫秒才算：實測喊「躲到鐘下」時畫面染紅光，MVP 血條偶爾有一格認不出來，
+        // 單格誤判成撿取倒數會把剛開始的躲鐘取消（真的撿取倒數有 15 秒，晚 1.5 秒沒差）
+        _lootSince = timer == TimerPhase.Loot ? _lootSince ?? now : null;
+        var lootPhase = _lootSince is { } ls && now - ls >= LootConfirm;
         await ClockAsync(frame, dpr, now, timer);
         var bell = await BellAsync(frame, dpr, now, s, lootPhase);
         var note = "";

@@ -5,7 +5,7 @@ namespace RoHelper.Vision.Field;
 /// X0～X1、Y0～Y1 是外框；Width／Height 同 JS（x1 − x0，取樣格換成像素）；N 是取樣點數；Gold／Red 是其中金色、封印紅的點數；
 /// Fill 是外框（取樣格）裡命中的比例。
 /// </summary>
-public sealed record BellBlob(int X, int Y, int X0, int X1, int Y0, int Y1, int N, int Width, int Height, int Gold, int Red, double Fill);
+public sealed record BellBlob(int X, int Y, int X0, int X1, int Y0, int Y1, int N, int Width, int Height, int Gold, int Red, double Fill, int Dim = 0);
 
 /// <summary>
 /// 用畫面顏色找王放的鐘（移植 engine.js scanBell，只做「② 備用：看畫面顏色找鐘」）。
@@ -31,10 +31,18 @@ public static class BellFinder
     private const int MinN = 25;
 
     /// <summary>
-    /// 填滿比例下限（exe 新增，待實機校正）：鐘是自己發光的實心材質，應該整塊都是金色；
-    /// 野外5傍晚 點亮的燈籠外面有一圈金白色光環（x 392～492、y 196～272，72 點全是金色），是空心的，填滿只有 0.14
+    /// 填滿比例下限（exe 新增）：野外5傍晚 點亮的燈籠外面有一圈金白色光環（x 392～492、y 196～272，72 點全是金色），是空心的，填滿只有 0.14。
+    /// 實測（2026-11-21 斐揚洞穴 月夜貓，洞穴的鐘）：鐘連同底座圓盤一起算，外框 200×252、填滿 0.24，原本的 0.3 把真的鐘排除了，改成 0.2
     /// </summary>
-    private const double MinFill = 0.3;
+    private const double MinFill = 0.2;
+
+    /// <summary>
+    /// 寬度上限（dpr 1 的 px，exe 新增）：實測鐘＋底座 200 px 寬；洛陽傍晚的地面顏色接近暗金色時會連成上千 px 的大片色塊，不是鐘
+    /// </summary>
+    private const int MaxWidth = 400;
+
+    /// <summary>暗金色為主的色塊高度下限（dpr 1 的 px）：見 <see cref="IsBell"/></summary>
+    private const int DimMinHeight = 90;
 
     /// <summary>
     /// 幾乎全是封印紅（金色不到 1/4）的色塊，寬度至少這麼多（dpr 1 的 px）才算鐘（exe 新增，待實機校正）：
@@ -56,7 +64,10 @@ public static class BellFinder
     /// </summary>
     private static bool IsBell(BellBlob b, double dpr, BellBlob? last)
     {
-        if (b.N < MinN || b.Fill < MinFill)
+        if (b.N < MinN || b.Fill < MinFill || b.Width > MaxWidth * dpr)
+            return false;
+        // 暗金色為主的色塊要夠高才算：實測洞穴的鐘身 148 px 高；洛陽的燈籠、地面被暗金規則誤認的色塊最高 72 px
+        if (b.Dim * 2 >= b.N && b.Height < DimMinHeight * dpr)
             return false;
         if (b.Gold * 4 >= b.N)
             return true;
@@ -101,7 +112,7 @@ public static class BellFinder
         {
             if (hits[start] == 0 || seen[start])
                 continue;
-            int n = 0, gold = 0, red = 0, x0 = int.MaxValue, y0 = int.MaxValue, x1 = -1, y1 = -1;
+            int n = 0, gold = 0, red = 0, dim = 0, x0 = int.MaxValue, y0 = int.MaxValue, x1 = -1, y1 = -1;
             seen[start] = true;
             stack.Push(start);
             while (stack.Count > 0)
@@ -109,10 +120,12 @@ public static class BellFinder
                 var c = stack.Pop();
                 int gx = c % gw, gy = c / gw;
                 n++;
-                if (hits[c] == 1)
-                    gold++;
-                else
+                if (hits[c] == 2)
                     red++;
+                else
+                    gold++;
+                if (hits[c] == 3)
+                    dim++;
                 x0 = Math.Min(x0, gx);
                 x1 = Math.Max(x1, gx);
                 y0 = Math.Min(y0, gy);
@@ -128,16 +141,21 @@ public static class BellFinder
                     }
             }
             found.Add(new BellBlob((x0 + x1) * step / 2, y1 * step, x0 * step, x1 * step, y0 * step, y1 * step, n,
-                (x1 - x0) * step, (y1 - y0) * step, gold, red, (double)n / ((x1 - x0 + 1) * (y1 - y0 + 1))));
+                (x1 - x0) * step, (y1 - y0) * step, gold, red, (double)n / ((x1 - x0 + 1) * (y1 - y0 + 1)), dim));
         }
         return found;
     }
 
-    /// <summary>顏色規則（同 JS scanBell，照搬）：1＝金色、2＝封印中的紅色、0＝都不是（兩條規則不重疊：金色 g ≥ 165、紅色 g ≤ 120）</summary>
+    /// <summary>顏色規則（同 JS scanBell）：1＝金色、2＝封印中的紅色、3＝洞穴裡的暗金色（exe 新增，算金色）、0＝都不是</summary>
     private static byte Match(int r, int g, int b)
     {
         if (r >= 225 && g >= 165 && g <= 240 && b >= 70 && b <= 200 && r - b >= 55)
             return 1;
+        // 洞穴裡的暗金色鐘（實測 2026-11-21 斐揚洞穴 月夜貓：鐘身 (80～120,66～92,47～66)、底座金邊 (153,139,104)）：
+        // JS 的金色規則（r ≥ 225）完全找不到，加一條暗金色。只在躲鐘那 15 秒才掃，誤判的機會小；灰色岩石 r−b 不到 30、洞穴地面太暗
+        // 洛陽傍晚的地面 (110,80,70)、(90,70,60) 很接近，差在鐘身 g 比 b 多 15 以上、b 比較低，所以要求 g − b ≥ 15、b ≤ 75
+        if (r >= 75 && r <= 175 && g >= 55 && g <= 150 && b >= 35 && b <= 75 && r - b >= 30 && r >= g && g - b >= 15)
+            return 3;
         if (r >= 220 && g <= 120 && b <= 110)
             return 2;
         return 0;
