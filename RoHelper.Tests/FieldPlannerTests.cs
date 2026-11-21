@@ -18,7 +18,8 @@ public sealed class FieldPlannerTests : IDisposable
             Directory.Delete(dir, recursive: true);
     }
 
-    private static FieldPlanner Planner() => new(() => 0.5);
+    // 這些測試一開局就放掉落物；地圖圖案的學習另外測（MapFeature_*）
+    private static FieldPlanner Planner() => new(() => 0.5, learnMapFeatures: false);
 
     private static MinimapBlob B(double x, double y) => new(x, y, 5);
 
@@ -503,5 +504,45 @@ public sealed class FieldPlannerTests : IDisposable
     public void CanAffordChest_UnreadableHud_CountsAsAffordable()
     {
         Assert.True(All.CanAffordChest(null));
+    }
+    /// <summary>實測（2026-11-21）斐揚洞穴：小地圖固定位置有一個像掉落物的深藍點，開局就在。王還沒死之前看到的「掉落物」是地圖圖案，整局忽略</summary>
+    [Fact]
+    public void MapFeature_LootSeenBeforeAnyBossDied_IgnoredAllRun()
+    {
+        var p = new FieldPlanner(() => 0.5);
+        var feature = B(1758, 93);
+
+        var first = p.Step(Mm(B(1810, 105), loot: [feature]), All, 1_000);
+        var later = p.Step(Mm(B(1810, 105), loot: [feature]), All, 300_000);
+
+        Assert.NotEqual("撿王的掉落物", first.Status);
+        Assert.NotEqual("撿王的掉落物", later.Status);
+    }
+
+    /// <summary>王死了之後才出現的掉落物照樣去撿；地圖圖案以外的位置也照樣撿</summary>
+    [Fact]
+    public void MapFeature_NewLootAfterWindow_StillPicked()
+    {
+        var p = new FieldPlanner(() => 0.5);
+        p.Step(Mm(B(1810, 105), loot: [B(1758, 93)]), All, 1_000);
+
+        var d = p.Step(Mm(B(1800, 100), loot: [B(1758, 93), B(1830, 120)]), All, 200_000);
+
+        Assert.Equal("撿王的掉落物", d.Status);
+        Assert.True(d.Click!.Value.X > 0.5, $"{d.Click}");
+    }
+
+    /// <summary>新的一局重新學（地圖可能不一樣）</summary>
+    [Fact]
+    public void MapFeature_NewRun_Forgets()
+    {
+        var p = new FieldPlanner(() => 0.5);
+        p.Step(Mm(B(1810, 105), loot: [B(1758, 93)]), All, 1_000);
+        p.NewRun();
+
+        // 新的一局開局 80 秒內又看到同一點：一樣當地圖圖案（這個測試確認不會因為上一局的記錄而影響「之後」才出現的點）
+        p.Step(Mm(B(1810, 105)), All, 500_000);
+        var d = p.Step(Mm(B(1795, 110), loot: [B(1758, 93)]), All, 700_000);
+        Assert.Equal("撿王的掉落物", d.Status);
     }
 }

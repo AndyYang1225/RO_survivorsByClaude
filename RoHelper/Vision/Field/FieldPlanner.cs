@@ -11,7 +11,7 @@ public sealed record FieldDecision(string Status, PointF? Click);
 /// 刻意不做（第二批）：精確模式（JS 讀遊戲資料）、吃肉。
 /// 小地圖座標用截圖像素：假設 dpr 1 時跟 JS 的小地圖畫布像素同尺度，所以 JS 以像素為單位的門檻（0.8、3、len·0.03）直接沿用。
 /// </summary>
-public sealed class FieldPlanner(Func<double> random)
+public sealed class FieldPlanner(Func<double> random, bool learnMapFeatures = true)
 {
     /// <summary>繞圈半徑（同 JS GEO.wanderRadius）</summary>
     private const double WanderRadius = 0.32;
@@ -60,6 +60,8 @@ public sealed class FieldPlanner(Func<double> random)
         _ballMute = 0;
         _bosses.Reset();
         _bossArrive = 0;
+        _mapFeatures.Clear();
+        _runFirstStep = 0;
         _bell.End();
     }
 
@@ -78,7 +80,10 @@ public sealed class FieldPlanner(Func<double> random)
         // 被 SeekEvery 跳過的那幾輪也要記到「最後看到的時間」，才不會把閃爍誤判成死掉。
         // 躲鐘、HP 過低不走位時也照樣追蹤，免得那段時間看不到王、之後把王誤判成死掉
         if (mm is not null)
+        {
             _bosses.Update(mm, now);
+            RememberMapFeatures(mm, now, lootPhase);
+        }
         // 躲鐘最優先（同 JS fieldStep：在 HP 過低、SeekEvery 之前）；MVP 死了（撿取倒數）立刻結束（同 JS：鐘只在 MVP 戰鬥中出現）
         if (!s.BellDodge || lootPhase)
             _bell.End();
@@ -121,12 +126,12 @@ public sealed class FieldPlanner(Func<double> random)
             }
             // 小地圖上有掉落物就交給下面的撿掉落物（同 JS 1124 行）。跟 JS 小差異：JS 這時已經往地點點了一次、下面又往掉落物點一次；
             // 這裡一輪只出一個決策，有掉落物就直接不走地點這段（地點留著，撿完掉落物還沒過 12 秒就接著去）
-            else if (s.BossSpot && mm.Loot.Count == 0)
+            else if (s.BossSpot && RealLoot(mm).Count == 0)
                 return BossSpotStep(me, spot, now);
         }
 
         // 王的掉落物最優先（MVP 死後撿取時間有限）
-        var loot = s.SeekLoot ? Nearest(me, mm.Loot, now) : null;
+        var loot = s.SeekLoot ? Nearest(me, RealLoot(mm), now) : null;
         // 掉落物在小地圖上會閃，倒數中看不到時就照 2.5 秒內最後看到的位置繼續走
         if (loot is not null)
             _lastLoot = (loot, now);
@@ -356,4 +361,32 @@ public sealed class FieldPlanner(Func<double> random)
         => list
             .Where(t => !_blocked.Any(b => b.Until > now && Math.Sqrt((b.X - t.X) * (b.X - t.X) + (b.Y - t.Y) * (b.Y - t.Y)) < 3))
             .MinBy(t => (t.X - me.X) * (t.X - me.X) + (t.Y - me.Y) * (t.Y - me.Y));
+
+    /// <summary>
+    /// 開局多久內、還沒有王死掉時，小地圖上像掉落物的點都當成地圖圖案（實測 2026-11-21：斐揚洞穴小地圖固定位置 (1758,93) 有一個深藍點，
+    /// 一開局就在，角色一直被吸過去「撿王的掉落物」）。王的掉落物只會在王死後出現，所以這段時間看到的一定不是真的。
+    /// 取 80 秒：所有地圖第一隻王最早 1:30 出現（普隆德拉城的 MVP，JS STAGE_BOSS）。改善 JS（JS 一樣會被地圖顏色騙，只靠「站上去 3 秒還在就忽略 30 秒」）
+    /// </summary>
+    private const long MapFeatureWindow = 80_000;
+
+    /// <summary>這局記下的地圖圖案位置（小地圖像素），整局忽略</summary>
+    private readonly List<(double X, double Y)> _mapFeatures = [];
+
+    private long _runFirstStep;
+
+    private void RememberMapFeatures(MinimapInfo mm, long now, bool lootPhase)
+    {
+        if (_runFirstStep == 0)
+            _runFirstStep = now;
+        if (!learnMapFeatures || _bosses.AnyDied || lootPhase || now - _runFirstStep > MapFeatureWindow)
+            return;
+        foreach (var l in mm.Loot)
+            if (!IsMapFeature(l))
+                _mapFeatures.Add((l.X, l.Y));
+    }
+
+    private bool IsMapFeature(MinimapBlob t) => _mapFeatures.Any(f => Math.Sqrt((f.X - t.X) * (f.X - t.X) + (f.Y - t.Y) * (f.Y - t.Y)) < 3);
+
+    /// <summary>小地圖上的掉落物，去掉地圖圖案（見 <see cref="MapFeatureWindow"/>）</summary>
+    private IReadOnlyList<MinimapBlob> RealLoot(MinimapInfo mm) => [.. mm.Loot.Where(l => !IsMapFeature(l))];
 }

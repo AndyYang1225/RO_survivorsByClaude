@@ -118,7 +118,7 @@ public class BellDodgerTests
     [Fact]
     public void Planner_DodgeBeatsLootAndLowHp()
     {
-        var p = new FieldPlanner(() => 0.5);
+        var p = new FieldPlanner(() => 0.5, learnMapFeatures: false);
         p.Bell.Announce("躲到鐘下！", 10_000);
         var s = All with { LowHpStop = true };
 
@@ -131,7 +131,7 @@ public class BellDodgerTests
     [Fact]
     public void Planner_LootPhase_EndsDodge()
     {
-        var p = new FieldPlanner(() => 0.5);
+        var p = new FieldPlanner(() => 0.5, learnMapFeatures: false);
         p.Bell.Announce("躲到鐘下！", 10_000);
 
         var d = p.Step(Mm(loot: [new(1830, 90, 5)]), All, 10_100, lootPhase: true, bell: View(Bell(1400, 400)));
@@ -143,7 +143,7 @@ public class BellDodgerTests
     [Fact]
     public void Planner_BellDodgeOff_Ignored()
     {
-        var p = new FieldPlanner(() => 0.5);
+        var p = new FieldPlanner(() => 0.5, learnMapFeatures: false);
         p.Bell.Announce("躲到鐘下！", 10_000);
 
         var d = p.Step(Mm(loot: [new(1830, 90, 5)]), All with { BellDodge = false }, 10_100, bell: View(Bell(1400, 400)));
@@ -155,7 +155,7 @@ public class BellDodgerTests
     public void Planner_AfterDodgeClick_WaitsSeekEveryBeforeOtherMoves()
     {
         // 同 JS：躲鐘點了也算移動（st.lastMove），躲鐘結束後不會馬上又點別的
-        var p = new FieldPlanner(() => 0.5);
+        var p = new FieldPlanner(() => 0.5, learnMapFeatures: false);
         p.Bell.Announce("躲到鐘下！", 10_000);
         p.Step(Mm(), All, 10_100, bell: View(Bell(1400, 400)));
         p.Bell.End();
@@ -167,7 +167,7 @@ public class BellDodgerTests
     [Fact]
     public void Planner_NewRun_EndsDodge()
     {
-        var p = new FieldPlanner(() => 0.5);
+        var p = new FieldPlanner(() => 0.5, learnMapFeatures: false);
         p.Bell.Announce("躲到鐘下！", 10_000);
         p.NewRun();
 

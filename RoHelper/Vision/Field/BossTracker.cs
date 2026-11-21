@@ -24,9 +24,13 @@ public sealed class BossTracker
     /// <summary>最近判定的王死掉地點；null＝沒有（由 <see cref="FieldPlanner"/> 用完或過期後清掉）</summary>
     public BossSpot? Spot { get; set; }
 
+    /// <summary>這局有沒有判定過王死掉（王的掉落物只會在王死後出現；給 FieldPlanner 判斷地圖圖案用）</summary>
+    public bool AnyDied { get; private set; }
+
     /// <summary>新的一局：全部清掉</summary>
     public void Reset()
     {
+        AnyDied = false;
         _seen.Clear();
         Spot = null;
     }
@@ -49,7 +53,10 @@ public sealed class BossTracker
         }
         // 同 JS：同一輪有好幾隻死掉時，留最後一隻
         foreach (var s in _seen.Where(s => now - s.At > Gone && s.InView))
+        {
             Spot = new BossSpot(s.X, s.Y, now);
+            AnyDied = true;
+        }
         _seen.RemoveAll(s => now - s.At >= Gone);
     }
 }
