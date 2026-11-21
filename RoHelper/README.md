@@ -17,6 +17,13 @@
 - 遊戲視窗上方選單：面板、重新載入、開發者工具、開啟資料夾
 - 從 Tampermonkey 版搬設定：舊面板「其他 → 匯出設定（複製）」→ 新面板「其他 → 匯入設定」貼上
 
+## 多開（同時跑多個帳號）
+- 每個帳號一個 profile：`RoHelper.exe --profile=A`、`RoHelper.exe --profile=B`（名稱只能用英數、- 和 _）。可以各做一個捷徑。
+- 每個 profile 有自己的設定、戰績、截圖、視窗位置和**登入狀態**（`%AppData%RoHelperprofiles名稱`、`%LocalAppData%RoHelperprofiles名稱WebView2`）；範本共用。第一次開某個 profile 要登入一次，規則設定會從預設 profile 複製一份當起點。
+- 同一個 profile 只能開一個；不帶 `--profile` 就是原本的那一份。視窗和面板標題會顯示 [名稱]。
+- 同一個帳號不能同時登入兩個視窗。每多開一個就多一個 3D 畫面＋截圖判讀，先開 2 個看電腦撐不撐得住。
+- 開發介面多開時要給不同 port：`--profile=B --dev-api=8766`。
+
 ## 檔案位置
 | 內容 | 位置 |
 |---|---|
