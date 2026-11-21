@@ -45,6 +45,33 @@ public sealed class AppSettings
     public void Save() => JsonFile.WriteText(AppPaths.AppSettingsFile, JsonSerializer.Serialize(this, JsonFile.Options));
 
     /// <summary>
+    /// 多開：新 profile 第一次開時，照另一份 app.json 的遊戲視窗大小（位置往右下錯開 offset），面板位置也錯開。
+    /// 來源不存在、讀不到或沒有視窗大小時什麼都不做（用預設大小）
+    /// </summary>
+    public static void SeedFrom(string sourceFile, string targetFile, int offset)
+    {
+        try
+        {
+            if (JsonFile.Read(sourceFile)?.Deserialize<AppSettings>(JsonFile.Options) is not { GameBounds: { } g } src)
+                return;
+            var seeded = new AppSettings
+            {
+                GameBounds = g with { X = g.X + offset, Y = g.Y + offset },
+                PanelBounds = src.PanelBounds is { } p ? p with { X = p.X + offset, Y = p.Y + offset } : null,
+                PanelTopMost = src.PanelTopMost,
+                KeepRunningWhenMinimized = src.KeepRunningWhenMinimized,
+                VisionMode = src.VisionMode,
+            };
+            Directory.CreateDirectory(Path.GetDirectoryName(targetFile)!);
+            JsonFile.WriteText(targetFile, JsonSerializer.Serialize(seeded, JsonFile.Options));
+        }
+        catch (JsonException)
+        {
+            // 來源壞掉就算了，用預設大小開
+        }
+    }
+
+    /// <summary>
     /// 存下來的位置如果已經不在任何螢幕上（例如拔掉外接螢幕），回 null 讓視窗用預設位置，免得視窗開在看不到的地方。
     /// </summary>
     public static Rectangle? OnScreen(WindowBounds? b)

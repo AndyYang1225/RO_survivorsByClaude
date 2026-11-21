@@ -36,14 +36,17 @@ internal static class Program
 
         ApplicationConfiguration.Initialize();
 
-        // 新的 profile 第一次開：複製一份預設 profile 的規則設定當起點（職業、技能優先、放逐清單不用重設），之後各改各的。
-        // 刻意不複製 app.json（視窗位置：兩個視窗疊在同一個位置反而難用）和戰績
+        // 新的 profile 第一次開：複製一份預設 profile 的規則設定當起點（職業、技能優先、放逐清單不用重設），之後各改各的。刻意不複製戰績
         var rootConfig = Path.Combine(AppPaths.DataDir, "config.json");
         if (profile.Length > 0 && !File.Exists(AppPaths.ConfigFile) && File.Exists(rootConfig))
         {
             Directory.CreateDirectory(AppPaths.ProfileDir);
             File.Copy(rootConfig, AppPaths.ConfigFile);
         }
+        // 視窗大小也照預設 profile：遊戲介面會跟著視窗高度縮放，範本是在預設視窗的大小下存的，
+        // 實測（2026-11-21）新 profile 用預設大小（高 960）開，選角色的按鈕放大一圈，範本比對不上。位置往右下錯開 30，免得完全疊在一起
+        if (profile.Length > 0 && !File.Exists(AppPaths.AppSettingsFile))
+            AppSettings.SeedFrom(Path.Combine(AppPaths.DataDir, "app.json"), AppPaths.AppSettingsFile, offset: 30);
 
         var settings = AppSettings.Load();
         var config = new ConfigStore(AppPaths.ConfigFile);
