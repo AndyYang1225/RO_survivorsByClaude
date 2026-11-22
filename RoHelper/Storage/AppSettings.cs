@@ -20,6 +20,15 @@ public sealed class AppSettings
     /// <summary>遊戲靜音（WebView2 的 IsMuted）：掛機、多開時聲音用不到，省下音效解碼和混音。遊戲視窗選單「靜音」切換</summary>
     public bool MuteAudio { get; set; } = true;
 
+    /// <summary>
+    /// 開啟時自動解除暫停。暫停狀態存在規則設定裡，關掉時是暫停（例如等打完這局才關），下次開還是暫停，
+    /// 多開重開時每個視窗都要手動按繼續。遊戲視窗選單「選項 → 啟動時自動繼續」切換
+    /// </summary>
+    public bool ResumeOnStart { get; set; } = true;
+
+    /// <summary>卡住時自動重新整理（見 StallWatch）。遊戲視窗選單「選項 → 卡住時自動重新整理」切換</summary>
+    public bool StallRecovery { get; set; } = true;
+
     /// <summary>啟動時自動檢查引擎更新</summary>
     public bool AutoUpdateEngine { get; set; } = true;
 
@@ -64,6 +73,8 @@ public sealed class AppSettings
                 PanelTopMost = src.PanelTopMost,
                 KeepRunningWhenMinimized = src.KeepRunningWhenMinimized,
                 MuteAudio = src.MuteAudio,
+                ResumeOnStart = src.ResumeOnStart,
+                StallRecovery = src.StallRecovery,
                 VisionMode = src.VisionMode,
             };
             Directory.CreateDirectory(Path.GetDirectoryName(targetFile)!);

@@ -145,6 +145,9 @@ public sealed class VisionEngine : IAutomation, IDisposable
 
     public EngineSchema Schema { get; }
 
+    /// <summary>卡住偵測（遊戲視窗定時檢查、決定要不要重新整理）</summary>
+    public StallWatch Watch { get; } = new();
+
     /// <summary>最近的狀態變化（開發介面、自動存證據用）</summary>
     public StatusHistory History { get; } = new();
 
@@ -185,6 +188,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
         _infoReader = kit.Ocr is null ? null : new FieldInfoReader(kit.Ocr, jobs, Schema.Stages);
         _expeReader = kit.Ocr is null ? null : new ExpeditionReader(kit.Ocr, Schema.Stages);
         _config.Replace(ConfigDefaults.Apply(ConfigDefaults.Build(Schema), _config.Current, Schema, reset: false));
+        Watch.Idle(Environment.TickCount64);
         SchemaReceived?.Invoke(Schema);
         _timer.Interval = TickMs();
         _timer.Start();
@@ -217,7 +221,13 @@ public sealed class VisionEngine : IAutomation, IDisposable
         Frame? frame = null;
         try
         {
+            // 別的分身按了「套用到其他分身」：把送來的規則併進來（暫停中也要收，見 ConfigSync）
+            if (ConfigSync.TakePending(AppPaths.ProfileDir) is { } pending)
+                SendPatch(pending);
             var settings = FlowSettings.From(_config);
+            // 暫停、局數到了、沒開自動活動／遠征：本來就不會開新局，不算卡住
+            if (settings.Paused || settings.RunLimit && settings.Runs >= settings.RunLimitN || !settings.AutoEvent && !settings.AutoExpe)
+                Watch.Idle(Environment.TickCount64);
             if (settings.Paused)
             {
                 _flow.Reset();
@@ -229,6 +239,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
             }
 
             frame = await _kit.Grabber.CaptureAsync();
+            Watch.Frame(Environment.TickCount64, StallWatch.Signature(frame));
             var dpr = _kit.Viewport.Dpr;
 
             // 步驟 1：選卡畫面優先（選卡會擋住整局，大廳流程的按鈕這時也不會出現）
@@ -266,6 +277,8 @@ public sealed class VisionEngine : IAutomation, IDisposable
                 ? await _expeReader.ReadAsync(frame, dpr, list) : null;
             var decision = _flow.Decide(screen, settings, now, stages);
             // 結算：先讀結算畫面再記錄（同一輪；第一次確認結算的這一輪不會按返回角色，要等 tReturn，結算畫面還在）
+            if (decision.CountRun || decision.StartsRun)
+                Watch.Progress(now);
             if (decision.CountRun)
                 await CountRunAsync(frame, dpr);
             if (decision.StartsRun)

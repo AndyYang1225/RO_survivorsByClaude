@@ -89,15 +89,17 @@ public sealed class GameForm : Form
         menu.Items.Add(new ToolStripMenuItem("重新載入 (F5)", null, (_, _) => _webView.CoreWebView2?.Reload()));
         menu.Items.Add(new ToolStripMenuItem("開發者工具 (F12)", null, (_, _) => _webView.CoreWebView2?.OpenDevToolsWindow()));
         menu.Items.Add(new ToolStripMenuItem("開啟資料夾", null, (_, _) => OpenDataFolder()));
-        var mute = new ToolStripMenuItem("靜音") { CheckOnClick = true, Checked = settings.MuteAudio };
-        mute.CheckedChanged += (_, _) =>
+        menu.Items.Add(new ToolStripMenuItem("多開總覽", null, (_, _) => OpenOverview()));
+        var options = new ToolStripMenuItem("選項");
+        options.DropDownItems.Add(Toggle("靜音", settings.MuteAudio, on =>
         {
-            _settings.MuteAudio = mute.Checked;
-            _settings.Save();
+            _settings.MuteAudio = on;
             if (_webView.CoreWebView2 is { } c)
-                c.IsMuted = mute.Checked;
-        };
-        menu.Items.Add(mute);
+                c.IsMuted = on;
+        }));
+        options.DropDownItems.Add(Toggle("啟動時自動繼續（不用手動解除暫停）", settings.ResumeOnStart, on => _settings.ResumeOnStart = on));
+        options.DropDownItems.Add(Toggle("卡住時自動重新整理", settings.StallRecovery, on => _settings.StallRecovery = on));
+        menu.Items.Add(options);
         // 【JS 引擎已停用】檢查引擎更新、切換 JS／視覺模式都用不到了（見 Program.cs）
         // menu.Items.Add(new ToolStripMenuItem("檢查更新", null, async (_, _) => await CheckUpdateManuallyAsync()));
         menu.Items.Add(new ToolStripMenuItem("視覺除錯", null, (_, _) => OpenVisionDebug()));
@@ -136,12 +138,15 @@ public sealed class GameForm : Form
         core.Settings.IsStatusBarEnabled = false;
         core.IsMuted = _settings.MuteAudio;
         HandleScriptDialogs(core);
-        core.DocumentTitleChanged += (_, _) => Text = $"{TitleBase} - {core.DocumentTitle}";
         // 視覺模式：完全不注入 JS、不接網頁訊息、不檢查引擎更新，只截圖和送輸入
         if (_visionEngine is not null)
         {
             _engineItem.Text = "視覺模式（開發中）";
+            _visionEngine.StatusReceived += OnStatus;
             _visionEngine.Start(VisionKitFor(core));
+            if (_settings.ResumeOnStart && _config.GetBool("paused"))
+                _visionEngine.SendPatch(new System.Text.Json.Nodes.JsonObject { ["paused"] = false });
+            StartWatch(core, _visionEngine);
             StartDevApi(VisionKitFor(core), _visionEngine);
             core.Navigate(AppPaths.GameUrl);
             return;
@@ -172,18 +177,143 @@ public sealed class GameForm : Form
         // core.Navigate(AppPaths.GameUrl);
     }
 
+    /// <summary>選項選單的開關：切換後馬上存 app.json</summary>
+    private ToolStripMenuItem Toggle(string text, bool value, Action<bool> apply)
+    {
+        var item = new ToolStripMenuItem(text) { CheckOnClick = true, Checked = value };
+        item.CheckedChanged += (_, _) =>
+        {
+            apply(item.Checked);
+            _settings.Save();
+        };
+        return item;
+    }
+
+    #region 標題列狀態、多開總覽、卡住偵測
+
+    private OverviewForm? _overview;
+
+    /// <summary>最近一次的狀態（標題列、status.json 用）</summary>
+    private int _runs;
+    private string _action = "";
+    private bool _paused;
+
+    /// <summary>卡住偵測的警告（重新整理也救不回來時）；空字串＝沒事</summary>
+    private string _warning = "";
+
+    private long _statusSavedAt = long.MinValue / 2;
+
+    /// <summary>
+    /// 引擎回報狀態：更新標題列（工作列上一眼看出哪個分身在做什麼），並寫 status.json 給多開總覽。
+    /// 標題把狀態放前面：工作列按鈕寬度有限，只看得到開頭
+    /// </summary>
+    private void OnStatus(System.Text.Json.Nodes.JsonObject s)
+    {
+        _runs = s["runs"] is System.Text.Json.Nodes.JsonValue v && v.TryGetValue(out int n) ? n : 0;
+        _action = (s["action"]?.ToString() ?? "").Replace("［視覺］", "");
+        _paused = s["paused"] is System.Text.Json.Nodes.JsonValue p && p.TryGetValue(out bool b) && b;
+        // 有進度了（開新局）就清掉警告
+        if (_warning.Length > 0 && _visionEngine?.Watch.Alerted == false)
+            _warning = "";
+        UpdateTitle();
+        // 狀態每幾百毫秒就變一次，檔案最多 5 秒寫一次；心跳由 StartWatch 的計時器補
+        if (Environment.TickCount64 - _statusSavedAt >= 5000)
+            SaveStatus();
+    }
+
+    private void UpdateTitle()
+    {
+        var who = AppPaths.Profile.Length == 0 ? "" : $"[{AppPaths.Profile}] ";
+        var state = _warning.Length > 0 ? "⚠ " + _warning : _paused ? "已暫停" : _action;
+        Text = $"{who}第 {_runs} 局｜{state} - RO Survivors 小幫手";
+    }
+
+    private void SaveStatus()
+    {
+        _statusSavedAt = Environment.TickCount64;
+        try
+        {
+            new InstanceStatus(Environment.ProcessId, Environment.GetCommandLineArgs()[1..], _runs, _action, _paused, _warning, DateTime.Now)
+                .Save(AppPaths.ProfileDir);
+        }
+        catch (IOException)
+        {
+            // 總覽正在讀：下次再寫
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
+
+    private void OpenOverview()
+    {
+        if (_overview is null || _overview.IsDisposed)
+            _overview = new OverviewForm(_devApi is not null);
+        _overview.Show();
+        _overview.Activate();
+    }
+
+    /// <summary>
+    /// 每 15 秒：檢查有沒有卡住（見 <see cref="StallWatch"/>），順便寫一次 status.json 當心跳。
+    /// 用遊戲視窗自己的計時器、不放在主迴圈裡：主迴圈卡住（輸入一直不回應）時就不會跑了
+    /// </summary>
+    private void StartWatch(CoreWebView2 core, VisionEngine engine)
+    {
+        var timer = new System.Windows.Forms.Timer { Interval = 15_000 };
+        timer.Tick += (_, _) =>
+        {
+            SaveStatus();
+            if (!_settings.StallRecovery)
+            {
+                engine.Watch.Idle(Environment.TickCount64);
+                return;
+            }
+            var v = engine.Watch.Check(Environment.TickCount64);
+            switch (v.Act)
+            {
+                case StallAct.Reload:
+                    LogEvent($"卡住偵測：{v.Why} → 重新整理頁面（第 {engine.Watch.Reloads} 次）");
+                    core.Reload();
+                    break;
+                case StallAct.Alert:
+                    _warning = $"卡住了（{v.Why}，重新整理也沒用）";
+                    LogEvent($"卡住偵測：{v.Why}，已重新整理 {engine.Watch.Reloads} 次仍然沒恢復 → 提醒使用者");
+                    UpdateTitle();
+                    SaveStatus();
+                    Flash();
+                    break;
+            }
+        };
+        timer.Start();
+        FormClosed += (_, _) => timer.Dispose();
+    }
+
+    /// <summary>工作列按鈕閃爍，直到使用者切到這個視窗</summary>
+    private void Flash()
+    {
+        var info = new NativeMethods.FlashWInfo
+        {
+            cbSize = (uint)Marshal.SizeOf<NativeMethods.FlashWInfo>(),
+            hwnd = Handle,
+            dwFlags = NativeMethods.FlashwAll | NativeMethods.FlashwTimerNoFg,
+        };
+        NativeMethods.FlashWindowEx(ref info);
+    }
+
+    #endregion
+
     /// <summary>
     /// 網頁的 alert／confirm 對話框改由這裡處理（WebView2 宿主端事件，不是注入 JS）。
     /// 實測（2026-11-22 三開）：同一個帳號在別的裝置登入過時，遊戲跳 alert「你的帳號在另一台裝置上使用過。已載入其最新存檔。」，
     /// 瀏覽器原生的對話框擋住整個網頁（模擬點擊點不到、CDP 輸入也卡住），A 視窗因此停了 8 個多小時。
-    /// alert 只有「確定」：一律按掉，訊息記到 dialogs.log；「另一台裝置」那則按掉後再重新整理（使用者說的 F5）；beforeunload 一律允許離開；confirm／prompt 要做選擇，跳視窗給使用者決定（等使用者回應時網頁維持暫停）。
+    /// alert 只有「確定」：一律按掉，訊息記到 events.log；「另一台裝置」那則按掉後再重新整理（使用者說的 F5）；beforeunload 一律允許離開；confirm／prompt 要做選擇，跳視窗給使用者決定（等使用者回應時網頁維持暫停）。
     /// </summary>
     private void HandleScriptDialogs(CoreWebView2 core)
     {
         core.Settings.AreDefaultScriptDialogsEnabled = false;
         core.ScriptDialogOpening += (_, e) =>
         {
-            LogDialog($"{e.Kind}：{e.Message}");
+            LogEvent($"{e.Kind}：{e.Message}");
             switch (e.Kind)
             {
                 case CoreWebView2ScriptDialogKind.Alert:
@@ -191,7 +321,7 @@ public sealed class GameForm : Form
                     // 使用者：出現「帳號在另一台裝置上使用過」直接按 F5。重新整理後回到首頁，由大廳流程（首頁 → 選角色 → 活動／遠征）接手
                     if (e.Message.Contains("另一台裝置"))
                     {
-                        LogDialog("　→ 重新整理頁面");
+                        LogEvent("　→ 重新整理頁面");
                         BeginInvoke(async () =>
                         {
                             await Task.Delay(1000);
@@ -215,7 +345,7 @@ public sealed class GameForm : Form
                             e.ResultText = e.DefaultText;
                         e.Accept();
                     }
-                    LogDialog(ok ? "　→ 使用者按確定" : "　→ 使用者按取消");
+                    LogEvent(ok ? "　→ 使用者按確定" : "　→ 使用者按取消");
                 }
                 finally
                 {
@@ -225,11 +355,11 @@ public sealed class GameForm : Form
         };
     }
 
-    private static void LogDialog(string text)
+    private static void LogEvent(string text)
     {
         try
         {
-            File.AppendAllText(Path.Combine(AppPaths.ProfileDir, "dialogs.log"), $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {text}{Environment.NewLine}");
+            File.AppendAllText(Path.Combine(AppPaths.ProfileDir, "events.log"), $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {text}{Environment.NewLine}");
         }
         catch (IOException)
         {
@@ -337,6 +467,22 @@ public sealed class GameForm : Form
     private static class NativeMethods
     {
         public const uint GwHwndNext = 2;
+        public const uint FlashwAll = 3;
+        public const uint FlashwTimerNoFg = 12;
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct FlashWInfo
+        {
+            public uint cbSize;
+            public IntPtr hwnd;
+            public uint dwFlags;
+            public uint uCount;
+            public uint dwTimeout;
+        }
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool FlashWindowEx(ref FlashWInfo pwfi);
 
         [DllImport("user32.dll")]
         public static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);

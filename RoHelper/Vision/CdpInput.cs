@@ -80,6 +80,10 @@ public sealed class CdpInput
             ["clickCount"] = clickCount,
         });
 
+    /// <summary>
+    /// 最多等 10 秒：網頁被原生對話框擋住時 CDP 輸入可能一直不回應，主迴圈就卡在這一輪（_busy 不會清掉）。
+    /// 逾時丟例外讓這一輪結束，卡住偵測（StallWatch）才看得到「畫面沒變」並重新整理
+    /// </summary>
     private Task SendAsync(string method, JsonObject args)
-        => _core.CallDevToolsProtocolMethodAsync(method, args.ToJsonString());
+        => _core.CallDevToolsProtocolMethodAsync(method, args.ToJsonString()).WaitAsync(TimeSpan.FromSeconds(10));
 }

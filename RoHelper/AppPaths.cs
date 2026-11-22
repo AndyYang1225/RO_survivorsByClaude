@@ -26,7 +26,30 @@ public static class AppPaths
     /// 這個 profile 自己的資料夾：設定、戰績、截圖、視窗位置。沒帶 profile 時就是 <see cref="DataDir"/>；
     /// 有的話是 <c>%AppData%\RoHelper\profiles\名稱</c>。刻意不分 profile 的：範本（遊戲畫面一樣）、引擎快取
     /// </summary>
-    public static string ProfileDir => Profile.Length == 0 ? DataDir : Path.Combine(DataDir, "profiles", Profile);
+    public static string ProfileDir => ProfileDirOf(Profile);
+
+    /// <summary>指定 profile 的資料夾（多開總覽、套用設定到其他分身用）；空字串＝預設 profile</summary>
+    public static string ProfileDirOf(string profile) => profile.Length == 0 ? DataDir : Path.Combine(DataDir, "profiles", profile);
+
+    /// <summary>
+    /// 所有 profile：預設（空字串）在最前面，接著是 profiles 底下有 config.json 的資料夾（照名稱排）。
+    /// 只列「開過的」：有 config.json 才算，沒開過的空資料夾不列
+    /// </summary>
+    public static IReadOnlyList<string> AllProfiles()
+    {
+        var list = new List<string> { "" };
+        var root = Path.Combine(DataDir, "profiles");
+        if (Directory.Exists(root))
+            list.AddRange(Directory.GetDirectories(root)
+                .Where(d => File.Exists(Path.Combine(d, "config.json")))
+                .Select(Path.GetFileName)
+                .OfType<string>()
+                .Order(StringComparer.OrdinalIgnoreCase));
+        return list;
+    }
+
+    /// <summary>給人看的 profile 名稱：預設 profile 叫「主視窗」</summary>
+    public static string DisplayName(string profile) => profile.Length == 0 ? "主視窗" : profile;
 
     /// <summary>
     /// WebView2 的瀏覽器資料（Cookie＝登入狀態、快取）。每個 profile 分開，才能同時登入不同帳號。

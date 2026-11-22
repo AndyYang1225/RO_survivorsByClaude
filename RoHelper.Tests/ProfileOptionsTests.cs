@@ -42,7 +42,7 @@ public class ProfileOptionsTests
         {
             Directory.CreateDirectory(dir);
             var src = Path.Combine(dir, "app.json");
-            File.WriteAllText(src, "{ \"GameBounds\": { \"X\": 42, \"Y\": 178, \"Width\": 1920, \"Height\": 745 }, \"PanelVisible\": false, \"MuteAudio\": false }");
+            File.WriteAllText(src, "{ \"GameBounds\": { \"X\": 42, \"Y\": 178, \"Width\": 1920, \"Height\": 745 }, \"PanelVisible\": false, \"MuteAudio\": false, \"ResumeOnStart\": false }");
             var dst = Path.Combine(dir, "B", "app.json");
 
             RoHelper.Storage.AppSettings.SeedFrom(src, dst, offset: 30);
@@ -53,6 +53,7 @@ public class ProfileOptionsTests
             Assert.Contains("72", json);
             Assert.Contains("208", json);
             Assert.Contains("\"MuteAudio\": false", json);
+            Assert.Contains("\"ResumeOnStart\": false", json);
         }
         finally
         {

@@ -22,6 +22,10 @@ public sealed partial class PanelForm
         backup.Controls.Add(Button("匯入設定", ImportConfig));
         page.Controls.Add(backup);
         page.Controls.Add(Note("Tampermonkey 版面板「匯出設定」複製出來的內容，也可以直接貼進「匯入設定」。"));
+        var sync = Row();
+        sync.Controls.Add(Button("套用到其他分身…", PushToProfiles));
+        page.Controls.Add(sync);
+        page.Controls.Add(Note("把這個視窗的選卡、走位等規則複製給其他分身（正在執行的幾秒內生效）。不會動到對方的局數、戰績、活動／遠征選擇和局數上限。"));
 
         page.Controls.Add(Heading("紀錄"));
         var log = Row();
@@ -129,6 +133,46 @@ public sealed partial class PanelForm
         else
             _config.Replace(cfg);
         MessageBox.Show(this, "已匯入", Text);
+    }
+
+    /// <summary>選要套用的分身（預設全勾），送出 config.pending.json（見 <see cref="ConfigSync"/>）</summary>
+    private void PushToProfiles()
+    {
+        var others = AppPaths.AllProfiles().Where(p => p != AppPaths.Profile).ToList();
+        if (others.Count == 0)
+        {
+            MessageBox.Show(this, "還沒有其他分身。可以從遊戲視窗選單「多開總覽 → 新增分身」建立。", Text);
+            return;
+        }
+        using var dlg = new Form
+        {
+            Text = "套用到其他分身",
+            Font = Font,
+            Size = new Size(S(340), S(300)),
+            StartPosition = FormStartPosition.CenterParent,
+            MinimizeBox = false,
+            MaximizeBox = false,
+            ShowInTaskbar = false,
+        };
+        var list = new CheckedListBox { Dock = DockStyle.Fill, CheckOnClick = true };
+        foreach (var p in others)
+            list.Items.Add(AppPaths.DisplayName(p), true);
+        var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(S(4)) };
+        var ok = new Button { Text = "套用", DialogResult = DialogResult.OK, AutoSize = true };
+        var cancel = new Button { Text = "取消", DialogResult = DialogResult.Cancel, AutoSize = true };
+        bar.Controls.Add(cancel);
+        bar.Controls.Add(ok);
+        dlg.Controls.Add(list);
+        dlg.Controls.Add(bar);
+        dlg.AcceptButton = ok;
+        dlg.CancelButton = cancel;
+        if (dlg.ShowDialog(this) != DialogResult.OK)
+            return;
+        var targets = list.CheckedIndices.Cast<int>().Select(i => others[i]).ToList();
+        foreach (var p in targets)
+            ConfigSync.Push(_config.Current, AppPaths.ProfileDirOf(p));
+        if (targets.Count > 0)
+            MessageBox.Show(this, $"已送出給：{string.Join("、", targets.Select(AppPaths.DisplayName))}。\n正在執行的分身幾秒內生效，沒在執行的下次開啟時生效。", Text);
     }
 
     private string? PromptText(string prompt)

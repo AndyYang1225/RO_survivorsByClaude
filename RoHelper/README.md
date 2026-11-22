@@ -97,5 +97,5 @@ exe 啟動時會到 Gist 抓 `ro_engine.js`，比目前新就換上（也可以�
 
 ## 網頁對話框
 - 網頁的 alert／confirm 由程式處理（WebView2 的 ScriptDialogOpening，不是注入 JS）：瀏覽器原生對話框會擋住整個網頁，模擬點擊點不到。
-- alert 一律按確定，訊息記到 profile 資料夾的 `dialogs.log`；「帳號在另一台裝置上使用過」按掉後重新整理，由大廳流程從首頁接手。
+- alert 一律按確定，訊息記到 profile 資料夾的 `events.log`（卡住偵測的處理也記在這裡）；「帳號在另一台裝置上使用過」按掉後重新整理，由大廳流程從首頁接手。
 - confirm／prompt 會跳視窗讓使用者決定。
