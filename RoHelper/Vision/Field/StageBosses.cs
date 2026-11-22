@@ -7,8 +7,8 @@ public sealed record StageBoss(string Name, string Kind, int Secs);
 public sealed record NextBoss(string Name, string Kind, int Left);
 
 /// <summary>
-/// 各地圖頭目出現時間（遠征視窗），照抄 engine.js 的 STAGE_BOSS（171～179）。
-/// 地名用 <see cref="FieldInfoReader"/> 從小地圖標題讀到的；不在表上的地圖（例如活動的洛陽）查不到，回 null（同 JS）。
+/// 各地圖頭目出現時間（遠征視窗），照抄 engine.js 的 STAGE_BOSS（171～179），另外補了活動的洛陽。
+/// 地名用 <see cref="FieldInfoReader"/> 從小地圖標題讀到的；不在表上的地圖查不到，回 null（同 JS）。
 /// </summary>
 public static class StageBosses
 {
@@ -21,6 +21,10 @@ public static class StageBosses
         ["斐揚森林"] = [new("Angeling", "Mini", 180), new("Deviling", "Mini", 360), new("Vagabond Wolf", "Mini", 600), new("Eddga", "MVP", 840)],
         ["斐揚洞穴"] = [new("Skeleton General", "Mini", 180), new("Cat O' Nine Tails", "Mini", 360), new("Hyegun", "Mini", 600), new("Moonlight Flower", "MVP", 840)],
         ["普隆德拉城"] = [new("High Orc", "MVP", 90)],
+        // 活動「燈籠節」的洛陽（engine.js 沒有）：照 RO 倖存者小百科 stages.js（遊戲版本 20261118，資料從遊戲程式整理；其他 7 張地圖跟上面完全一致）。
+        // 一局 1020 秒；12:00 同時出元宵童子和彈簧兔
+        ["洛陽"] = [new("Dancing Dragon", "Mini", 150), new("Live Peach Tree", "Mini", 300), new("Wanderer", "Mini", 450), new("Wooden Golem", "Mini", 600),
+            new("Rice Cake Boy", "Mini", 720), new("Spring Rabbit", "Mini", 720), new("White Lady", "MVP", 840)],
     };
 
     /// <summary>MVP 還有幾秒出現（同 JS mvpLeft）：地圖不在表上或讀不到遊戲時間回 null；MVP 已經出現過是負數或 0</summary>
