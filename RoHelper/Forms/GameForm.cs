@@ -125,6 +125,7 @@ public sealed class GameForm : Form
 
         var core = _webView.CoreWebView2;
         core.Settings.IsStatusBarEnabled = false;
+        HandleScriptDialogs(core);
         core.DocumentTitleChanged += (_, _) => Text = $"{TitleBase} - {core.DocumentTitle}";
         // 視覺模式：完全不注入 JS、不接網頁訊息、不檢查引擎更新，只截圖和送輸入
         if (_visionEngine is not null)
@@ -159,6 +160,71 @@ public sealed class GameForm : Form
         // await UseEngineAsync(engine);
         // _engineItem.Text += note;
         // core.Navigate(AppPaths.GameUrl);
+    }
+
+    /// <summary>
+    /// 網頁的 alert／confirm 對話框改由這裡處理（WebView2 宿主端事件，不是注入 JS）。
+    /// 實測（2026-11-22 三開）：同一個帳號在別的裝置登入過時，遊戲跳 alert「你的帳號在另一台裝置上使用過。已載入其最新存檔。」，
+    /// 瀏覽器原生的對話框擋住整個網頁（模擬點擊點不到、CDP 輸入也卡住），A 視窗因此停了 8 個多小時。
+    /// alert 只有「確定」：一律按掉，訊息記到 dialogs.log；「另一台裝置」那則按掉後再重新整理（使用者說的 F5）；beforeunload 一律允許離開；confirm／prompt 要做選擇，跳視窗給使用者決定（等使用者回應時網頁維持暫停）。
+    /// </summary>
+    private void HandleScriptDialogs(CoreWebView2 core)
+    {
+        core.Settings.AreDefaultScriptDialogsEnabled = false;
+        core.ScriptDialogOpening += (_, e) =>
+        {
+            LogDialog($"{e.Kind}：{e.Message}");
+            switch (e.Kind)
+            {
+                case CoreWebView2ScriptDialogKind.Alert:
+                    e.Accept();
+                    // 使用者：出現「帳號在另一台裝置上使用過」直接按 F5。重新整理後回到首頁，由大廳流程（首頁 → 選角色 → 活動／遠征）接手
+                    if (e.Message.Contains("另一台裝置"))
+                    {
+                        LogDialog("　→ 重新整理頁面");
+                        BeginInvoke(async () =>
+                        {
+                            await Task.Delay(1000);
+                            core.Reload();
+                        });
+                    }
+                    return;
+                case CoreWebView2ScriptDialogKind.Beforeunload:
+                    e.Accept();
+                    return;
+            }
+            var deferral = e.GetDeferral();
+            BeginInvoke(() =>
+            {
+                try
+                {
+                    var ok = MessageBox.Show(this, e.Message, $"{TitleBase} - 網頁詢問", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) == DialogResult.OK;
+                    if (ok)
+                    {
+                        if (e.Kind == CoreWebView2ScriptDialogKind.Prompt)
+                            e.ResultText = e.DefaultText;
+                        e.Accept();
+                    }
+                    LogDialog(ok ? "　→ 使用者按確定" : "　→ 使用者按取消");
+                }
+                finally
+                {
+                    deferral.Complete();
+                }
+            });
+        };
+    }
+
+    private static void LogDialog(string text)
+    {
+        try
+        {
+            File.AppendAllText(Path.Combine(AppPaths.ProfileDir, "dialogs.log"), $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {text}{Environment.NewLine}");
+        }
+        catch (IOException)
+        {
+            // 記錄失敗不影響遊戲
+        }
     }
 
     /// <summary>
