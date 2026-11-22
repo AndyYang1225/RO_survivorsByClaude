@@ -17,6 +17,9 @@ public sealed class AppSettings
     /// <summary>按最小化時改成把遊戲視窗移到螢幕外，讓遊戲繼續跑（真的最小化會暫停）</summary>
     public bool KeepRunningWhenMinimized { get; set; } = true;
 
+    /// <summary>遊戲靜音（WebView2 的 IsMuted）：掛機、多開時聲音用不到，省下音效解碼和混音。遊戲視窗選單「靜音」切換</summary>
+    public bool MuteAudio { get; set; } = true;
+
     /// <summary>啟動時自動檢查引擎更新</summary>
     public bool AutoUpdateEngine { get; set; } = true;
 
@@ -60,6 +63,7 @@ public sealed class AppSettings
                 PanelBounds = src.PanelBounds is { } p ? p with { X = p.X + offset, Y = p.Y + offset } : null,
                 PanelTopMost = src.PanelTopMost,
                 KeepRunningWhenMinimized = src.KeepRunningWhenMinimized,
+                MuteAudio = src.MuteAudio,
                 VisionMode = src.VisionMode,
             };
             Directory.CreateDirectory(Path.GetDirectoryName(targetFile)!);

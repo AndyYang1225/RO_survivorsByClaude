@@ -89,6 +89,15 @@ public sealed class GameForm : Form
         menu.Items.Add(new ToolStripMenuItem("重新載入 (F5)", null, (_, _) => _webView.CoreWebView2?.Reload()));
         menu.Items.Add(new ToolStripMenuItem("開發者工具 (F12)", null, (_, _) => _webView.CoreWebView2?.OpenDevToolsWindow()));
         menu.Items.Add(new ToolStripMenuItem("開啟資料夾", null, (_, _) => OpenDataFolder()));
+        var mute = new ToolStripMenuItem("靜音") { CheckOnClick = true, Checked = settings.MuteAudio };
+        mute.CheckedChanged += (_, _) =>
+        {
+            _settings.MuteAudio = mute.Checked;
+            _settings.Save();
+            if (_webView.CoreWebView2 is { } c)
+                c.IsMuted = mute.Checked;
+        };
+        menu.Items.Add(mute);
         // 【JS 引擎已停用】檢查引擎更新、切換 JS／視覺模式都用不到了（見 Program.cs）
         // menu.Items.Add(new ToolStripMenuItem("檢查更新", null, async (_, _) => await CheckUpdateManuallyAsync()));
         menu.Items.Add(new ToolStripMenuItem("視覺除錯", null, (_, _) => OpenVisionDebug()));
@@ -125,6 +134,7 @@ public sealed class GameForm : Form
 
         var core = _webView.CoreWebView2;
         core.Settings.IsStatusBarEnabled = false;
+        core.IsMuted = _settings.MuteAudio;
         HandleScriptDialogs(core);
         core.DocumentTitleChanged += (_, _) => Text = $"{TitleBase} - {core.DocumentTitle}";
         // 視覺模式：完全不注入 JS、不接網頁訊息、不檢查引擎更新，只截圖和送輸入
