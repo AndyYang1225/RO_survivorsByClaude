@@ -1,0 +1,85 @@
+# RO Survivors 小幫手
+
+[RO Survivors](https://ro-survivors.com) 的 Windows 掛機小幫手。它把遊戲網頁包在獨立視窗裡，**只靠截圖判斷畫面、用瀏覽器層級的滑鼠鍵盤輸入操作**，不在遊戲網頁注入任何程式碼。
+
+> 非官方的個人專案，與遊戲作者及 Gravity 無關。自動化操作可能違反遊戲規範，使用風險自負。
+
+## 功能
+
+| 類別 | 內容 |
+|---|---|
+| 大廳流程 | 首頁、選角色、單人大廳、和節慶主持人／遠征隊長交談、開始遊戲、前往野外、結算後返回角色；自動關掉「未完成的一局」「暫離」「中文頻道」等通知 |
+| 自動活動／遠征 | 一局接一局跑；遠征可指定地圖（例如斐揚森林）和難度 |
+| 自動選卡 | 升級卡、寶箱卡：技能優先順序、學到後放逐、一出現就放逐、專注、重抽全部、不選清單、尋寶率上限、神祇規則；指定的卡都放逐完後改按遊戲「自動」 |
+| 野外走位 | 讀小地圖撿掉落物、磁鐵、寶箱、扭蛋；繞圈、卡住繞路；王死掉後去撿掉落物；MVP 撿取倒數；累積升級自動按 B |
+| 躲鐘 | 斐揚洞穴「躲到鐘下」：讀公告、找鐘、站到鐘下 |
+| 紀錄 | 每局戰績（地圖、職業、時間、等級、擊殺、選卡過程）寫進 `runs.jsonl` |
+| 多開 | 每個帳號一個 profile，設定、戰績、登入狀態互相獨立 |
+| 網頁對話框 | alert 自動按掉並記錄；「帳號在另一台裝置上使用過」會按掉後重新整理 |
+
+## 需求
+
+- Windows 10／11、[.NET SDK 8](https://dotnet.microsoft.com/download) 以上
+- Microsoft Edge WebView2 Runtime（Windows 11 內建）
+- **繁體中文 OCR**：設定 → 時間與語言 → 語言與地區 → 新增「中文（台灣）」→ 選項裡勾「光學字元辨識」。沒有的話讀不到卡名。
+- 建議 Windows 顯示縮放 100%（範本和判讀在 100% 校正）
+
+## 建置與執行
+
+```bash
+dotnet build RoHelper/RoHelper.csproj
+dotnet test RoHelper.Tests
+dotnet run --project RoHelper
+```
+
+發佈成單一 exe（自帶 .NET）：
+
+```bash
+cd RoHelper
+dotnet publish -c Release -o publish
+```
+
+第一次執行要在遊戲裡登入一次，之後 WebView2 會記住登入狀態。大廳流程需要的畫面範本存在 `%AppData%\RoHelper\templates`，可以從「視覺除錯」視窗自己存。
+
+## 使用
+
+- **F8**：暫停／繼續
+- **F9**：顯示／隱藏控制面板（規則設定都在面板裡）
+- 按遊戲視窗的「最小化」時，視窗其實是移到螢幕外，遊戲照常跑
+
+### 多開
+
+```bash
+RoHelper.exe                    # 預設 profile
+RoHelper.exe --profile=B        # 第二個帳號
+RoHelper.exe --profile=C        # 第三個帳號
+```
+
+- 同一個帳號不能同時登入兩個視窗。
+- **建議把遊戲內的畫面更新率設成 30 Hz**：瀏覽器預設跟著螢幕更新率繪製（高刷新率螢幕會到 144～240 幀），實測改成 30 Hz 後瀏覽器的 CPU 用量少了約 43%。
+- 參考：i5-12400F／32 GB／RTX 3060、遊戲 30 Hz，每個視窗約佔整台電腦 8% CPU、1.8 GB 記憶體，推估可以同時跑 5 個（實測過 3 個）。
+
+## 專案結構
+
+```
+RoHelper/            主程式（.NET 8 WinForms + WebView2）
+  Vision/            視覺判斷：截圖、範本比對、OCR、大廳流程、選卡、野外走位、躲鐘
+  Forms/             遊戲視窗、控制面板、視覺除錯、開發介面
+  Storage/           設定、戰績、紀錄
+  Engine/            舊版 JS 引擎（已停用，保留作為規則來源與參考）
+RoHelper.Tests/      xUnit 測試（含真實遊戲截圖 Fixtures）
+docs/superpowers/plans/  每個階段的設計與實作計畫、實機驗證結果
+tools/               產生規則清單（schema.json）的腳本
+```
+
+更多細節（檔案位置、範本格式、開發介面端點）：[RoHelper/README.md](RoHelper/README.md)
+
+## 設計原則
+
+- **不碰遊戲網頁**：不注入 JS、不讀網頁 DOM。輸入只用 Chrome DevTools Protocol 的 `Input.*`（等同真實滑鼠鍵盤），畫面只靠 PrintWindow 截圖。
+- **開發介面只聽本機**：`--dev-api` 開的 HTTP 介面只綁 `127.0.0.1`，給自動測試用，預設關閉。
+- **判讀都有實機截圖測試**：每次修正判讀錯誤，都把出問題的畫面存成 Fixture、加測試。
+
+## 開發歷程
+
+這個專案主要由 [Claude Code](https://claude.com/claude-code) 開發：先從 Tampermonkey 腳本移植成 exe，再把 JS 自動化改寫成純視覺判斷，之後用開發介面讓 Claude 自己跑遊戲、截圖、修正判讀。各階段計畫和驗證結果見 `docs/superpowers/plans/`。

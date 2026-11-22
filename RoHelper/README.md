@@ -21,7 +21,8 @@
 - 每個帳號一個 profile：`RoHelper.exe --profile=A`、`RoHelper.exe --profile=B`（名稱只能用英數、- 和 _）。可以各做一個捷徑。
 - 每個 profile 有自己的設定、戰績、截圖、視窗位置和**登入狀態**（`%AppData%\RoHelper\profiles\名稱\`、`%LocalAppData%\RoHelper\profiles\名稱\WebView2`）；範本共用。第一次開某個 profile 要登入一次，規則設定會從預設 profile 複製一份當起點。
 - 同一個 profile 只能開一個；不帶 `--profile` 就是原本的那一份。視窗和面板標題會顯示 [名稱]。
-- 同一個帳號不能同時登入兩個視窗。每多開一個就多一個 3D 畫面＋截圖判讀，先開 2 個看電腦撐不撐得住。
+- 同一個帳號不能同時登入兩個視窗。每多開一個就多一個 3D 畫面＋截圖判讀。
+- 建議把遊戲內的畫面更新率設成 30 Hz（瀏覽器預設跟著螢幕更新率繪製）。實測（i5-12400F、RTX 3060、199 Hz 螢幕）：改成 30 Hz 後瀏覽器 CPU 少了約 43%，每個視窗約佔整台電腦 8% CPU，推估可以同時跑 5 個（實測過 3 個）。
 - 開發介面多開時要給不同 port：`--profile=B --dev-api=8766`。
 
 ## 檔案位置
@@ -81,7 +82,8 @@ exe 啟動時會到 Gist 抓 `ro_engine.js`，比目前新就換上（也可以�
 | `GET /screen` | 每個大廳範本的最佳位置、分數、門檻 |
 | `GET /picker` | 讀選卡畫面＋現在設定下會怎麼選（只預覽） |
 | `GET /field` | 讀小地圖（自己、磁鐵、寶箱、掉落物、王）＋現在設定下會怎麼走（只預覽） |
-| `POST /click?x=&y=`、`POST /key?k=1` | 點擊（截圖像素座標）、按鍵 |
+| `POST /click?x=&y=`、`POST /move?x=&y=`、`POST /key?k=1` | 點擊、移動滑鼠（截圖像素座標）、按鍵（一個英文字母或數字） |
+| `POST /type?text=` | 在目前的輸入框打字（使用者要 Claude 幫忙登入測試帳號時用） |
 | `POST /pause`、`POST /resume` | 暫停、繼續 |
 | `POST /templates/reload` | 重新讀範本 |
 | `POST /templates/save?name=&shot=&x=&y=&w=&h=[&threshold=0.9]` | 從 `shots\` 底下的截圖裁一塊存成範本（同名範本沿用原搜尋範圍） |
@@ -91,4 +93,9 @@ exe 啟動時會到 Gist 抓 `ro_engine.js`，比目前新就換上（也可以�
 - POST 要帶 `-d ""`：只寫 `-X POST` 時 curl 不送 Content-Length，Windows 的 HTTP.sys 會直接回 411，請求到不了程式。
 - 中文參數要自己先編成 UTF-8 的 %XX（例如 `node -p "encodeURIComponent('返回角色')"`）：Git Bash 的 curl 用 `--data-urlencode` 時會把中文轉成 Big5 送出，存出來的檔名是亂碼。
 - **自動存證據**：讀不到卡名、選卡按鍵沒反應、例外時（同一種 60 秒內只存一次），以及每 5 分鐘一張，存到 `%AppData%\RoHelper\shots\auto\`（PNG＋同名 JSON，最多 150 張，超過刪最舊的）。
-- 安全：只聽 127.0.0.1（其他電腦連不到）、不加驗證、不提供輸入文字（不碰帳密，登入由使用者自己做一次）。
+- 安全：只聽 127.0.0.1（其他電腦連不到）、不加驗證。`/type` 可以打字，所以同一台電腦上的其他程式也能透過它操作遊戲；只在需要時才帶 `--dev-api` 啟動。
+
+## 網頁對話框
+- 網頁的 alert／confirm 由程式處理（WebView2 的 ScriptDialogOpening，不是注入 JS）：瀏覽器原生對話框會擋住整個網頁，模擬點擊點不到。
+- alert 一律按確定，訊息記到 profile 資料夾的 `dialogs.log`；「帳號在另一台裝置上使用過」按掉後重新整理，由大廳流程從首頁接手。
+- confirm／prompt 會跳視窗讓使用者決定。
