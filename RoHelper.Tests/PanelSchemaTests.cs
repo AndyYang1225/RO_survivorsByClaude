@@ -71,7 +71,7 @@ public class PanelSchemaTests
     {
         var job = Schema.JobBase.Keys.First();
         var skills = Json["jobs"]!.AsArray().OfType<JsonObject>()
-            .First(j => (string?)j["job"] == job)["skills"]!.AsArray().Select(x => (string?)x).ToList();
+            .First(j => (string?)j["job"] == job)["skills"]!.AsArray().Select(x => (string)x!).ToList();
 
         Assert.Equal(Schema.SkillsOf(job), skills);
     }

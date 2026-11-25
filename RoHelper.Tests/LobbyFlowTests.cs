@@ -101,6 +101,20 @@ public class LobbyFlowTests
         Assert.False(flow.Decide(Screen() with { Return = Btn }, Cfg(), 4500).CountRun);
     }
 
+    /// <summary>同上，誤判成的是「組隊準備好」按鈕</summary>
+    [Fact]
+    public void Return_WithFalsePartyReadyOnSameScreen_DoesNotCountAgain()
+    {
+        var flow = new LobbyFlow();
+
+        flow.Decide(Screen() with { Return = Btn }, Cfg(), -300);
+        Assert.True(flow.Decide(Screen() with { Return = Btn }, Cfg(), 0).CountRun);
+        flow.Decide(Screen() with { Return = Btn, PartyReady = Btn }, Cfg(), 1500);
+
+        Assert.False(flow.Decide(Screen() with { Return = Btn }, Cfg(), 3000).CountRun);
+        Assert.False(flow.Decide(Screen() with { Return = Btn }, Cfg(), 4500).CountRun);
+    }
+
     /// <summary>實測野外畫面偶爾有一格讓「返回角色」範本誤判：只看到一格不能記一局、不能點</summary>
     [Fact]
     public void Return_SingleFalseFrame_NotCounted()
