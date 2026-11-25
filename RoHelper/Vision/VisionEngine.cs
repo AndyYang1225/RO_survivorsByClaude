@@ -193,6 +193,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
     {
         _kit = kit;
         _reader = new ScreenReader(kit.Templates);
+        _picker.ItemGroups = Schema.Items;
         _pickerReader = kit.Ocr is { } ocr ? new PickerReader(ocr) : null;
         _hudReader = kit.Ocr is null ? null : new HudReader(kit.Ocr);
         _bannerReader = kit.Ocr is null ? null : new BannerReader(kit.Ocr);

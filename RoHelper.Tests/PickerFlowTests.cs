@@ -390,4 +390,66 @@ public class PickerFlowTests
         Assert.Equal("選技能神祇：火箾術 De（技能神祇優先：火箭術）", a.Status);
         Assert.Equal("", flow.State.DeityLock);
     }
+
+    private static CardInfo ChestCard(int i, string name)
+        => new(i, new Rectangle(i * 240, 40, 214, 352), name, name, 0, false, false,
+            [new ActButton(ActKind.Reroll, new Rectangle(i * 240, 400, 40, 30), true, 5), Btn(ActKind.Focus, i * 240 + 50), Btn(ActKind.Banish, i * 240 + 100)]);
+
+    private static PickerInfo ChestPicker(params CardInfo[] cards) => new(true, cards, new ActButton(ActKind.Reroll, new Rectangle(300, 470, 80, 30), true, 5));
+
+    private static PickSettings ChestSettings(bool party)
+        => new("巫師", true, Mage, false, [], false, "none", true, [], [], false, 1, [], [], [], true, true, true, 2, "treasure",
+            true, true, 350, false, TreasureCap: true, TreasureCapN: 100, ChestReroll: true, Party: party);
+
+    private static PickerFlow ChestFlow()
+    {
+        var flow = new PickerFlow(_ => 0) { ItemGroups = [new("藥水", ["回復藥水", "冷卻藥水"]), new("秘藥", ["傷害秘藥"])] };
+        flow.State.Treasure = 200;
+        return flow;
+    }
+
+    [Fact]
+    public void ChestReroll_ClicksCardRerollButton_AndWaits()
+    {
+        var flow = ChestFlow();
+        flow.Waiting(0, 350);
+
+        var a = flow.Act(ChestPicker(ChestCard(0, "傷害秘藥"), ChestCard(1, "回復藥水")), ChestSettings(party: false), 400);
+
+        Assert.Equal(new Point(20, 415), a.Click);
+        Assert.StartsWith("單張重抽：傷害秘藥", a.Status);
+        Assert.True(flow.Waiting(750, 350));
+        Assert.False(flow.Waiting(850, 350));
+    }
+
+    [Fact]
+    public void ChestReroll_Party_StopsAfterThreePerScreen_ResetsWhenGone()
+    {
+        var flow = ChestFlow();
+        var picker = ChestPicker(ChestCard(0, "傷害秘藥"), ChestCard(1, "回復藥水"));
+        var s = ChestSettings(party: true);
+        flow.Waiting(0, 350);
+
+        for (var i = 0; i < 3; i++)
+            Assert.Equal(PickDo.RerollCard, flow.Act(picker, s, 400 + i * 1000).Decision!.Do);
+        var fourth = flow.Act(picker, s, 4000);
+        flow.Gone();
+        flow.Waiting(5000, 350);
+        // 下一個畫面換成別的卡：第 4 次選走的「傷害秘藥」已經記成拿過的道具（算要的），同一張卡再出現就不會重抽
+        var nextScreen = flow.Act(ChestPicker(ChestCard(0, "回復藥水"), ChestCard(1, "冷卻藥水")), s, 5400);
+
+        Assert.Equal(PickDo.Pick, fourth.Decision!.Do);
+        Assert.Equal(PickDo.RerollCard, nextScreen.Decision!.Do);
+    }
+
+    [Fact]
+    public void ChestPick_RemembersOwnedItem()
+    {
+        var flow = ChestFlow();
+        flow.Waiting(0, 350);
+
+        flow.Act(ChestPicker(ChestCard(0, "冷卻藥水 + 1")), ChestSettings(party: false) with { ItemPrio = ["冷卻藥水"] }, 400);
+
+        Assert.Contains("冷卻藥水", flow.State.Owned);
+    }
 }
