@@ -42,6 +42,8 @@
     <EmbeddedResource Include="Engine\schema.json" LogicalName="RoHelper.schema.json" />
     <!-- 內建範本（按鈕截圖）：新電腦的 %AppData%\RoHelper\templates 是空的，沒有這些就認不出畫面；使用者自己存的同名範本優先 -->
     <EmbeddedResource Include="Templates\*.png;Templates\*.json" LogicalName="RoHelper.Templates.%(Filename)%(Extension)" />
+    <!-- 新版面板的介面檔案：由 PanelAssets 依網址取出（WebView2 的 WebResourceRequested），發佈仍是單一 exe -->
+    <EmbeddedResource Include="Panel\web\*.html;Panel\web\*.css;Panel\web\*.js" LogicalName="RoHelper.Panel.%(Filename)%(Extension)" />
   </ItemGroup>
 
 </Project>
