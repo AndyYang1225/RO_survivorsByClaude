@@ -56,6 +56,21 @@ public static class ScreenTemplates
     /// <summary>按了出發之後「難度」對話框的標題「◆ 難度」：滑桿、「前往野外」的位置都以它為準</summary>
     public const string DiffTitle = "難度標題";
 
+    /// <summary>組隊：隊長的難度對話框裡取代「前往野外」的「向隊伍提議」按鈕</summary>
+    public const string PartyPropose = "向隊伍提議";
+
+    /// <summary>組隊：隊員收到「X 想與隊伍一同出發：地圖」時的「準備好了！」按鈕</summary>
+    public const string PartyReady = "準備好了";
+
+    /// <summary>伺服器維護畫面（首頁右邊「維護中／我們正在更新伺服器」）的「再檢查一次」按鈕</summary>
+    public const string MaintenanceRetry = "維護再檢查";
+
+    /// <summary>組隊結算畫面「隊伍戰利品」的「其餘全 Greed」按鈕（旁邊是藍色的「準備好了」，倒數約 15 秒，期間「返回角色」是灰的）</summary>
+    public const string LootGreed = "其餘全Greed";
+
+    /// <summary>組隊：「隊長在頻道 N。要加入嗎？」的「前往頻道」按鈕（範本只截「頻道」兩個字：「前往」跟難度對話框的「前往野外」一樣，會認錯）</summary>
+    public const string PartyChannel = "前往頻道";
+
     /// <summary>自動遠征開著時一定要有的範本（沒存的列在 <see cref="ScreenState.Missing"/>）</summary>
     public static readonly string[] Expedition = [ExpeLeader, LeaderPrompt, StageList, ExpeGo, DiffTitle];
 
@@ -93,5 +108,35 @@ public sealed record ScreenState(Size FrameSize, double Dpr)
 
     /// <summary>難度對話框裡的「前往野外」（用「前往野外」範本在難度標題下方找，見 <see cref="ScreenReader"/>）</summary>
     public Rectangle? DiffGo { get; init; }
+
+    /// <summary>伺服器維護中的「再檢查一次」</summary>
+    public Rectangle? MaintenanceRetry { get; init; }
+
+    /// <summary>組隊結算：「其餘全 Greed」</summary>
+    public Rectangle? LootGreed { get; init; }
+
+    /// <summary>組隊結算：「其餘全 Greed」右邊的「準備好了」（用「準備好了」範本在 Greed 按鈕右邊找）</summary>
+    public Rectangle? LootReady { get; init; }
+
+    /// <summary>組隊：DiffGo 是「向隊伍提議」（隊長）而不是「前往野外」</summary>
+    public bool DiffGoIsProposal { get; init; }
+
+    /// <summary>組隊：隊員的「準備好了！」</summary>
+    public Rectangle? PartyReady { get; init; }
+
+    /// <summary>組隊：「前往頻道 N」（加入隊長所在的頻道）</summary>
+    public Rectangle? PartyChannel { get; init; }
+
+    /// <summary>
+    /// 組隊邀請「X 邀請你加入隊伍。」的「接受」按鈕。跟「暫離」的「接受」長得一樣（同一個範本），
+    /// VisionEngine 讀對話框文字有「邀請」才放這裡（並清掉 AfkOk）
+    /// </summary>
+    public Rectangle? PartyInvite { get; init; }
+
+    /// <summary>邀請者是本機設成隊長的分身（PartyRoster.LeaderNames）</summary>
+    public bool PartyInviteTrusted { get; init; }
+
+    /// <summary>組隊：「選擇大廳」視窗裡要選的那個多人大廳那一列（VisionEngine 用 OCR 找，見 LobbyListReader）</summary>
+    public Rectangle? PartyLobby { get; init; }
     public IReadOnlyList<string> Missing { get; init; } = [];
 }

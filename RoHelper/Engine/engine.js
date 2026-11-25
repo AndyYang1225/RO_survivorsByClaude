@@ -108,7 +108,9 @@
     { k: 'avoidNew',     label: '技能欄還沒滿時，不學清單外的新技能', def: true },
     { k: 'banishKeep',   label: '避開新技能時可放逐，但至少留 N 次放逐', def: true, num: 2, min: 0, max: 4 },
     { k: 'autoFocus',    label: '自動用「專注」（技能分頁設成「優先＋專注」的；都沒設就用前 N 個優先技能）', def: true, num: 1, min: 1, max: 2 },
-    { k: 'autoAfterBan', label: '「學到後放逐」和「一出現就放逐」的卡都放逐過後，改按遊戲的「自動」（這局之後交給遊戲選）', def: true },
+    { k: 'autoAfterBan', label: '技能欄滿了、而且「學到後放逐」和「一出現就放逐」的卡都放逐過後，改按遊戲的「自動技能」（這局之後交給遊戲選）', def: true },
+    // 遊戲 2026.11.23 版起自動分成「自動技能」（升級卡）和寶箱卡的自動兩顆（只有視覺模式用）
+    { k: 'autoChest',    label: '道具欄六格都有了以後，寶箱卡按遊戲的「自動寶箱」（不看放逐；關掉的話寶箱卡照下面的規則選：尋寶率、神祇、道具）', def: true, sub: true },
 
     { tab: '技能', group: '技能優先（依職業）' },
     { k: 'skillOn',      label: '使用下面的技能設定', def: true },
@@ -140,6 +142,12 @@
 
     { tab: '出發', group: '大廳' },
     { k: 'soloLobby',    label: '出現「選擇大廳」視窗時自動按「單人大廳」', def: true },
+    // 組隊（只有視覺模式用；JS 引擎不讀這兩個設定）
+    { k: 'partyRole',    label: '組隊：', def: 'off',
+      options: [['off', '不組隊（單人大廳）'], ['leader', '隊長（自動遠征、向隊伍提議出發）'], ['member', '隊員（等隊長提議、按準備好了）']] },
+    { k: 'partyStay',    label: '組隊時原地站樁（不繞圈、不追寶箱；躲鐘和 MVP 死後撿東西照常）', def: true, sub: true },
+    { k: 'partyLobby',   label: '組隊的大廳：', def: '約頓海姆', sub: 2,
+      options: [['阿斯嘉特', '阿斯嘉特'], ['米德加爾特', '米德加爾特'], ['亞爾夫海姆', '亞爾夫海姆'], ['華納海姆', '華納海姆'], ['約頓海姆', '約頓海姆'], ['尼達維勒', '尼達維勒']] },
     { tab: '出發', group: '燈籠節活動' },
     { k: 'autoEvent',    label: '自動參加活動（回城→節慶主持人→開始遊戲→前往野外）', def: true, excl: 'autoExpe' },
     { tab: '出發', group: '遠征' },

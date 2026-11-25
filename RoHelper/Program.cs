@@ -1,4 +1,3 @@
-using RoHelper.Bridge;
 using RoHelper.DevApi;
 using RoHelper.Engine;
 using RoHelper.Forms;
@@ -54,13 +53,9 @@ internal static class Program
         var runs = new RunStore(AppPaths.RunsFile);
         var devApi = DevApiOptions.Parse(args);
         var evidence = devApi is null ? null : new EvidenceStore(AppPaths.EvidenceDir);
-        // 【JS 引擎已停用（2026-11-20，使用者決定）】一律用視覺模式，不在遊戲網頁注入任何 JS。
-        // EngineBridge 仍建立（GameForm 的建構子要它），但不會接到網頁上。要恢復 JS 模式：還原下面註解掉的兩行，或看 git tag js-engine-last。
-        var bridge = new EngineBridge(config, log, runs);
+        // 只用視覺模式：不在遊戲網頁注入任何 JS（舊的 JS 引擎版本在 git tag js-engine-last）
         using var vision = new VisionEngine(config, log, runs, BuiltInSchema.Load(), evidence);
-        // using var vision = settings.VisionMode ? new VisionEngine(config, BuiltInSchema.Load()) : null;
-        // IAutomation automation = vision is null ? bridge : vision;
         using var panel = new PanelForm(config, log, runs, vision, settings);
-        Application.Run(new GameForm(settings, bridge, vision, panel, config, devApi, evidence));
+        Application.Run(new GameForm(settings, vision, panel, config, devApi, evidence));
     }
 }

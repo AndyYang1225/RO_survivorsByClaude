@@ -71,14 +71,6 @@ public static class AppPaths
     /// <summary>視窗位置、面板置頂等 exe 自己的設定</summary>
     public static string AppSettingsFile => Path.Combine(ProfileDir, "app.json");
 
-    /// <summary>
-    /// 開發用：exe 旁邊放一個 engine.js 就會優先用它（改 JS 不用重新編譯），沒有就用內嵌在 exe 裡的版本。
-    /// </summary>
-    public static string EngineOverrideFile => Path.Combine(AppContext.BaseDirectory, "engine.js");
-
-    /// <summary>自動更新下載到的最新引擎（下次啟動沒網路時也能用）</summary>
-    public static string EngineCacheFile => Path.Combine(DataDir, "engine-cache.js");
-
     /// <summary>視覺判斷用的範本圖片（每個範本一個 PNG，加一個同名 JSON 記搜尋範圍、門檻、截圖時的 dpr）</summary>
     public static string TemplatesDir => Path.Combine(DataDir, "templates");
 
@@ -92,11 +84,4 @@ public static class AppPaths
     public static string ApiShotsDir => Path.Combine(ShotsDir, "api");
 
     public const string GameUrl = "https://ro-survivors.com/";
-
-    /// <summary>
-    /// 自動更新的來源：跟使用者腳本同一個 Gist 裡的 ro_engine.js。
-    /// 網址不帶 commit 版本，永遠拿到最新一版（GitHub 的快取最多延遲約 5 分鐘）。可在 app.json 的 EngineUpdateUrl 改掉。
-    /// </summary>
-    public const string DefaultEngineUpdateUrl =
-        "https://gist.githubusercontent.com/AndyYang1225/eae1593b1faf106d4e8de3c22fb8a5ba/raw/ro_engine.js";
 }

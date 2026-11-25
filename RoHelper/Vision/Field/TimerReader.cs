@@ -68,6 +68,12 @@ public static partial class TimerReader
     /// 撿取倒數時沒有這條血條。之前只看紅字，把 MVP 戰鬥誤當成撿取倒數，結果關掉了躲鐘，角色被月夜貓的鐘秒殺。
     /// 判斷：y 100～200（× dpr）找兩列相隔 16 px、畫面中央 ±200 px 內 80% 以上是淺灰的橫線（洞穴的暗色背景、燈籠都不會這樣）。
     /// </summary>
+    /// <summary>
+    /// 一列至少這麼多比例是淺灰才算血條邊框。原本 0.8；實測（2026-11-23 斐揚洞穴 B，鐘開啟後畫面染紅光）上緣只有 0.74～0.78、下緣 0.97，
+    /// 被誤判成撿取倒數 → 躲鐘提早結束、跑去「王死掉的地方」→ 被鐘秒殺。要兩條相隔 16 px 的線都符合，放寬到 0.6 仍然不會被背景誤觸發
+    /// </summary>
+    private const double MinGray = 0.6;
+
     internal static bool MvpBarVisible(Frame f, double dpr)
     {
         int cx = f.Width / 2, half = (int)(200 * dpr), gap = (int)Math.Round(16 * dpr);
@@ -75,10 +81,10 @@ public static partial class TimerReader
         int y0 = (int)(100 * dpr), y1 = Math.Min(f.Height - gap - 2, (int)(200 * dpr));
         for (var y = y0; y < y1; y++)
         {
-            if (GrayShare(f, x0, x1, y) < 0.8)
+            if (GrayShare(f, x0, x1, y) < MinGray)
                 continue;
             for (var d = -1; d <= 1; d++)
-                if (GrayShare(f, x0, x1, y + gap + d) >= 0.8)
+                if (GrayShare(f, x0, x1, y + gap + d) >= MinGray)
                     return true;
         }
         return false;

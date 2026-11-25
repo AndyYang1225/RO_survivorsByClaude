@@ -34,7 +34,11 @@ public sealed record TreasureRead(double Total, IReadOnlyList<string> Items, lon
 public sealed partial class TreasureReader(OcrReader ocr)
 {
     /// <summary>道具欄格數</summary>
-    public const int SlotCount = 5;
+    /// <remarks>遊戲 2026.11.23 版起 6 格（第 6 格上鎖時是灰色鎖頭，判斷成空格），整列連同右邊的「≡」按鈕水平置中</remarks>
+    public const int SlotCount = 6;
+
+    /// <summary>第 1 格中心離畫面水平中心多遠（dpr 1 的 px；實測 2026-11-24 第 1 格中心 x 843、畫面中心 952）</summary>
+    private const double FirstSlotX = -109;
 
     /// <summary>格子中心間隔、格子中心離畫面底部多遠、格子半寬（dpr 1 的 px）</summary>
     private const double SlotStep = 36;
@@ -58,7 +62,7 @@ public sealed partial class TreasureReader(OcrReader ocr)
 
     /// <summary>第 i 格（0 起算）的中心（截圖像素）</summary>
     public static PointF SlotCenter(Frame f, double dpr, int i)
-        => new((float)(f.Width / 2.0 + (i - 2) * SlotStep * dpr), (float)(f.Height - SlotFromBottom * dpr));
+        => new((float)(f.Width / 2.0 + (FirstSlotX + i * SlotStep) * dpr), (float)(f.Height - SlotFromBottom * dpr));
 
     /// <summary>有東西的格子（0 起算，由左到右）</summary>
     public static IReadOnlyList<int> FilledSlots(Frame f, double dpr)

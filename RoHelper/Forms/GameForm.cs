@@ -1,9 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 
-using RoHelper.Bridge;
 using RoHelper.DevApi;
-using RoHelper.Engine;
 using RoHelper.Storage;
 using RoHelper.Vision;
 
@@ -13,7 +11,7 @@ using Microsoft.Web.WebView2.WinForms;
 namespace RoHelper.Forms;
 
 /// <summary>
-/// 主視窗：用 WebView2 開遊戲，由視覺引擎截圖判斷並送真實輸入（JS 引擎已停用，不注入任何 JS）。關掉這個視窗＝結束程式。
+/// 主視窗：用 WebView2 開遊戲，由視覺引擎截圖判斷並送真實輸入（不注入任何 JS）。關掉這個視窗＝結束程式。
 /// WebView2 的使用者資料夾固定在 <see cref="AppPaths.WebViewDir"/>，遊戲登入狀態、角色資料下次開還在。
 /// 上方選單：面板（F9）、重新載入（F5）、開發者工具（F12）、開啟資料夾、視覺除錯；最右邊顯示目前模式。
 /// </summary>
@@ -29,19 +27,10 @@ public sealed class GameForm : Form
         "--disable-backgrounding-occluded-windows --disable-features=CalculateNativeWinOcclusion";
 
     private readonly AppSettings _settings;
-    private readonly EngineBridge _bridge;
     private readonly PanelForm _panel;
-
-    /// <summary>視覺模式的引擎；JS 模式是 null</summary>
-    private readonly VisionEngine? _visionEngine;
-    private readonly EngineUpdater _updater;
+    private readonly VisionEngine _visionEngine;
     private readonly WebView2 _webView = new() { Dock = DockStyle.Fill };
     private readonly ToolStripMenuItem _engineItem = new() { Alignment = ToolStripItemAlignment.Right, Enabled = false };
-
-    private EngineScript? _engine;
-
-    /// <summary>目前註冊的注入腳本 id（換新版引擎時要先移除舊的）</summary>
-    private string? _scriptId;
 
     /// <summary>視覺工具組。第一次開「視覺除錯」時才建立（要等 WebView2 初始化完成）</summary>
     private VisionKit? _vision;
@@ -60,17 +49,15 @@ public sealed class GameForm : Form
     /// <param name="config">設定（開發介面讀暫停狀態、選卡設定用）</param>
     /// <param name="devApi">命令列的 <c>--dev-api</c>；null＝不開開發介面</param>
     /// <param name="evidence">自動存證據（開發介面列出最近的證據用）；沒開時是 null</param>
-    public GameForm(AppSettings settings, EngineBridge bridge, VisionEngine? visionEngine, PanelForm panel,
+    public GameForm(AppSettings settings, VisionEngine visionEngine, PanelForm panel,
         ConfigStore config, DevApiOptions? devApi, EvidenceStore? evidence)
     {
         _settings = settings;
         _config = config;
         _devApi = devApi;
         _evidence = evidence;
-        _bridge = bridge;
         _panel = panel;
         _visionEngine = visionEngine;
-        _updater = new EngineUpdater(settings);
 
         Text = TitleBase;
         StartPosition = FormStartPosition.WindowsDefaultBounds;
@@ -100,10 +87,7 @@ public sealed class GameForm : Form
         options.DropDownItems.Add(Toggle("啟動時自動繼續（不用手動解除暫停）", settings.ResumeOnStart, on => _settings.ResumeOnStart = on));
         options.DropDownItems.Add(Toggle("卡住時自動重新整理", settings.StallRecovery, on => _settings.StallRecovery = on));
         menu.Items.Add(options);
-        // 【JS 引擎已停用】檢查引擎更新、切換 JS／視覺模式都用不到了（見 Program.cs）
-        // menu.Items.Add(new ToolStripMenuItem("檢查更新", null, async (_, _) => await CheckUpdateManuallyAsync()));
         menu.Items.Add(new ToolStripMenuItem("視覺除錯", null, (_, _) => OpenVisionDebug()));
-        // menu.Items.Add(new ToolStripMenuItem(settings.VisionMode ? "模式：視覺" : "模式：JS", null, (_, _) => ToggleMode()));
         menu.Items.Add(_engineItem);
 
         // 先加 Fill 再加 Top：WinForms 依 z-order 反向處理 Dock，這樣選單才不會蓋住遊戲畫面
@@ -138,43 +122,15 @@ public sealed class GameForm : Form
         core.Settings.IsStatusBarEnabled = false;
         core.IsMuted = _settings.MuteAudio;
         HandleScriptDialogs(core);
-        // 視覺模式：完全不注入 JS、不接網頁訊息、不檢查引擎更新，只截圖和送輸入
-        if (_visionEngine is not null)
-        {
-            _engineItem.Text = "視覺模式（開發中）";
-            _visionEngine.StatusReceived += OnStatus;
-            _visionEngine.Start(VisionKitFor(core));
-            if (_settings.ResumeOnStart && _config.GetBool("paused"))
-                _visionEngine.SendPatch(new System.Text.Json.Nodes.JsonObject { ["paused"] = false });
-            StartWatch(core, _visionEngine);
-            StartDevApi(VisionKitFor(core), _visionEngine);
-            core.Navigate(AppPaths.GameUrl);
-            return;
-        }
-        // 【JS 引擎已停用（2026-11-20，使用者決定）】以下是 JS 模式的流程：接網頁訊息、檢查引擎更新、注入 engine.js。
-        // 視覺模式一定會走上面的 return，這段不會執行；要恢復時拿掉註解，並還原 Program.cs 的模式判斷。
-        // _bridge.TogglePanelRequested += TogglePanel;
-        // _bridge.Attach(core);
-        //
-        // // 步驟 1：選本機最新的引擎
-        // var engine = _updater.LoadLocal();
-        //
-        // // 步驟 2：開遊戲前先問一次線上有沒有新版（最多等 5 秒，失敗就用本機版，不擋遊戲）
-        // string? note = null;
-        // if (_settings.AutoUpdateEngine && !EngineUpdater.UsingOverride)
-        // {
-        //     _engineItem.Text = "檢查更新中…";
-        //     var result = await _updater.CheckAsync(engine);
-        //     if (result is { Status: UpdateStatus.Available, Remote: { } newer })
-        //         engine = newer;
-        //     else if (result is { Status: UpdateStatus.NeedNewerExe, Remote: { } r })
-        //         note = $"｜有新版 v{r.Version.ToString(3)}，需先更新 exe";
-        // }
-        //
-        // // 步驟 3：注入並開遊戲
-        // await UseEngineAsync(engine);
-        // _engineItem.Text += note;
-        // core.Navigate(AppPaths.GameUrl);
+        // 完全不注入 JS、不接網頁訊息，只截圖和送輸入
+        _engineItem.Text = "視覺模式";
+        _visionEngine.StatusReceived += OnStatus;
+        _visionEngine.Start(VisionKitFor(core));
+        if (_settings.ResumeOnStart && _config.GetBool("paused"))
+            _visionEngine.SendPatch(new System.Text.Json.Nodes.JsonObject { ["paused"] = false });
+        StartWatch(core, _visionEngine);
+        StartDevApi(VisionKitFor(core), _visionEngine);
+        core.Navigate(AppPaths.GameUrl);
     }
 
     /// <summary>選項選單的開關：切換後馬上存 app.json</summary>
@@ -213,7 +169,7 @@ public sealed class GameForm : Form
         _action = (s["action"]?.ToString() ?? "").Replace("［視覺］", "");
         _paused = s["paused"] is System.Text.Json.Nodes.JsonValue p && p.TryGetValue(out bool b) && b;
         // 有進度了（開新局）就清掉警告
-        if (_warning.Length > 0 && _visionEngine?.Watch.Alerted == false)
+        if (_warning.Length > 0 && !_visionEngine.Watch.Alerted)
             _warning = "";
         UpdateTitle();
         // 狀態每幾百毫秒就變一次，檔案最多 5 秒寫一次；心跳由 StartWatch 的計時器補
@@ -368,14 +324,12 @@ public sealed class GameForm : Form
     }
 
     /// <summary>
-    /// F8 暫停、F9 面板，只在視覺模式處理：焦點在遊戲畫面（WebView2）時，WebView2 控制項會把功能鍵當加速鍵轉給 WinForms 的 ProcessCmdKey，
-    /// 而視覺模式沒有 JS 可以聽按鍵。JS 模式維持 engine.js 自己的處理，避免 WebView2 沒擋下按鍵時切兩次（使用者決定）。
+    /// F8 暫停、F9 面板：焦點在遊戲畫面（WebView2）時，WebView2 控制項會把功能鍵當加速鍵轉給 WinForms 的 ProcessCmdKey，
+    /// 網頁裡沒有 JS 可以聽按鍵，所以在這裡處理。
     /// 回傳 true＝已處理；預期 WebView2 會把按鍵標成已處理而不再轉給網頁（實機驗證時確認）。
     /// </summary>
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
-        if (_visionEngine is null)
-            return base.ProcessCmdKey(ref msg, keyData);
         switch (keyData)
         {
             case Keys.F8:
@@ -528,62 +482,6 @@ public sealed class GameForm : Form
     }
 
     /// <summary>
-    /// 換成指定的引擎：移除舊的注入腳本、註冊新的。已經開著的頁面不受影響，要重新載入才會生效。
-    /// </summary>
-    private async Task UseEngineAsync(EngineScript engine)
-    {
-        var core = _webView.CoreWebView2;
-        if (_scriptId is not null)
-            core.RemoveScriptToExecuteOnDocumentCreated(_scriptId);
-        _scriptId = await core.AddScriptToExecuteOnDocumentCreatedAsync(engine.Source);
-        _engine = engine;
-        _engineItem.Text = engine.Describe();
-    }
-
-    private async Task CheckUpdateManuallyAsync()
-    {
-        if (_visionEngine is not null)
-        {
-            MessageBox.Show(this, "視覺模式不使用 JS 引擎，不需要更新。", Text);
-            return;
-        }
-        if (_engine is null || _webView.CoreWebView2 is null)
-            return;
-        if (EngineUpdater.UsingOverride)
-        {
-            MessageBox.Show(this, "正在使用 exe 旁邊的 engine.js（開發模式），不檢查線上更新。\n要恢復自動更新，請把那個檔案移走後重開。", Text);
-            return;
-        }
-
-        var result = await _updater.CheckAsync(_engine);
-        switch (result.Status)
-        {
-            case UpdateStatus.Available when result.Remote is { } newer:
-                var apply = MessageBox.Show(this,
-                    $"有新版引擎 v{newer.Version.ToString(3)}（目前 v{_engine.Version.ToString(3)}）。\n\n" +
-                    "要現在套用嗎？會重新載入遊戲頁面，進行中的這一局會中斷。\n選「否」則下次開啟時自動套用。",
-                    Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question);
-                if (apply != DialogResult.Yes)
-                    return;
-                await UseEngineAsync(newer);
-                _webView.CoreWebView2.Reload();
-                break;
-            case UpdateStatus.UpToDate:
-                MessageBox.Show(this, $"已經是最新版（{_engine.Describe()}）。", Text);
-                break;
-            case UpdateStatus.NeedNewerExe when result.Remote is { } r:
-                MessageBox.Show(this,
-                    $"有新版引擎 v{r.Version.ToString(3)}，但需要 exe v{r.MinExe.ToString(3)} 以上（目前 v{EngineScript.ExeVersion.ToString(3)}）。\n請先下載新版 RoHelper.exe。",
-                    Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
-                break;
-            case UpdateStatus.Failed:
-                MessageBox.Show(this, $"檢查更新失敗 : {result.Error}\n\n更新網址：{_settings.EngineUpdateUrl}", Text,
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                break;
-        }
-    }
-
-    /// <summary>
     /// 有 <c>--dev-api</c> 時開本機開發介面，結果附在選單右邊的模式文字後面。
     /// 開不起來（port 被占用等）只顯示原因、不擋程式：開發介面只是輔助。
     /// </summary>
@@ -631,21 +529,8 @@ public sealed class GameForm : Form
     private VisionKit VisionKitFor(CoreWebView2 core)
         => _vision ??= new VisionKit(core, _webView.Handle, () => _webView.DeviceDpi / 96.0 * _webView.ZoomFactor);
 
-    /// <summary>切換 JS／視覺模式。重新開啟後生效：執行中切換的話，已經注入的 JS 拿不掉，兩邊會同時點畫面</summary>
-    private void ToggleMode()
-    {
-        var toVision = !_settings.VisionMode;
-        var message = toVision
-            ? "切換到視覺模式：不在遊戲網頁注入任何 JS，只看截圖判斷。\n\n目前只會：選單人大廳、走到節慶主持人、開始遊戲、前往野外、返回角色。\n選卡和野外走位還沒做，進野外後要自己選卡。\n\n要切換嗎？重新開啟小幫手後生效。"
-            : "切換回 JS 模式（原本的全自動）？重新開啟小幫手後生效。";
-        if (MessageBox.Show(this, message, Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
-            return;
-        _settings.VisionMode = toVision;
-        _settings.Save();
-    }
-
     /// <summary>
-    /// 顯示／隱藏面板。JS 模式：遊戲裡按 F9 時由 engine.js 送 togglePanel 訊息觸發（焦點在 WebView2 裡時按鍵不一定經過 WinForms）；視覺模式：由 <see cref="ProcessCmdKey"/> 觸發。
+    /// 顯示／隱藏面板（選單或 F9，見 <see cref="ProcessCmdKey"/>）。
     /// </summary>
     private void TogglePanel()
     {

@@ -123,3 +123,21 @@ public class StallWatchTests
         Assert.NotEqual(StallWatch.Signature(a), StallWatch.Signature(b));
     }
 }
+
+public class StallWatchForceTests
+{
+    [Fact]
+    public void Force_ReloadsOnNextCheck_Once()
+    {
+        var w = new StallWatch();
+        w.Progress(0);
+        w.Frame(0, 1);
+        Assert.Equal(StallAct.None, w.Check(1000).Act);
+        w.Force("遊戲時間超過 18 分鐘");
+        var v = w.Check(2000);
+        Assert.Equal(StallAct.Reload, v.Act);
+        Assert.Contains("18", v.Why);
+        w.Frame(2500, 2);
+        Assert.Equal(StallAct.None, w.Check(3000).Act);
+    }
+}

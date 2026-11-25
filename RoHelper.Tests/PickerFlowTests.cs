@@ -181,8 +181,64 @@ public class PickerFlowTests
 
     private static readonly ActButton AutoBtn = new(ActKind.Reroll, new Rectangle(400, 470, 60, 30), true, 99);
 
+    /// <summary>有「自動」按鈕的選卡畫面；欄位預設是滿的（升級 4/4、寶箱 6/6）</summary>
     private static PickerInfo WithAuto(bool chest, params CardInfo[] cards)
-        => new(chest, cards, new ActButton(ActKind.Reroll, new Rectangle(300, 470, 80, 30), true, 5), AutoBtn);
+        => WithSlots(chest, chest ? (6, 6) : (4, 4), cards);
+
+    private static PickerInfo WithSlots(bool chest, (int, int)? slots, params CardInfo[] cards)
+        => new(chest, cards, new ActButton(ActKind.Reroll, new Rectangle(300, 470, 80, 30), true, 5), AutoBtn, slots);
+
+    [Fact]
+    public void GameAuto_SkillSlotsNotFull_NotYetEvenAfterBans()
+    {
+        var flow = new PickerFlow();
+        flow.State.Banished.UnionWith(["雷爆術", "屬性附加"]);
+        flow.Waiting(0, 350);
+
+        var a = flow.Act(WithSlots(false, (3, 4), Card(0, "火箭術"), Card(1, "冰箭術")), AutoSettings(), 400);
+
+        Assert.NotEqual(PickDo.GameAuto, a.Decision?.Do);
+        Assert.False(flow.State.GameAuto);
+    }
+
+    [Fact]
+    public void GameAuto_SlotsUnreadable_NotPressed()
+    {
+        var flow = new PickerFlow();
+        flow.State.Banished.UnionWith(["雷爆術", "屬性附加"]);
+        flow.Waiting(0, 350);
+
+        var a = flow.Act(WithSlots(false, null, Card(0, "火箭術"), Card(1, "冰箭術")), AutoSettings(), 400);
+
+        Assert.NotEqual(PickDo.GameAuto, a.Decision?.Do);
+    }
+
+    /// <summary>寶箱：道具欄六格都有了就按「自動寶箱」，不管放逐清單</summary>
+    [Fact]
+    public void GameAuto_ChestSlotsFull_PressedWithoutBans()
+    {
+        var flow = new PickerFlow();
+        flow.Waiting(0, 350);
+
+        var c = flow.Act(WithAuto(true, Card(0, "傷害秘藥"), Card(1, "冷卻藥水")), AutoSettings(), 400);
+
+        Assert.Equal(PickDo.GameAuto, c.Decision!.Do);
+        Assert.Contains("道具欄滿了（6/6）", c.Status);
+        Assert.True(flow.State.GameAutoChest);
+        Assert.False(flow.State.GameAutoSkill);
+    }
+
+    [Fact]
+    public void GameAuto_ChestSlotsNotFull_PickedByRules()
+    {
+        var flow = new PickerFlow();
+        flow.State.Banished.UnionWith(["雷爆術", "屬性附加"]);
+        flow.Waiting(0, 350);
+
+        var c = flow.Act(WithSlots(true, (5, 6), Card(0, "傷害秘藥"), Card(1, "冷卻藥水")), AutoSettings(), 400);
+
+        Assert.NotEqual(PickDo.GameAuto, c.Decision?.Do);
+    }
 
     private static PickSettings AutoSettings(bool on = true)
         => new("巫師", true, Mage, true, ["屬性附加"], false, "none", true, [], [], false, 1, [], [], [], true, true, true, 2, "treasure",
@@ -223,13 +279,41 @@ public class PickerFlowTests
         Assert.Equal(PickDo.GameAuto, a.Decision!.Do);
         Assert.Equal(new Point(430, 485), a.Click);
 
-        // 之後的選卡（含寶箱）不動作
+        // 之後的升級卡不動作
+        flow.Gone();
+        flow.Waiting(5000, 350);
+        var u = flow.Act(WithAuto(false, Card(0, "火箭術"), Card(1, "冰箭術")), s, 5400);
+        Assert.Null(u.Click);
+        Assert.Equal("交給遊戲自動技能", u.Status);
+
+        // 寶箱卡是另一顆「自動」（遊戲 2026.11.23 版起分開）：馬上按，不乾等
         flow.Gone();
         flow.Waiting(6000, 350);
         var c = flow.Act(WithAuto(true, Card(0, "傷害秘藥"), Card(1, "堡壘之神")), s, 6400);
-        Assert.Null(c.Click);
-        Assert.Null(c.Key);
-        Assert.Equal("交給遊戲自動選卡", c.Status);
+        Assert.Equal(PickDo.GameAuto, c.Decision!.Do);
+        Assert.StartsWith("按遊戲「自動寶箱」", c.Status);
+        Assert.True(flow.State.GameAutoChest);
+
+        // 兩顆都按過之後，寶箱卡也不動作
+        flow.Gone();
+        flow.Waiting(8000, 350);
+        var c2 = flow.Act(WithAuto(true, Card(0, "傷害秘藥"), Card(1, "堡壘之神")), s, 8400);
+        Assert.Null(c2.Click);
+        Assert.Equal("交給遊戲自動寶箱", c2.Status);
+    }
+
+    [Fact]
+    public void GameAuto_ChestOff_ChestPickedByRules()
+    {
+        var flow = new PickerFlow();
+        var s = AutoSettings() with { AutoChest = false };
+        flow.State.Banished.UnionWith(["雷爆術", "屬性附加"]);
+        flow.State.GameAutoSkill = true;
+        flow.Waiting(0, 350);
+
+        var c = flow.Act(WithAuto(true, Card(0, "傷害秘藥"), Card(1, "堡壘之神")), s, 400);
+        Assert.NotEqual(PickDo.GameAuto, c.Decision?.Do);
+        Assert.NotNull(c.Key ?? (object?)c.Click);
     }
 
     [Fact]

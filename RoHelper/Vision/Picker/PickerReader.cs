@@ -40,7 +40,12 @@ public sealed partial class PickerReader(OcrReader ocr)
 
         // 步驟 3：寶箱或升級
         var top = cards.Min(c => c.Top);
-        var isChest = lines.Any(l => Center(l.Bounds).Y < top && ChestWords.Any(w => l.Text.Contains(w)));
+        // 遊戲 2026.11.23 版起底下的按鈕分成「自動技能」（升級）和「自動寶箱」，卡片上方的欄位是「技能 N/4」或「道具 N/6」，比標題可靠：
+        // 實測組隊時標題下那行（含「金幣」）被「正在選卡」小視窗蓋住、大字「寶箱」又沒讀到，寶箱被當成升級卡、照技能規則選
+        bool Has(string w) => lines.Any(l => OcrReader.Compact(l.Text).Replace(" ", "").Contains(w));
+        // 實測 OCR 把「自動寶箱」讀成「目動箱」，所以認「動寶」「動箱」；卡片上方的「道具 0/6」也算
+        var isChest = !Has("自動技") && (Has("動寶") || Has("動箱") || Has("寶箱")
+            || lines.Any(l => Center(l.Bounds).Y < top && (ChestWords.Any(w => l.Text.Contains(w)) || OcrReader.Compact(l.Text).Replace(" ", "").Contains("道具"))));
 
         // 步驟 4、5：每張卡
         var infos = new List<CardInfo>();
@@ -74,14 +79,42 @@ public sealed partial class PickerReader(OcrReader ocr)
             var enabled = CardLayout.IsEnabled(f, rect);
             rerollAll = new ActButton(ActKind.Reroll, rect, enabled, ReadLeft(f, rect.Right, rect.Top, enabled, dpr));
         }
+        // 備援：按鈕列被畫面下緣切掉、讀不到「全部」時，從「選一張卡片（1–3）」那行底下用色塊找（左邊＝重抽全部、右邊＝自動）。
+        // 實測 OCR 把那行讀成「一卡片 ( 1 一 3 )」，所以只認「卡片」
+        Rectangle? cutAuto = null;
+        if (rerollAll is null
+            && lines.Where(l => Center(l.Bounds).Y > bottom && OcrReader.Compact(l.Text).Replace(" ", "").Contains("卡片")).OrderBy(l => l.Bounds.Y).LastOrDefault() is { } hint)
+        {
+            var band = Rectangle.FromLTRB(union.Left, hint.Bounds.Bottom + (int)(4 * dpr), union.Right, f.Height);
+            var row = CardLayout.FindBottomButtons(f, band, dpr);
+            if (row.Count >= 1)
+            {
+                var enabled = CardLayout.IsEnabled(f, row[0]);
+                rerollAll = new ActButton(ActKind.Reroll, row[0], enabled, ReadLeft(f, row[0].Right, row[0].Top, enabled, dpr));
+            }
+            if (row.Count >= 2)
+                cutAuto = row[1];
+        }
 
         // 步驟 7：「自動」（重抽全部右邊，像素判讀）
         ActButton? auto = null;
-        if (rerollAll is not null && CardLayout.FindAutoButton(f, rerollAll.Bounds, dpr) is { } ab)
+        if ((cutAuto ?? (rerollAll is null ? null : CardLayout.FindAutoButton(f, rerollAll.Bounds, dpr))) is { } ab)
             auto = new ActButton(ActKind.Reroll, ab, CardLayout.IsEnabled(f, ab), 99);
 
-        return new PickerInfo(isChest, infos, rerollAll, auto);
+        // 步驟 8：欄位數（卡片上方「技能 4/4」「道具 0/6」；實測 OCR 讀成「技 4 / 4」「具 0 / 6」，只認「數字 / 數字」）
+        (int, int)? slots = null;
+        foreach (var l in lines.Where(l => Center(l.Bounds).Y < top).OrderByDescending(l => l.Bounds.Y))
+            if (SlotCount().Match(l.Text) is { Success: true } m)
+            {
+                slots = (int.Parse(m.Groups[1].Value), int.Parse(m.Groups[2].Value));
+                break;
+            }
+
+        return new PickerInfo(isChest, infos, rerollAll, auto, slots);
     }
+
+    [GeneratedRegex(@"(\d)\s*/\s*(\d)")]
+    private static partial Regex SlotCount();
 
     // 讀按鈕右上角小圓圈的數字；讀不到時能按＝99、不能按＝0。
     // 範圍大致是右緣 -8～+14、上緣 -14～+8，但實測圓圈位置跟按鈕有幾 px 差距，所以範圍取大一點（右緣 -18～+14、上緣 -24～+8），

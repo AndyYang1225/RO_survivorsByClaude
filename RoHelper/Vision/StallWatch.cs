@@ -53,14 +53,23 @@ public sealed class StallWatch(long frozenMs = 3 * 60_000, long noRunMs = 45 * 6
     /// <summary>暫停、達到局數上限等「本來就不會動」的狀態：計時從現在重新開始</summary>
     public void Idle(long now) => _baseline = now;
 
+    private string? _forced;
+
+    /// <summary>
+    /// 主迴圈自己看出卡住了（例如野外的遊戲時間超過一局該有的長度）：下一次 Check 就當成卡住處理（同樣受重新整理次數限制）
+    /// </summary>
+    public void Force(string why) => _forced ??= why;
+
     /// <summary>定時呼叫（例如每 15 秒）</summary>
     public StallVerdict Check(long now)
     {
         var alive = Math.Max(_alive, _baseline);
         var progress = Math.Max(_progress, _baseline);
-        var why = now - alive >= frozenMs ? $"畫面 {frozenMs / 60_000} 分鐘沒有變化"
+        var why = _forced
+            ?? (now - alive >= frozenMs ? $"畫面 {frozenMs / 60_000} 分鐘沒有變化"
             : now - progress >= noRunMs ? $"{noRunMs / 60_000} 分鐘沒有開新局"
-            : null;
+            : null);
+        _forced = null;
         if (why is null)
             return StallVerdict.None;
         // 處理過就重新計時：重新整理後給大廳流程一段時間接手

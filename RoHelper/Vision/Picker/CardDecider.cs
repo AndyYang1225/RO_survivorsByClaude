@@ -5,7 +5,7 @@ namespace RoHelper.Vision.Picker;
 /// <summary>
 /// 選卡決策：engine.js decide()（約 448～559 行）的 C# 版，判斷順序和理由文字一行對一行。
 /// 順序：1 神祇 → 2 放逐（升級卡）→ 3 技能專注（升級卡）→ 道具專注 → 可選的卡（排除放逐／強制不選／別的神祇）
-/// → 4 技能優先（升級卡）→ 5 不學清單外的新技能（升級卡）→ 6 尋寶率上限 → 勾選的道具 → 尋寶已滿→生命 → 選法（第一張／稀有度／尋寶率優先）。
+/// → 4 技能優先（升級卡）→ 5 不學清單外的新技能（升級卡）→ 6 尋寶率上限／活動 → 職業用不到的道具 → 勾選的道具 → 尋寶已滿→生命 → 選法（第一張／稀有度／尋寶率優先）。
 /// 尋寶率（RunPickState.Treasure）由 VisionEngine 把滑鼠移到道具欄讀說明框得到（<see cref="Field.TreasureReader"/>）。
 /// 跟 JS 不同：尋寶卡除了卡片文字有「尋寶」，卡名是已知的尋寶道具也算（<see cref="HasTreasure"/>），因為 OCR 偶爾把「尋寶」讀錯。
 /// 純函式：不改 RunPickState（選了之後要記什麼由 PickerFlow 負責）。
@@ -132,13 +132,21 @@ public static partial class CardDecider
                 return new(PickDo.Reroll, null, "只有不要的新技能");
         }
 
-        // 6. 道具／寶箱／其他。尋寶率超過上限：還有別的卡時不選尋寶卡
+        // 6. 道具／寶箱／其他。尋寶率超過上限、或這局是活動（尋寶率沒用）：還有別的卡時不選尋寶卡，也不優先
         var capped = s.TreasureCap && st.Treasure >= s.TreasureCapN;
-        if (capped)
+        var noTreasure = capped || st.IsEvent;
+        if (noTreasure)
         {
             var nt = pool.Where(i => !HasTreasure(cards[i])).ToList();
             if (nt.Count > 0)
                 pool = nt;
+        }
+        // 職業用不到的道具（例如法師系的閃避類）：還有別的卡時不選。跟道具 ✕ 不同，全是這種卡時不會為了它重抽
+        if (UselessFor(s.Job) is { Length: > 0 } useless)
+        {
+            var ok = pool.Where(i => !useless.Any(u => Squash(cards[i].Name).Contains(u))).ToList();
+            if (ok.Count > 0)
+                pool = ok;
         }
         if (s.ItemPrio.Count > 0)
         {
@@ -159,10 +167,10 @@ public static partial class CardDecider
             // 同稀有度時優先尋寶卡（超過上限時不優先）
             var top = pool.Max(i => cards[i].Rarity);
             var best = pool.Where(i => cards[i].Rarity == top).ToList();
-            var tb = capped ? -1 : best.FirstOrDefault(i => HasTreasure(cards[i]), -1);
+            var tb = noTreasure ? -1 : best.FirstOrDefault(i => HasTreasure(cards[i]), -1);
             return new(PickDo.Pick, tb >= 0 ? tb : best[0], "稀有度優先");
         }
-        List<int> tr = capped ? [] : [.. pool.Where(i => HasTreasure(cards[i]))];
+        List<int> tr = noTreasure ? [] : [.. pool.Where(i => HasTreasure(cards[i]))];
         return tr.Count > 0
             ? new(PickDo.Pick, RarestIndex(cards, tr), "尋寶率優先")
             : new(PickDo.Pick, RarestIndex(cards, pool), "最稀有");
@@ -178,6 +186,15 @@ public static partial class CardDecider
     /// <summary>提升生命的卡（同 JS hasHp）</summary>
     public static bool HasHp(CardInfo c) => HpWord().IsMatch(c.Name + " " + c.Text);
 
+    /// <summary>
+    /// 職業用不到的道具（卡名，去掉空白比對）。使用者（2026-11-25）：法師相關（魔法師、巫師、賢者）不點閃避類＝迴避秘藥。
+    /// AGI 料理不算：圖書館員 Wiki 寫 AGI 每點 +0.67 冷卻縮減（另 +0.2% 迴避），對法師有用。
+    /// </summary>
+    private static readonly string[] MageJobs = ["魔法師", "巫師", "賢者"];
+    private static readonly string[] DodgeItems = ["迴避秘藥"];
+
+    internal static string[] UselessFor(string job) => MageJobs.Contains(job) ? DodgeItems : [];
+
     /// <summary>已知會加尋寶率的道具卡名</summary>
     private static readonly string[] TreasureItems = ["尋寶藥水", "驚奇秘藥", "豐饒祝福"];
 
@@ -190,6 +207,22 @@ public static partial class CardDecider
     /// <summary>
     /// 可以改按遊戲「自動」了：有勾這條規則、放逐清單不是空的（空的話一開局就交給遊戲，不是使用者要的）、清單裡每一項這局都放逐過。
     /// </summary>
+    /// <summary>
+    /// 這個選卡畫面可以按遊戲的「自動」了嗎（回理由；不行回 null）。使用者（2026-11-25）：
+    /// 升級卡＝技能欄滿了（技能都選完），而且放逐清單都放逐過了 → 按「自動技能」；
+    /// 寶箱卡＝道具欄六格都有了 → 按「自動寶箱」（不看放逐）。
+    /// 欄位數讀不到時不按，下一個畫面再看。總開關是「放逐完後按遊戲自動」，寶箱另外要開「寶箱卡也按遊戲的自動」。
+    /// </summary>
+    public static string? GameAutoWhy(PickerInfo p, PickSettings s, RunPickState st)
+    {
+        if (!s.AutoAfterBan || p.SlotsFull != true)
+            return null;
+        var (used, max) = p.Slots!.Value;
+        if (p.IsChest)
+            return s.AutoChest ? $"道具欄滿了（{used}/{max}）" : null;
+        return ReadyForGameAuto(s, st) ? $"技能欄滿了（{used}/{max}），放逐清單都放逐過了：" + string.Join("、", BanTargets(s)) : null;
+    }
+
     public static bool ReadyForGameAuto(PickSettings s, RunPickState st)
     {
         if (!s.AutoAfterBan)
@@ -198,7 +231,7 @@ public static partial class CardDecider
         return targets.Count > 0 && targets.All(st.Banished.Contains);
     }
 
-    /// <summary>神祇卡（同 JS isDeity：卡片文字有 Deity／之神／神祇）</summary>
+    /// <summary>神祇卡（同 JS isDeity：卡片文字有 Deity／之神／神祇；2026.11.23 版起改名「神器」）</summary>
     public static bool IsDeity(CardInfo c) => DeityWord().IsMatch(c.Name + " " + c.Text);
 
     /// <summary>神祇名稱去掉精煉等級（「思想之神 +3」→「思想之神」），鎖定神祇時記這個</summary>
@@ -215,7 +248,8 @@ public static partial class CardDecider
     /// OCR 常見的形近錯字換回正字再比對。實測（2026-11-21 三開 50 局戰績）：「冰箭術」「火箭術」讀成「冰箾術」「火箾術」，
     /// 對不上技能清單、被當成一般卡用「最稀有」選；「祝福」讀成「祝褔」「祝襵」。
     /// </summary>
-    private static string OcrFix(string s) => s.Replace('箾', '箭').Replace('褔', '福').Replace('襵', '福');
+    /// 遊戲 2026.11.23 版起神祇「X之神」改成「X神器」（分類從「神祇」變「神器」）：設定裡舊的「戰爭之神」等也換成「戰爭神器」，兩邊才對得上。
+    private static string OcrFix(string s) => s.Replace('箾', '箭').Replace('褔', '福').Replace('襵', '福').Replace("之神", "神器");
 
     private static bool Usable(CardInfo c, ActKind kind) => c.Button(kind) is { Usable: true };
 
@@ -274,7 +308,7 @@ public static partial class CardDecider
         return x.Length > 0 && y.Length > 0 && (x.Contains(y) || y.Contains(x));
     }
 
-    private static string DeityKey(string n) => Spaces().Replace(DeityNoise().Replace(n, ""), "");
+    private static string DeityKey(string n) => Spaces().Replace(DeityNoise().Replace(OcrFix(n), ""), "");
 
     /// <summary>同 JS rarestIndex：最稀有的；一樣稀有取前面的</summary>
     private static int RarestIndex(IReadOnlyList<CardInfo> cards, List<int> pool)
@@ -288,7 +322,7 @@ public static partial class CardDecider
     [GeneratedRegex("生命|HP|血量|治癒|回復|恢復", RegexOptions.IgnoreCase)]
     private static partial Regex HpWord();
 
-    [GeneratedRegex("Deity|之神|神祇", RegexOptions.IgnoreCase)]
+    [GeneratedRegex("Deity|之神|神祇|神器", RegexOptions.IgnoreCase)]
     private static partial Regex DeityWord();
 
     [GeneratedRegex(@"Deity|\+\s*\d+", RegexOptions.IgnoreCase)]

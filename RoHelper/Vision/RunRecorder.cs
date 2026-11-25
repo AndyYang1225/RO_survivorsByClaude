@@ -25,6 +25,7 @@ public sealed class RunRecorder
     private JsonObject? _rec;
     private DateTime _start;
     private readonly List<JsonObject> _picks = [];
+    private readonly List<JsonObject> _bells = [];
     private int _hpMin = 100;
     private double _treasure;
     private IReadOnlyList<string> _items = [];
@@ -37,6 +38,7 @@ public sealed class RunRecorder
     {
         _start = now;
         _picks.Clear();
+        _bells.Clear();
         _hpMin = 100;
         _treasure = 0;
         _items = [];
@@ -68,6 +70,13 @@ public sealed class RunRecorder
     {
         _treasure = treasure;
         _items = items;
+    }
+
+    /// <summary>一次躲鐘的摘要（<see cref="Field.BellTrace"/>），結算時放在 bells</summary>
+    public void Bell(JsonObject b)
+    {
+        if (_rec is not null)
+            _bells.Add(b);
     }
 
     /// <summary>一次選卡動作（同 JS recPick）：kind＝pick／banish／reroll／focus／gameAuto，有卡片時附卡片資訊；gt＝遊戲時間「mm:ss」</summary>
@@ -120,6 +129,7 @@ public sealed class RunRecorder
             return null;
         _rec = null;
         run["picks"] = new JsonArray(_picks.Select(p => (JsonNode?)p.DeepClone()).ToArray());
+        run["bells"] = new JsonArray(_bells.Select(b => (JsonNode?)b.DeepClone()).ToArray());
         run["hpMin"] = _hpMin;
         run["end"] = Iso(now);
         run["wallSecs"] = (int)Math.Round((now - _start).TotalSeconds);

@@ -4,7 +4,7 @@ namespace RoHelper.Storage;
 
 /// <summary>
 /// exe 自己的設定（視窗位置、面板置頂），跟遊戲規則設定分開存：
-/// 規則設定是 JS 的資料，匯入舊版設定時整份會被換掉，不應該連視窗位置都被蓋掉。
+/// 匯入規則設定時整份會被換掉，不應該連視窗位置都被蓋掉。
 /// </summary>
 public sealed class AppSettings
 {
@@ -28,18 +28,6 @@ public sealed class AppSettings
 
     /// <summary>卡住時自動重新整理（見 StallWatch）。遊戲視窗選單「選項 → 卡住時自動重新整理」切換</summary>
     public bool StallRecovery { get; set; } = true;
-
-    /// <summary>啟動時自動檢查引擎更新</summary>
-    public bool AutoUpdateEngine { get; set; } = true;
-
-    public string EngineUpdateUrl { get; set; } = AppPaths.DefaultEngineUpdateUrl;
-
-    /// <summary>
-    /// 視覺模式：不在遊戲網頁注入 JS，只靠截圖判斷、用瀏覽器層級的真實輸入操作。開發中（目前只有大廳流程），預設關閉。
-    /// 從遊戲視窗選單切換，重新開啟後生效：兩種模式不能同時跑，否則兩邊會同時點畫面。
-    /// 【JS 引擎已停用（2026-11-20）】目前一律視覺模式，這個值不會被讀取（見 Program.cs）；留著是為了恢復 JS 模式時不用改設定檔格式。
-    /// </summary>
-    public bool VisionMode { get; set; }
 
     public static AppSettings Load()
     {
@@ -75,7 +63,6 @@ public sealed class AppSettings
                 MuteAudio = src.MuteAudio,
                 ResumeOnStart = src.ResumeOnStart,
                 StallRecovery = src.StallRecovery,
-                VisionMode = src.VisionMode,
             };
             Directory.CreateDirectory(Path.GetDirectoryName(targetFile)!);
             JsonFile.WriteText(targetFile, JsonSerializer.Serialize(seeded, JsonFile.Options));

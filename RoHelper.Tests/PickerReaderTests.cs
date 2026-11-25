@@ -102,3 +102,80 @@ public class PickerReaderTests
         Assert.Null(await Reader.ReadAsync(TestFrames.Solid(800, 600, 20, 25, 40), 1.0));
     }
 }
+
+/// <summary>遊戲 2026.11.23 版：神祇改名「神器」、底下按鈕分「自動技能／自動寶箱」、組隊時標題附近被「正在選卡」小視窗蓋住</summary>
+public class PickerReaderV1123Tests
+{
+    private static readonly PickerReader Reader = new(OcrReader.TryCreate(out var e) ?? throw new InvalidOperationException(e));
+
+    [Fact]
+    public async Task Chest_DetectedEvenWithPartyPopup_ArtifactIsDeity()
+    {
+        var p = await Reader.ReadAsync(CardLayoutTests.Fixture("寶箱改版神器"), 1.0);
+
+        Assert.NotNull(p);
+        Assert.True(p!.IsChest);
+        Assert.Equal(3, p.Cards.Count);
+    }
+
+    /// <summary>正常（沒變淡）的神器卡：分類「神器」要讀得到、算神祇類</summary>
+    [Fact]
+    public async Task Artifact_IsDeity()
+    {
+        var p = await Reader.ReadAsync(CardLayoutTests.Fixture("寶箱改版處刑神器"), 1.0);
+
+        Assert.NotNull(p);
+        Assert.True(p!.IsChest);
+        Assert.True(CardDecider.IsDeity(p.Cards[2]), p.Cards[2].Name + " | " + p.Cards[2].Text);
+        Assert.False(CardDecider.IsDeity(p.Cards[1]));
+    }
+
+    [Fact]
+    public async Task LevelUp_NotChest()
+    {
+        var p = await Reader.ReadAsync(CardLayoutTests.Fixture("升級改版"), 1.0);
+
+        Assert.NotNull(p);
+        Assert.False(p!.IsChest);
+    }
+
+    /// <summary>卡片上方的欄位數：升級「技能 4/4」（OCR 讀成「技 4 / 4」）、寶箱「道具 0/6」</summary>
+    [Theory]
+    [InlineData("升級改版", 4, 4)]
+    [InlineData("寶箱改版神器", 0, 6)]
+    [InlineData("寶箱改版處刑神器", 0, 6)]
+    public async Task Slots_Read(string fixture, int used, int max)
+    {
+        var p = await Reader.ReadAsync(CardLayoutTests.Fixture(fixture), 1.0);
+
+        Assert.Equal((used, max), p!.Slots);
+    }
+
+    /// <summary>「自動寶箱」按鈕寬約 81 px：舊的寬度上限 80 會把它濾掉，放逐完也按不到</summary>
+    [Theory]
+    [InlineData("寶箱改版神器")]
+    [InlineData("寶箱改版處刑神器")]
+    public async Task Chest_AutoButtonFound(string fixture)
+    {
+        var p = await Reader.ReadAsync(CardLayoutTests.Fixture(fixture), 1.0);
+
+        Assert.NotNull(p?.RerollAll);
+        Assert.NotNull(p!.Auto);
+        Assert.True(p.Auto!.Usable);
+        Assert.True(p.Auto.Bounds.Left > p.RerollAll!.Bounds.Right, $"自動 {p.Auto.Bounds} 要在重抽全部 {p.RerollAll.Bounds} 右邊");
+    }
+
+    /// <summary>升級畫面的按鈕列被畫面下緣切掉（只露出約 16 px、讀不到字）：還是要找到「重抽全部」和「自動技能」</summary>
+    [Fact]
+    public async Task LevelUp_CutOffButtons_StillFindsAuto()
+    {
+        var f = CardLayoutTests.Fixture("升級改版");
+        var p = await Reader.ReadAsync(f, 1.0);
+
+        Assert.NotNull(p?.RerollAll);
+        Assert.NotNull(p!.Auto);
+        Assert.True(p.Auto!.Usable);
+        Assert.InRange(p.Auto.Bounds.Left, 940, 980);
+        Assert.InRange(p.Auto.Bounds.Top, 655, f.Height);
+    }
+}

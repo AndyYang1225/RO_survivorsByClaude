@@ -28,8 +28,13 @@ public sealed record CardInfo(int Index, Rectangle Bounds, string Name, string T
 /// <summary>
 /// 一個選卡畫面：升級或寶箱、各張卡、下方的「重抽全部」和「自動」（沒有這顆按鈕時是 null）。
 /// 「自動」是遊戲改版新加的開關：按下後這局剩下的選卡由遊戲自己選。它沒有次數圓圈，Left 固定 99。
+/// Slots＝卡片上方的欄位數（升級卡「技能 4/4」、寶箱卡「道具 0/6」），讀不到時是 null。
 /// </summary>
-public sealed record PickerInfo(bool IsChest, IReadOnlyList<CardInfo> Cards, ActButton? RerollAll, ActButton? Auto = null);
+public sealed record PickerInfo(bool IsChest, IReadOnlyList<CardInfo> Cards, ActButton? RerollAll, ActButton? Auto = null, (int Used, int Max)? Slots = null)
+{
+    /// <summary>欄位滿了（技能都選完、六格道具都有了）；讀不到欄位數時是 null</summary>
+    public bool? SlotsFull => Slots is { Max: > 0 } x ? x.Used >= x.Max : null;
+}
 
 /// <summary>選卡的動作種類（同 JS decide() 回傳的 do）</summary>
 public enum PickDo
@@ -63,8 +68,28 @@ public sealed class RunPickState
     /// <summary>這局不得已學到的清單外技能（卡名去掉空白和「+N」）：之後再出現就放逐，不升級（使用者：只升級清單裡的技能，第四個技能不幸選到也直接放逐）</summary>
     public HashSet<string> Unwanted { get; } = [];
 
-    public bool GameAuto { get; set; }
+    /// <summary>
+    /// 遊戲 2026.11.23 版起「自動」分成兩顆：升級卡畫面的「自動技能」、寶箱卡畫面的自動，各自要按一次（之前一顆就包含寶箱）。
+    /// 分開記：按過「自動技能」後出現寶箱卡畫面，要馬上按寶箱的自動，不能當成已經交給遊戲而乾等（組隊時選卡有秒數限制）
+    /// </summary>
+    public bool GameAutoSkill { get; set; }
+
+    /// <summary>這局已經按過寶箱卡畫面的「自動」</summary>
+    public bool GameAutoChest { get; set; }
+
+    /// <summary>有沒有按過任何一種「自動」；設定時兩種一起設（新的一局清掉）</summary>
+    public bool GameAuto
+    {
+        get => GameAutoSkill || GameAutoChest;
+        set => GameAutoSkill = GameAutoChest = value;
+    }
     public HashSet<string> Focused { get; } = [];
     public string DeityLock { get; set; } = "";
     public double Treasure { get; set; }
+
+    /// <summary>
+    /// 這局是活動（不是遠征）。使用者（2026-11-25）：活動的話尋寶率沒有用，所以活動時不優先尋寶卡、有別的卡就不選，也不讀尋寶率。
+    /// 不知道是哪一種（例如在野外中途開程式）時是 false，照遠征處理（舊行為）
+    /// </summary>
+    public bool IsEvent { get; set; }
 }

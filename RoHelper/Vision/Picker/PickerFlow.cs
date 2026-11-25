@@ -27,7 +27,8 @@ public sealed class PickerFlow
     public RunPickState State { get; private set; } = new();
 
     /// <summary>新的一局：清掉專注過、學過、鎖定的神祇（同 JS 進野外時重設 st.picked／st.focused／st.deityLock）</summary>
-    public void NewRun() => State = new RunPickState();
+    /// <param name="isEvent">這局是活動（尋寶率沒用）；不知道時 false</param>
+    public void NewRun(bool isEvent = false) => State = new RunPickState { IsEvent = isEvent };
 
     /// <summary>畫面上沒有選卡：下次出現時重新等 tPick</summary>
     public void Gone()
@@ -63,19 +64,26 @@ public sealed class PickerFlow
             }
         }
 
-        // 已經按過遊戲「自動」：交給遊戲選。同一個選卡畫面停超過 GameAutoTimeout 都沒被選走，代表沒按到（或被關掉），再按一次
-        if (State.GameAuto)
+        // 已經按過這種畫面的遊戲「自動」（升級卡＝自動技能、寶箱卡＝自動寶箱，分開記）：交給遊戲選。
+        // 同一個選卡畫面停超過 GameAutoTimeout 都沒被選走，代表沒按到（或被關掉），再按一次
+        var autoName = p.IsChest ? "自動寶箱" : "自動技能";
+        if (p.IsChest ? State.GameAutoChest : State.GameAutoSkill)
         {
             if (now - (_seenAt ?? now) < GameAutoTimeout)
-                return new("交給遊戲自動選卡");
-            State.GameAuto = false;
+                return new("交給遊戲" + autoName);
+            if (p.IsChest)
+                State.GameAutoChest = false;
+            else
+                State.GameAutoSkill = false;
         }
-        if (p.Auto is { Usable: true } auto && CardDecider.ReadyForGameAuto(s, State))
+        if (p.Auto is { Usable: true } auto && CardDecider.GameAutoWhy(p, s, State) is { } why)
         {
-            State.GameAuto = true;
+            if (p.IsChest)
+                State.GameAutoChest = true;
+            else
+                State.GameAutoSkill = true;
             _seenAt = now;
-            var why = "放逐清單都放逐過了：" + string.Join("、", CardDecider.BanTargets(s));
-            return new($"按遊戲「自動」（{why}）", Click: Center(auto.Bounds), Decision: new(PickDo.GameAuto, null, why));
+            return new($"按遊戲「{autoName}」（{why}）", Click: Center(auto.Bounds), Decision: new(PickDo.GameAuto, null, why));
         }
 
         var d = CardDecider.Decide(p, s, State);

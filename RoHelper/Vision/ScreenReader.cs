@@ -25,8 +25,13 @@ public sealed class ScreenReader
 
         // Missing 照樣算（只查字典，不花時間）：面板的「缺少範本」提示不會因為進野外就忽隱忽現
         var missing = ScreenTemplates.All.Concat(expe ? ScreenTemplates.Expedition : []).Where(n => _templates.Get(n) is null).ToList();
+        // 組隊結算的戰利品分配（在結算畫面上，野外模式也要看；範本沒存時 Find 直接回 null）
+        var greed = Find(ScreenTemplates.LootGreed);
+        var lootReady = greed is { } g
+            ? FindIn(ScreenTemplates.PartyReady, Rectangle.Intersect(new Rectangle(g.Right, g.Y - (int)(15 * dpr), (int)(200 * dpr), g.Height + (int)(30 * dpr)), new Rectangle(0, 0, frame.Width, frame.Height)))
+            : null;
         if (inField)
-            return new ScreenState(new Size(frame.Width, frame.Height), dpr) { Return = Find(ScreenTemplates.Return), Missing = missing };
+            return new ScreenState(new Size(frame.Width, frame.Height), dpr) { Return = Find(ScreenTemplates.Return), LootGreed = greed, LootReady = lootReady, Missing = missing };
 
         var s = new ScreenState(new Size(frame.Width, frame.Height), dpr)
         {
@@ -40,23 +45,33 @@ public sealed class ScreenReader
             ChannelNo = Find(ScreenTemplates.ChannelNo),
             Title = Find(ScreenTemplates.Title),
             CharSelect = Find(ScreenTemplates.CharSelect),
+            // 組隊的兩個對話框（範本沒存時 Find 直接回 null，不花時間）
+            PartyReady = Find(ScreenTemplates.PartyReady),
+            PartyChannel = Find(ScreenTemplates.PartyChannel),
+            LootGreed = greed,
+            LootReady = lootReady,
+            MaintenanceRetry = Find(ScreenTemplates.MaintenanceRetry),
             Missing = missing,
         };
         if (expe)
         {
             var list = FindIn(ScreenTemplates.StageList, StageListArea(frame, dpr));
             var diff = FindIn(ScreenTemplates.DiffTitle, DiffTitleArea(frame, dpr));
+            // 組隊時難度對話框的按鈕是「向隊伍提議」（同一個位置）
+            var go = diff is { } d ? FindIn(ScreenTemplates.GoField, DiffGoArea(d, dpr)) : null;
+            var propose = diff is { } d2 && go is null ? FindIn(ScreenTemplates.PartyPropose, DiffGoArea(d2, dpr)) : null;
             s = s with
             {
                 StageList = list,
                 ExpeGo = list is { } l ? FindIn(ScreenTemplates.ExpeGo, ExpeGoArea(l, dpr, frame.Height)) : null,
                 DiffTitle = diff,
-                DiffGo = diff is { } d ? FindIn(ScreenTemplates.GoField, DiffGoArea(d, dpr)) : null,
+                DiffGo = go ?? propose,
+                DiffGoIsProposal = go is null && propose is not null,
             };
         }
         if (s.Solo is not null || s.Return is not null || s.Start is not null || s.GoField is not null
             || s.Discard is not null || s.DiscardOk is not null || s.AfkOk is not null || s.ChannelNo is not null || s.Title is not null || s.CharSelect is not null
-            || s.StageList is not null || s.DiffTitle is not null)
+            || s.StageList is not null || s.DiffTitle is not null || s.PartyReady is not null || s.PartyChannel is not null || s.LootGreed is not null || s.MaintenanceRetry is not null)
             return s;
         if (expe)
             s = s with

@@ -261,6 +261,19 @@ public class CardDeciderTests
         Assert.Equal(new PickDecision(PickDo.Pick, 1, "稀有度優先"), CardDecider.Decide(picker, Settings(pickOrder: "rarity"), new RunPickState()));
     }
 
+    /// <summary>遊戲 2026.11.23 版：「疾風之神」改名「疾風神器」；設定裡還是舊名字，也要選得到、也要擋得掉</summary>
+    [Fact]
+    public void Artifact_MatchesOldDeityNames()
+    {
+        var picker = Picker(true, Card(0, "豐饒祝福", rarity: 2), Card(1, "疾風神器", text: "疾風神器 神器 +10% 速度"));
+
+        var d = CardDecider.Decide(picker, Settings(deityPrio: true, deityOrder: "first", deity: ["疾風之神"]), new RunPickState());
+        Assert.Equal(new PickDecision(PickDo.Pick, 1, "神祇優先：疾風之神"), d);
+
+        var banned = CardDecider.Decide(picker, Settings(deityBan: ["疾風之神"]), new RunPickState());
+        Assert.Equal(0, banned.Index);
+    }
+
     [Fact]
     public void DeityPriority_FirstMode_PicksDeity()
     {
@@ -357,6 +370,68 @@ public class CardDeciderTests
 
         Assert.Equal(1, CardDecider.Decide(picker, Settings(treasureCap: true, treasureCapN: 300), Treasure(299.5)).Index);
         Assert.Equal(1, CardDecider.Decide(picker, Settings(treasureCap: false), Treasure(1000)).Index);
+    }
+
+    /// <summary>法師系不點閃避類（迴避秘藥）：有別的卡時跳過，即使比較稀有</summary>
+    [Theory]
+    [InlineData("迴避秘藥")]
+    public void Mage_SkipsDodgeItems(string dodge)
+    {
+        var picker = Picker(true, Card(0, "攻擊力", rarity: 1), Card(1, dodge, rarity: 4), Card(2, "防禦力", rarity: 2));
+
+        Assert.Equal(new PickDecision(PickDo.Pick, 2, "最稀有"), CardDecider.Decide(picker, Settings(), new RunPickState()));
+    }
+
+    /// <summary>AGI 料理不算閃避類（AGI 主要加冷卻縮減）：法師照常可以選</summary>
+    [Fact]
+    public void Mage_AgiDishStillAllowed()
+    {
+        var picker = Picker(true, Card(0, "攻擊力", rarity: 1), Card(1, "AGI 料理", rarity: 4));
+
+        Assert.Equal(1, CardDecider.Decide(picker, Settings(), new RunPickState()).Index);
+    }
+
+    [Fact]
+    public void NonMage_DodgeItemsStillAllowed()
+    {
+        var picker = Picker(true, Card(0, "攻擊力", rarity: 1), Card(1, "迴避秘藥", rarity: 4));
+
+        Assert.Equal(1, CardDecider.Decide(picker, Settings() with { Job = "騎士" }, new RunPickState()).Index);
+    }
+
+    [Fact]
+    public void Mage_OnlyDodgeItems_PicksOneWithoutReroll()
+    {
+        var picker = Picker(true, Card(0, "迴避秘藥", rarity: 1), Card(1, "迴避秘藥", rarity: 3));
+
+        Assert.Equal(new PickDecision(PickDo.Pick, 1, "最稀有"), CardDecider.Decide(picker, Settings(), new RunPickState()));
+    }
+
+    /// <summary>活動的尋寶率沒用：有別的卡就不選尋寶卡（即使尋寶卡比較稀有）</summary>
+    [Fact]
+    public void Event_SkipsTreasureCards_RarestOfRest()
+    {
+        var picker = Picker(true, Card(0, "攻擊力", rarity: 1), Card(1, "尋寶藥水", rarity: 4, text: "尋寶藥水 +10% 尋寶率"), Card(2, "防禦力", rarity: 2));
+
+        Assert.Equal(new PickDecision(PickDo.Pick, 2, "最稀有"), CardDecider.Decide(picker, Settings(), new RunPickState { IsEvent = true }));
+        // 遠征照舊優先尋寶
+        Assert.Equal(new PickDecision(PickDo.Pick, 1, "尋寶率優先"), CardDecider.Decide(picker, Settings(), new RunPickState()));
+    }
+
+    [Fact]
+    public void Event_RarityOrder_NoTreasureTieBreak()
+    {
+        var picker = Picker(true, Card(0, "攻擊力", rarity: 2), Card(1, "豐饒祝福", rarity: 2, text: "+5% 尋寶率"));
+
+        Assert.Equal(new PickDecision(PickDo.Pick, 0, "稀有度優先"), CardDecider.Decide(picker, Settings(pickOrder: "rarity"), new RunPickState { IsEvent = true }));
+    }
+
+    [Fact]
+    public void Event_OnlyTreasureCards_StillPicksOne()
+    {
+        var picker = Picker(true, Card(0, "尋寶藥水", rarity: 0, text: "+10% 尋寶率"), Card(1, "豐饒祝福", rarity: 2, text: "+5% 尋寶率"));
+
+        Assert.Equal(new PickDecision(PickDo.Pick, 1, "最稀有"), CardDecider.Decide(picker, Settings(), new RunPickState { IsEvent = true }));
     }
 
     [Fact]

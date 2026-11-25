@@ -119,7 +119,8 @@ public sealed class ExpeditionFlow
             return new("已達局數上限，停止自動開始");
         if (!c.ExpeEnter)
             return new("待機");
-        const string action = "④ 準備進入關卡";
+        // 組隊的隊長：按鈕是「向隊伍提議」，按了之後隊員都按「準備好了」才一起進野外（按的這一輪就當成新的一局，隊員沒接受的話 FieldGate 看到大廳會離開）
+        var action = s.DiffGoIsProposal ? "④ 向隊伍提議出發" : "④ 準備進入關卡";
         _enterAt ??= now;
         if (c.ExpeDiff is "max" or "min" && _sliders < Sliders)
         {
@@ -131,7 +132,10 @@ public sealed class ExpeditionFlow
         if (now - _enterAt <= c.TStart)
             return new(action);
         _enterAt = null;
-        return new(action, Center(go), StartsRun: true, Expe: true);
+        // 組隊提議：要等隊員都準備好才進野外，不是馬上開局（見 FlowDecision.AwaitsField）
+        return s.DiffGoIsProposal
+            ? new(action, Center(go), Expe: true, AwaitsField: true)
+            : new(action, Center(go), StartsRun: true, Expe: true);
     }
 
     private static Point Center(Rectangle r) => new(r.X + r.Width / 2, r.Y + r.Height / 2);

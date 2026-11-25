@@ -6,7 +6,7 @@ namespace RoHelper.Vision.Field;
 /// 野外畫面上的地名、小地圖座標、職業。Stage／Job 讀不到是空字串，Tile 讀不到是 null。
 /// Tile 是小地圖標題上的格子座標（之後 bossSpot 可以改用格子；目前只記下來）。
 /// </summary>
-public sealed record FieldInfo(string Stage, Point? Tile, string Job);
+public sealed record FieldInfo(string Stage, Point? Tile, string Job, string Name = "");
 
 /// <summary>
 /// 讀小地圖標題列「洛陽 (136, 107)」（右上角面板最上面，實測 dpr 1：x W−173～W−13、y 12～37）與
@@ -44,7 +44,32 @@ public sealed partial class FieldInfoReader(OcrReader ocr, IReadOnlyList<string>
     public async Task<FieldInfo> ReadAsync(Frame f, double dpr)
     {
         var (stage, tile) = await ReadTitleAsync(f, dpr);
-        return new FieldInfo(stage, tile, await ReadJobAsync(f, dpr));
+        return new FieldInfo(stage, tile, await ReadJobAsync(f, dpr), await ReadNameAsync(f, dpr));
+    }
+
+    /// <summary>
+    /// 角色名（組隊用：隊長邀請、隊員確認邀請是自己的帳號）：角色框第一行職業前面那一段，兩種讀法投票；讀不到或兩次不一致回空字串。
+    /// 只拿來跟好友名單、邀請對話框做模糊比對（<see cref="JobNames.Closest"/>），讀錯一兩個字沒關係。
+    /// </summary>
+    private async Task<string> ReadNameAsync(Frame f, double dpr)
+    {
+        var band = Rectangle.Intersect(new Rectangle((int)(86 * dpr), (int)(14 * dpr), (int)(244 * dpr), (int)(20 * dpr)), new Rectangle(0, 0, f.Width, f.Height));
+        if (band.Width == 0 || band.Height == 0 || LastWord(f, band, dpr) is not { } word)
+            return "";
+        var r = Rectangle.FromLTRB(band.X, band.Y, word.X - (int)(2 * dpr), band.Bottom);
+        if (r.Width < 10 * dpr)
+            return "";
+        var votes = new List<string>();
+        foreach (var scale in new[] { 3.0, 4.0 })
+        {
+            IReadOnlyList<OcrLine> lines = OcrPrep.RedStretch(f, r, 10) is { } p
+                ? await ocr.ReadAsync(p, new Rectangle(0, 0, p.Width, p.Height), scale)
+                : await ocr.ReadAsync(f, r, scale);
+            var name = OcrReader.Compact(string.Concat(lines.Select(l => l.Text))).Trim();
+            if (name.Length >= 2)
+                votes.Add(name);
+        }
+        return votes.Count == 2 && votes[0] == votes[1] ? votes[0] : "";
     }
 
     private async Task<(string Stage, Point? Tile)> ReadTitleAsync(Frame f, double dpr)

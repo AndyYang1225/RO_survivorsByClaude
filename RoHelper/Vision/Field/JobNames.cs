@@ -40,7 +40,7 @@ public static partial class JobNames
     }
 
     /// <summary>最長共同子序列的長度</summary>
-    private static int Lcs(string a, string b)
+    internal static int Lcs(string a, string b)
     {
         var dp = new int[a.Length + 1, b.Length + 1];
         for (var i = 1; i <= a.Length; i++)

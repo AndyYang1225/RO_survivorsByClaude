@@ -122,6 +122,11 @@ public sealed class VisionEngine : IAutomation, IDisposable
     private string _stage = "";
     private bool _jobRead;
 
+    /// <summary>躲鐘紀錄（<see cref="BellTrace"/>）：觸發的公告原文、截圖存在 shots/bell（最多 300 張，不跟一般證據搶上限）</summary>
+    private readonly BellTrace _bellTrace = new();
+    private string _bellBanner = "";
+    private readonly EvidenceStore _bellShots = new(Path.Combine(AppPaths.ShotsDir, "bell"), 300);
+
     /// <summary>自動存證據（<c>--dev-api</c> 啟動時才有；null＝不存）</summary>
     private readonly EvidenceStore? _evidence;
     private readonly EvidencePolicy? _evidencePolicy;
@@ -275,19 +280,91 @@ public sealed class VisionEngine : IAutomation, IDisposable
             // 自動遠征：遠征視窗開著時 OCR 地圖清單（選地圖用）
             var stages = settings.AutoExpe && screen.StageList is { } list && _expeReader is not null
                 ? await _expeReader.ReadAsync(frame, dpr, list) : null;
+            // 組隊：「選擇大廳」視窗開著時 OCR 大廳清單，找要選的多人大廳那一列
+            if (settings.Party && screen.Solo is { } soloBtn && _kit.Ocr is { } lobbyOcr)
+                screen = screen with { PartyLobby = await LobbyList.FindAsync(lobbyOcr, frame, dpr, soloBtn, settings.PartyLobby) };
+            // 組隊邀請長得跟「暫離」一樣（同一個「接受」範本）：讀對話框文字分出來，不管有沒有開組隊（免得把陌生人的邀請當暫離按接受）
+            if (screen.AfkOk is { } afkBtn && _kit.Ocr is { } inviteOcr && await PartyUi.ReadInviterAsync(inviteOcr, frame, dpr, afkBtn) is { } inviter)
+            {
+                var leaders = PartyRoster.LeaderNames(PartyRoster.Others(AppPaths.Profile, DateTime.Now));
+                screen = screen with { AfkOk = null, PartyInvite = afkBtn, PartyInviteTrusted = leaders.Any(n => PartyUi.NameLike(inviter, n)) };
+            }
+            // 「準備好了！」範本會認錯成邀請對話框的「接受」（同樣的藍色按鈕、同一個位置，實測 2026-11-24）：
+            // 讀對話框文字，是出發提議才留著；是組隊邀請就改走邀請的判斷（只接受自己隊長的）；都不是就不按
+            if (screen.PartyReady is { } readyBtn && _kit.Ocr is { } readyOcr)
+            {
+                var text = await PartyUi.ReadDialogTextAsync(readyOcr, frame, dpr, readyBtn);
+                if (PartyUi.Inviter(text) is { } who)
+                {
+                    var leaders = PartyRoster.LeaderNames(PartyRoster.Others(AppPaths.Profile, DateTime.Now));
+                    screen = screen with { PartyReady = null, PartyInvite = readyBtn, PartyInviteTrusted = leaders.Any(n => PartyUi.NameLike(who, n)) };
+                }
+                else if (!PartyUi.IsDepartProposal(text))
+                {
+                    screen = screen with { PartyReady = null };
+                    // 診斷：認出按鈕、文字卻不是出發提議（實測 2026-11-24 局中出現過，疑似戰利品擲骰視窗）：存起來看長什麼樣（30 秒一張）
+                    if (now - _unknownDialogAt > 30_000)
+                    {
+                        _unknownDialogAt = now;
+                        try
+                        {
+                            _partyShots.Save(frame, "不明對話框", DateTime.Now, new JsonObject { ["text"] = text, ["button"] = $"{readyBtn.X},{readyBtn.Y},{readyBtn.Width},{readyBtn.Height}" });
+                        }
+                        catch
+                        {
+                            // 診斷存不了沒關係
+                        }
+                    }
+                }
+            }
+            // 「其餘全 Greed」範本會認錯大廳的「與隊長交談」（同樣的白色圓角按鈕、位置重疊，實測 2026-11-24 三個都卡在「等分配完成」）：
+            // 讀按鈕上的字，有「Greed」才算
+            if (screen.LootGreed is { } greedBtn && _kit.Ocr is { } greedOcr)
+            {
+                var area = Rectangle.Intersect(Rectangle.Inflate(greedBtn, (int)(6 * dpr), (int)(4 * dpr)), new Rectangle(0, 0, frame.Width, frame.Height));
+                var words = string.Join(" ", (await PartyUi.ReadBothAsync(greedOcr, frame, area)).Select(l => l.Text));
+                // 要讀到「其餘」：分配完成後清單每一行都有「Greed 80」之類的字，只看 Greed 會把清單當成按鈕（實測 2026-11-24 卡在「等分配完成」）
+                if (!words.Contains("其餘") && !words.Contains("其馀") && !words.Contains("餘全"))
+                    screen = screen with { LootGreed = null, LootReady = null };
+            }
+            // 組隊的隊長：在大廳、隊員還沒到齊時先邀請，到齊（或等太久）才往遠征隊長走
+            if (settings.PartyRole == "leader" && !_gate.InField && await PartyLeaderAsync(frame, dpr, screen, settings, now) is { } partyAction)
+            {
+                Report(partyAction);
+                return;
+            }
+            // 組隊的隊員：在別人當隊長的隊伍裡（例如隊長重開時遊戲把隊長轉給隊員）就離開，等自己的隊長邀請
+            if (settings.Member && !_gate.InField && await PartyMemberAsync(frame, dpr, screen, now) is { } memberAction)
+            {
+                Report(memberAction);
+                return;
+            }
             var decision = _flow.Decide(screen, settings, now, stages);
+            // 隊員防暫離的那一步在野外時不點（野外有自己的走位）
+            if (_gate.InField && decision.Action == LobbyFlow.AntiAfkAction)
+                decision = decision with { Click = null, Action = "組隊：等隊長提議出發" };
             // 結算：先讀結算畫面再記錄（同一輪；第一次確認結算的這一輪不會按返回角色，要等 tReturn，結算畫面還在）
             if (decision.CountRun || decision.StartsRun)
                 Watch.Progress(now);
             if (decision.CountRun)
                 await CountRunAsync(frame, dpr);
             if (decision.StartsRun)
-            {
-                _picker.NewRun();
-                NewFieldRun();
-                _recorder.Start(DateTime.Now, PickSettings.From(_config).Job, paused: false, decision.Expe ? "expe" : "event");
-            }
+                StartRun(decision.Expe);
             _gate.Update(screen, decision, now);
+            // 組隊：提議／準備好之後，看到野外的計時器（全隊都準備好、進了野外）才開始這一局
+            // 組隊時不限 60 秒內：實測（2026-11-24）隊員按完準備好剛好一直在選卡，60 秒內沒看到計時器，整局都當成在大廳。
+            // 組隊模式下連續 3 輪看到野外的計時器、畫面上沒有大廳的東西，就算進了野外
+            var fieldTimer = !_gate.InField && !decision.StartsRun && FieldGate.LobbyVisible(screen) is false && TimerReader.Read(frame, dpr) is not null;
+            _fieldTimerHits = fieldTimer ? _fieldTimerHits + 1 : 0;
+            if (fieldTimer && (_flow.AwaitingField(now) || settings.Party && _fieldTimerHits >= 3))
+            {
+                _fieldTimerHits = 0;
+                _flow.FieldEntered();
+                Watch.Progress(now);
+                StartRun(expe: true);
+                _gate.Enter(now);
+                decision = decision with { Action = "組隊：全隊進入野外" };
+            }
             if (decision.Click is { } p)
             {
                 var (x, y) = _kit.Viewport.ToCss(p.X, p.Y);
@@ -307,7 +384,8 @@ public sealed class VisionEngine : IAutomation, IDisposable
             if (_gate.InField && decision.Click is null && unreadable is null && !FieldGate.LobbyVisible(screen))
             {
                 var walk = await FieldStepAsync(frame, dpr, now);
-                if (decision.Action == "待機" && walk.Length > 0)
+                // 隊員在野外時大廳流程回「組隊：等隊長提議出發」（它不知道在不在野外），一樣換成走位的狀態
+                if ((decision.Action == "待機" || decision.Action.StartsWith("組隊：等", StringComparison.Ordinal)) && walk.Length > 0)
                     action = walk;
             }
             if (_gate.InField && now - _sampleAt >= SampleEvery)
@@ -382,6 +460,8 @@ public sealed class VisionEngine : IAutomation, IDisposable
             UpdateJob(result.Job);
             _recorder.SetInfo("", PickSettings.From(_config).Job);
         }
+        // 躲鐘到一半就離開野外（被秒殺、結算）：結束這次躲鐘紀錄，標記 interrupted
+        TraceBell(null, null, "", null, Environment.TickCount64);
         var now = DateTime.Now;
         var run = _recorder.Finish(result, now);
         if (run is not null)
@@ -418,6 +498,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
         _infoTries = 0;
         _stage = "";
         _jobRead = false;
+        _bellTrace.Reset();
         _clock.Reset();
         _clockAt = long.MinValue / 2;
         _bank.NewRun();
@@ -468,6 +549,8 @@ public sealed class VisionEngine : IAutomation, IDisposable
         var bell = await BellAsync(frame, dpr, now, s, lootPhase);
         var note = "";
         if (bell is null)
+            TraceBell(frame, null, "", null, now);
+        if (bell is null)
         {
             var bank = await BankAsync(frame, dpr, now, s, lootPhase);
             if (bank.Status.Length > 0)
@@ -477,9 +560,18 @@ public sealed class VisionEngine : IAutomation, IDisposable
         // 讀尋寶率要移滑鼠：躲鐘、撿取倒數時不讀，讀的這一輪不走位
         if (bell is null && !lootPhase && await TreasureAsync(frame, dpr, now))
             return "讀道具欄（尋寶率）";
+        // 組隊站樁：組隊時各自走位會越走越散、各自被包圍（實測 2026-11-24 斐揚森林全拉滿：各自走位 4 分鐘全滅；三人站著不動撐了約 15 分鐘）。
+        // 開著時不繞圈、不追寶箱掉落物；躲鐘、MVP 死後的撿取倒數照常
+        var hp = HpReader.Read(frame, dpr);
+        if (bell is null && !lootPhase && PartyStay())
+        {
+            return note.Length == 0 ? "走位：組隊站樁" : "走位：組隊站樁 " + note;
+        }
         // 躲鐘中不做別的走位，不用找扭蛋
         var balls = s.SeekBall && !lootPhase && bell is null ? BallFinder.Find(frame, dpr) : null;
-        var d = _planner.Step(MinimapReader.Read(frame, dpr), s, now, s.CanAffordChest(_hud), HpReader.Read(frame, dpr), lootPhase, balls, bell);
+        var d = _planner.Step(MinimapReader.Read(frame, dpr), s, now, s.CanAffordChest(_hud), hp, lootPhase, balls, bell);
+        if (bell is not null)
+            TraceBell(frame, bell, d.Status, hp, now);
         if (d.Click is { } c)
         {
             var (x, y) = kit.Viewport.ToCss(c.X * frame.Width, c.Y * frame.Height);
@@ -496,7 +588,8 @@ public sealed class VisionEngine : IAutomation, IDisposable
     /// </summary>
     private async Task<bool> TreasureAsync(Frame frame, double dpr, long now)
     {
-        if (_treasureReader is null || now - _gate.Since < ZoomDelay)
+        // 活動不讀：尋寶率沒用，讀一次要停下來約 1 秒
+        if (_treasureReader is null || _picker.State.IsEvent || now - _gate.Since < ZoomDelay)
             return false;
         var slots = TreasureReader.FilledSlots(frame, dpr);
         if (slots.Count != _treasureSlots)
@@ -549,6 +642,9 @@ public sealed class VisionEngine : IAutomation, IDisposable
             _clock.Read(await TimerReader.ReadClockAsync(ocr, frame, dpr), now);
         }
         _next = StageBosses.NextText(_stage, _clock.Now(now), timer == TimerPhase.Loot, _clock.Countdown);
+        // 一局最長約 17 分（1020 秒）：遊戲時間超過 18 分還在往上數＝卡在異常的局（實測 2026-11-24 組隊：隊友都離開後一個人困在 36:08、沒有怪），重新整理離開
+        if (_clock.Now(now) is > StuckClockSecs && !_clock.Countdown)
+            Watch.Force($"遊戲時間超過 {StuckClockSecs / 60} 分鐘（卡在異常的局）");
     }
 
     /// <summary>
@@ -576,11 +672,49 @@ public sealed class VisionEngine : IAutomation, IDisposable
         if (_bannerReader is not null && now - _bannerAt >= BannerEvery)
         {
             _bannerAt = now;
-            _planner.Bell.Announce(await _bannerReader.ReadAsync(frame, dpr), now);
+            var text = await _bannerReader.ReadAsync(frame, dpr);
+            if (BannerReader.DodgeMs(text) is not null)
+                _bellBanner = text;
+            _planner.Bell.Announce(text, now);
         }
         if (!_planner.Bell.Active(now))
             return null;
         return new BellView(BellFinder.Find(frame, dpr, _planner.Bell.Seen), frame.Width, frame.Height, dpr);
+    }
+
+    /// <summary>
+    /// 躲鐘紀錄一輪（<see cref="BellTrace"/>）：view null＝這一輪沒在躲鐘（剛結束的話把摘要交給對局紀錄）；要截圖就存到 shots/bell。
+    /// frame null＝已經離開野外（死了、結算），只結束紀錄不截圖。
+    /// </summary>
+    private void TraceBell(Frame? frame, BellView? view, string status, double? hp, long now)
+    {
+        var t = _clock.Now(now);
+        var clock = t is { } c ? $"{c / 60}:{c % 60:00}" : "";
+        var (shot, done) = _bellTrace.Step(view is not null, _bellBanner, view, status, hp, clock, now);
+        if (done is not null)
+        {
+            if (frame is null)
+                done["interrupted"] = true;
+            _recorder.Bell(done);
+        }
+        if (shot is null || frame is null)
+            return;
+        try
+        {
+            var b = view?.Bell;
+            _bellShots.Save(frame, shot, DateTime.Now, new JsonObject
+            {
+                ["status"] = status,
+                ["clock"] = clock,
+                ["hp"] = hp,
+                ["bell"] = b is null ? null : $"{b.X0},{b.Y0},{b.X1},{b.Y1} n{b.N} g{b.Gold} r{b.Red} d{b.Dim} fill{b.Fill:0.00}",
+                ["banner"] = _bellBanner,
+            });
+        }
+        catch
+        {
+            // 為什麼吞掉：診斷截圖存不了（磁碟滿、檔案被占用）不能影響躲鐘
+        }
     }
 
     /// <summary>
@@ -600,6 +734,14 @@ public sealed class VisionEngine : IAutomation, IDisposable
         {
             _jobRead = true;
             UpdateJob(info.Job);
+        }
+        // 角色名：組隊時隊長邀請、隊員確認邀請者用。只在還沒有的時候寫：
+        // 實測（2026-11-23）角色框的名字常被吃掉第一個字（「挪威鮭魚」→「威魚」），而且兩種讀法一致，覆蓋掉正確的名字後隊長就找不到人
+        if (info.Name.Length > 0 && _config.GetString("charName").Length == 0)
+        {
+            var cfg = (JsonObject)_config.Current.DeepClone();
+            cfg["charName"] = info.Name;
+            _config.Replace(cfg);
         }
         _recorder.SetInfo(_stage, PickSettings.From(_config).Job);
     }
@@ -676,6 +818,197 @@ public sealed class VisionEngine : IAutomation, IDisposable
             ["act"] = status,
             ["why"] = d.Why,
         });
+    }
+
+    /// <summary>組隊中而且開了「組隊時原地站樁」（沒設定時預設開）</summary>
+    private bool PartyStay()
+        => _config.GetString("partyRole", "off") is "leader" or "member" && (_config.Current["partyStay"] is null || _config.GetBool("partyStay"));
+
+    /// <summary>遊戲時間超過這麼多秒（還在往上數）就當成卡住</summary>
+    private const int StuckClockSecs = 18 * 60;
+
+    private int _fieldTimerHits;
+    private long _memberCheckAt = long.MinValue / 2;
+    private int _foreignLeaderHits;
+
+    /// <summary>
+    /// 組隊的隊員：每 20 秒看一次隊伍面板，隊長（面板最上面那個名字）不是本機的隊長分身就按「離開隊伍」，回到可以被自己隊長邀請的狀態。
+    /// 實測（2026-11-24）：隊長重開程式時遊戲把隊長轉給隊員，之後真正的隊長回來邀請不到（好友名單顯示「組隊中」）、只好自己出發。
+    /// 連續兩次都認出別人是隊長才離開（OCR 讀錯一次不算）；只在沒有任何對話框時看。
+    /// </summary>
+    private async Task<string?> PartyMemberAsync(Frame frame, double dpr, ScreenState s, long now)
+    {
+        if (_kit?.Ocr is not { } ocr || now - _memberCheckAt < 20_000)
+            return null;
+        if (s.PartyInvite is not null || s.PartyReady is not null || s.PartyChannel is not null || s.Solo is not null || s.Title is not null || s.CharSelect is not null
+            || s.Return is not null || s.LootGreed is not null || s.AfkOk is not null || s.Discard is not null || s.DiscardOk is not null || s.StageList is not null || s.DiffTitle is not null)
+            return null;
+        _memberCheckAt = now;
+        var leaders = PartyRoster.LeaderNames(PartyRoster.Others(AppPaths.Profile, DateTime.Now));
+        if (leaders.Count == 0 || await PartyUi.ReadPanelLinesAsync(ocr, frame, dpr) is not { } lines || PartyUi.PanelLeader(lines) is not { } leader)
+            return null;
+        if (leaders.Any(n => PartyUi.NameLike(leader, n)))
+        {
+            _foreignLeaderHits = 0;
+            return null;
+        }
+        if (++_foreignLeaderHits < 2 || PartyUi.LeaveButton(lines, dpr) is not { } leave)
+            return null;
+        _foreignLeaderHits = 0;
+        var (x, y) = _kit.Viewport.ToCss(leave.Bounds.X + leave.Bounds.Width / 2, leave.Bounds.Y + leave.Bounds.Height / 2);
+        await _kit.Input.ClickAsync(x, y);
+        try
+        {
+            await Task.Delay(800);
+            _partyShots.Save(await _kit.Grabber.CaptureAsync(), "離開隊伍", DateTime.Now, new JsonObject { ["leader"] = leader, ["ours"] = string.Join("、", leaders) });
+        }
+        catch
+        {
+            // 診斷存不了沒關係
+        }
+        return $"組隊：隊長是 {leader} 不是 {leaders[0]}，離開隊伍";
+    }
+
+    /// <summary>新的一局：清掉選卡、走位的狀態，開始記錄對局</summary>
+    private void StartRun(bool expe)
+    {
+        // 組隊：等隊員的次數每局重算（實測 2026-11-24：等到上限先出發後計數器卡在上限，之後隊長再也不邀請）
+        _partyWaits = 0;
+        _partyHold = false;
+        _picker.NewRun(isEvent: !expe);
+        NewFieldRun();
+        _recorder.Start(DateTime.Now, PickSettings.From(_config).Job, paused: false, expe ? "expe" : "event");
+    }
+
+    /// <summary>隊長多久看一次隊伍面板（OCR，約 100 ms）</summary>
+    private const long PartyCheckEvery = 8_000;
+
+    /// <summary>隊長兩次邀請之間至少隔多久（對方接受、換頻道要時間）</summary>
+    private const long PartyInviteEvery = 25_000;
+
+    /// <summary>隊員一直沒到齊時最多等幾次檢查（8 秒一次，約 2 分鐘），之後先帶著到齊的人出發（某個隊員卡住不能讓大家都停）</summary>
+    private const int PartyMaxWaits = 15;
+
+    private readonly EvidenceStore _partyShots = new(Path.Combine(AppPaths.ShotsDir, "party"), 100);
+    private long _partyCheckAt = long.MinValue / 2;
+    private long _unknownDialogAt = long.MinValue / 2;
+    private long _partyInviteAt = long.MinValue / 2;
+    private int _partyWaits;
+    private bool _partyHold;
+
+    /// <summary>
+    /// 組隊的隊長：在大廳廣場（看得到遠征隊長或交談提示）時檢查隊伍面板，本機的隊員分身（PartyRoster，同一個大廳、正在執行）還沒在隊上就邀請；
+    /// 沒到齊時不往遠征隊長走（回「組隊：等隊員加入」），等太久（PartyMaxWaits）就先出發。回 null＝這一輪照常走大廳流程。
+    /// </summary>
+    private async Task<string?> PartyLeaderAsync(Frame frame, double dpr, ScreenState screen, FlowSettings settings, long now)
+    {
+        if (_kit?.Ocr is not { } ocr || (screen.ExpeLeader is null && screen.LeaderPrompt is null))
+            return null;
+        if (now - _partyCheckAt < PartyCheckEvery)
+            return _partyHold ? "組隊：等隊員加入" : null;
+        _partyCheckAt = now;
+        var members = PartyRoster.MemberNames(PartyRoster.Others(AppPaths.Profile, DateTime.Now), settings.PartyLobby);
+        var missing = members.Count == 0 ? [] : PartyUi.Missing(members, await PartyUi.ReadPanelAsync(ocr, frame, dpr));
+        if (missing.Count == 0 || _partyWaits >= PartyMaxWaits)
+        {
+            _partyHold = false;
+            if (missing.Count == 0)
+                _partyWaits = 0;
+            return null;
+        }
+        _partyHold = true;
+        _partyWaits++;
+        if (now - _partyInviteAt < PartyInviteEvery)
+            return "組隊：等隊員加入（" + string.Join("、", missing) + "）";
+        _partyInviteAt = now;
+        var invited = await InviteAsync(ocr, dpr, missing);
+        return invited.Count > 0 ? "組隊：邀請 " + string.Join("、", invited) : "組隊：好友名單上找不到 " + string.Join("、", missing);
+    }
+
+    /// <summary>
+    /// 從好友視窗邀請：按「好友」→ OCR 名單找每個要邀的人（離線的跳過）→ 點名字 → 選單裡的「邀請組隊」→ 最後按「關閉」。回成功點到「邀請組隊」的人。
+    /// 每一步都重新截圖確認（視窗動畫約 0.5 秒），中途找不到就收起來不硬點。
+    /// </summary>
+    private async Task<List<string>> InviteAsync(OcrReader ocr, double dpr, IReadOnlyList<string> names)
+    {
+        var kit = _kit!;
+        var invited = new List<string>();
+        async Task Click(Point p)
+        {
+            var (x, y) = kit.Viewport.ToCss(p.X, p.Y);
+            await kit.Input.ClickAsync(x, y);
+        }
+        async Task<(Frame F, IReadOnlyList<OcrLine> Lines)> Look(Func<Frame, Rectangle> area, int waitMs)
+        {
+            await Task.Delay(waitMs);
+            var f = await kit.Grabber.CaptureAsync();
+            var lines = await PartyUi.ReadBothAsync(ocr, f, area(f));
+            try
+            {
+                // 診斷：每一步的畫面和讀到的字存到 shots/party（最多 100 張）
+                _partyShots.Save(f, "邀請", DateTime.Now, new JsonObject
+                {
+                    ["names"] = string.Join("、", names),
+                    ["lines"] = new JsonArray(lines.Select(l => (JsonNode?)$"{l.Text} @ {l.Bounds.X},{l.Bounds.Y},{l.Bounds.Width},{l.Bounds.Height}").ToArray()),
+                });
+            }
+            catch
+            {
+                // 診斷存不了不影響邀請
+            }
+            return (f, lines);
+        }
+        static bool IsFriends(IReadOnlyList<OcrLine> lines) => lines.Any(l => OcrReader.Compact(l.Text).StartsWith("好友", StringComparison.Ordinal));
+
+        var first = await kit.Grabber.CaptureAsync();
+        await Click(PartyUi.FriendsButton(first, dpr));
+        var (friends, rows) = await Look(f => PartyUi.FriendsArea(f, dpr), 900);
+        // 視窗還在開（動畫、網路慢）：再等一下
+        for (var i = 0; i < 2 && !IsFriends(rows); i++)
+            (friends, rows) = await Look(f => PartyUi.FriendsArea(f, dpr), 700);
+        if (!IsFriends(rows))
+            return invited;
+        foreach (var name in names)
+        {
+            var row = rows.FirstOrDefault(l => PartyUi.NameLike(l.Text, name) && !l.Text.Contains("離線"));
+            if (row is null)
+                continue;
+            // 同一列有「組隊中」（OCR 常讀成「组隊中」、而且跟名字分成兩行）＝已經在某個隊伍裡，不用（也不能）邀請
+            if (rows.Any(l => Math.Abs(l.Bounds.Y - row.Bounds.Y) < 8 * dpr && l.Text.Contains('隊')))
+                continue;
+            // 點名字開選單（行的左邊一點，避開同一行的「頻道 N」）
+            var at = new Point(row.Bounds.X + (int)(15 * dpr), row.Bounds.Y + row.Bounds.Height / 2);
+            await Click(at);
+            // 選單以點擊位置為中心往上展開：只讀那一窄欄（寬讀會被好友視窗的邊框干擾，後面幾項讀不到）
+            Rectangle MenuArea(Frame f) => Rectangle.Intersect(Rectangle.FromLTRB(at.X - (int)(60 * dpr), at.Y - (int)(260 * dpr), at.X + (int)(60 * dpr), at.Y + (int)(2 * dpr)),
+                new Rectangle(0, 0, f.Width, f.Height));
+            var (menuFrame, menu) = await Look(MenuArea, 700);
+            // 整欄讀不到「邀請組隊」時，單獨讀最後一項那一格（選單最後一項在點擊位置上方 29 px）。
+            // 實測 2026-11-24：對方在別的頻道、選單多一項「前往頻道 N」時，整欄怎麼放大都讀不到最後一項，單獨裁一格就讀得到（「謮隊」）；
+            // 「檢舉」那一格單獨讀從來讀不出「隊」，所以還是只在讀到「隊」時才按
+            if (!menu.Any(l => l.Text.Contains('隊') || l.Text.Contains("邀請")))
+            {
+                var last = new Point(at.X, at.Y - (int)Math.Round(29 * dpr));
+                if (await PartyUi.IsInviteCellAsync(ocr, menuFrame, dpr, last))
+                    menu = [.. menu, new OcrLine("邀請組隊", new Rectangle(last.X - 1, last.Y - 1, 2, 2))];
+            }
+            // 只按讀得到的「邀請組隊」（OCR 常讀成「组隊」）：選單裡只有這一項有「隊」。
+            // 刻意不照固定位置按最後一項：已經組隊的人選單沒有「邀請組隊」，最後一項是「檢舉」（實測 2026-11-23 按到過，跳出檢舉視窗）
+            if (menu.FirstOrDefault(l => l.Text.Contains('隊') || l.Text.Contains("邀請")) is { } item)
+            {
+                await Click(new Point(item.Bounds.X + item.Bounds.Width / 2, item.Bounds.Y + item.Bounds.Height / 2));
+                invited.Add(name);
+            }
+            else
+                await Click(at); // 沒看到「邀請組隊」：再點一次名字把選單收起來
+            (friends, rows) = await Look(f => PartyUi.FriendsArea(f, dpr), 700);
+        }
+        // 關掉好友視窗：找「關閉」，找不到就再按一次「好友」
+        if (rows.FirstOrDefault(l => OcrReader.Compact(l.Text) == "關閉") is { } close)
+            await Click(new Point(close.Bounds.X + close.Bounds.Width / 2, close.Bounds.Y + close.Bounds.Height / 2));
+        else
+            await Click(PartyUi.FriendsButton(friends, dpr));
+        return invited;
     }
 
     /// <summary>送狀態給面板（格式同 JS 的 status 訊息；尋寶率見 <see cref="TreasureAsync"/>，下一隻王見 <see cref="ClockAsync"/>）</summary>

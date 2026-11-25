@@ -13,6 +13,8 @@ public class MvpFightTests
     [InlineData("MVP出現", TimerPhase.Mvp)]
     [InlineData("躲到鐘下", TimerPhase.Mvp)]
     [InlineData("洞穴的鐘", TimerPhase.Mvp)]
+    [InlineData("鐘開啟開始", TimerPhase.Mvp)]
+    [InlineData("鐘開啟道具名", TimerPhase.Mvp)]
     [InlineData("撿取倒數", TimerPhase.Loot)]
     [InlineData("野外1", TimerPhase.Normal)]
     [InlineData("洞穴升級17", TimerPhase.Normal)]

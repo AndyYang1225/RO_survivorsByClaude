@@ -154,16 +154,29 @@ public static class CardLayout
     /// 「重抽全部」右邊的「自動」按鈕：在同一列往右 110 px 內找按鈕大小的亮色低飽和色塊（同 <see cref="FindButtons"/> 的條件）。
     /// 為什麼不用 OCR：實測 Windows OCR 讀不到這顆按鈕的「自動」兩字（整區、單獨框、放大 3 倍都讀不到）。
     /// 舊版遊戲沒有這顆按鈕，右邊是暗色背景，找不到回 null。
+    /// 遊戲 2026.11.23 版起按鈕字變成「自動技能」「自動寶箱」四個字，實測按鈕寬約 81 px（舊版「自動」兩字較窄），所以寬度上限放到 130。
     /// </summary>
     public static Rectangle? FindAutoButton(Frame f, Rectangle rerollAll, double dpr)
     {
-        var region = new Rectangle(rerollAll.Right + (int)(2 * dpr), rerollAll.Top, (int)(110 * dpr), rerollAll.Height);
+        var region = new Rectangle(rerollAll.Right + (int)(2 * dpr), rerollAll.Top, (int)(150 * dpr), rerollAll.Height);
         var blob = ColorBlobs.Find(f, region, (r, g, b) => Luma(r, g, b) > 90 && Saturation(r, g, b) < 60, 1, 1)
-            .Where(b => b.Width >= 30 * dpr && b.Width <= 80 * dpr && b.Height >= 10 * dpr)
+            .Where(b => b.Width >= 30 * dpr && b.Width <= 130 * dpr && b.Height >= 6 * dpr)
             .OrderBy(b => b.X0)
             .FirstOrDefault();
         return blob is null ? null : new Rectangle(blob.X0, blob.Y0, blob.Width, blob.Height);
     }
+
+    /// <summary>
+    /// 「重抽全部」「自動」那一列的按鈕（由左到右），OCR 讀不到「全部」時的備援：在 band 範圍內找按鈕大小的亮色低飽和色塊。
+    /// 實測（2026-11-25，遊戲視窗高 745、畫面高 682）：組隊時升級畫面多了「技能 N/4」一列，底下這列按鈕被畫面下緣切掉，只露出上面約 16 px，
+    /// 字看不到、OCR 讀不到「全部」，連帶也找不到「自動技能」。露出的部分點得到，所以用色塊找。
+    /// </summary>
+    public static List<Rectangle> FindBottomButtons(Frame f, Rectangle band, double dpr)
+        => ColorBlobs.Find(f, band, (r, g, b) => Luma(r, g, b) > 90 && Saturation(r, g, b) < 60, 1, 1)
+            .Where(b => b.Width >= 50 * dpr && b.Width <= 130 * dpr && b.Height >= 6 * dpr)
+            .OrderBy(b => b.X0)
+            .Select(b => new Rectangle(b.X0, b.Y0, b.Width, b.Height))
+            .ToList();
 
     /// <summary>按鈕能不能按：能按是白底（平均亮度高），不能按是灰底</summary>
     public static bool IsEnabled(Frame f, Rectangle button)

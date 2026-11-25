@@ -17,7 +17,7 @@ public static class ConfigSync
     /// 以及玩法選擇（活動或遠征、哪張地圖、局數上限）：實測時就有一個帳號跑遠征、其他跑活動
     /// </summary>
     private static readonly HashSet<string> PerAccount =
-        ["paused", "collapsed", "tab", "runs", "stats", "curJob", "lastStage", "autoEvent", "autoExpe", "runLimit", "runLimitN"];
+        ["paused", "collapsed", "tab", "runs", "stats", "curJob", "lastStage", "autoEvent", "autoExpe", "runLimit", "runLimitN", "partyRole", "charName"];
 
     /// <summary>要送出去的部分（深拷貝）。遠征的設定（expe 開頭）也算玩法選擇，不送</summary>
     public static JsonObject Shareable(JsonObject cfg)
