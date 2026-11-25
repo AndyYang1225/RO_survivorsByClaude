@@ -162,16 +162,25 @@ public sealed class RunRecorder
     /// <summary>
     /// 面板「戰績」的一筆（同 JS cfg.stats 的格式 { t, stage, secs, loot, balls, chests }）。
     /// secs 優先用結算畫面的遊戲時間（JS 用的是牆上時間：從開局到結算，含載入和選卡暫停，比較不準）；讀不到才用牆上時間。
-    /// loot、balls、chests 視覺模式還沒算，一律 0。
+    /// loot、balls、chests 視覺模式還沒算，一律 0。result＝勝／敗／？（<see cref="ResultText"/>）。
     /// </summary>
-    public static JsonObject Stat(DateTime now, string stage, int? gameSecs, int wallSecs) => new()
+    public static JsonObject Stat(DateTime now, string stage, int? gameSecs, int wallSecs, string? outcome = null) => new()
     {
+        ["result"] = ResultText(outcome),
         ["t"] = now.ToString("yyyy/M/d tt h:mm:ss", CultureInfo.GetCultureInfo("zh-TW")),
         ["stage"] = stage.Length > 0 ? stage : "?",
         ["secs"] = gameSecs ?? wallSecs,
         ["loot"] = 0,
         ["balls"] = 0,
         ["chests"] = 0,
+    };
+
+    /// <summary>結算標題的結果（ResultReader.OutcomeOf）換成戰績顯示的字：存活＝勝、死亡＝敗、讀不到＝？（使用者 2026-11-25）</summary>
+    public static string ResultText(string? outcome) => outcome switch
+    {
+        "clear" => "勝",
+        "death" => "敗",
+        _ => "？",
     };
 
     /// <summary>cfg.stats 加一筆，只留最後 50 筆（同 JS .slice(-50)）</summary>

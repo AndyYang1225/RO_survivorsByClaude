@@ -497,7 +497,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
 
         var cfg = (JsonObject)_config.Current.DeepClone();
         cfg["runs"] = (int)Math.Min((long)_config.GetInt("runs") + 1, int.MaxValue);
-        cfg["stats"] = RunRecorder.AppendStat(cfg["stats"], RunRecorder.Stat(now, stage, result?.Secs, wall));
+        cfg["stats"] = RunRecorder.AppendStat(cfg["stats"], RunRecorder.Stat(now, stage, result?.Secs, wall, result?.Outcome));
         _config.Replace(cfg);
         _picker.NewRun();
         NewFieldRun();

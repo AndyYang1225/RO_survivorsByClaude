@@ -108,6 +108,17 @@ public class RunRecorderTests
         Assert.Empty(rec.Finish(null, T0.AddMinutes(2))!["picks"]!.AsArray());
     }
 
+    /// <summary>戰績記勝敗：結算「你存活下來了！」＝勝、「你死了」＝敗、讀不到＝？</summary>
+    [Theory]
+    [InlineData("clear", "勝")]
+    [InlineData("death", "敗")]
+    [InlineData("unknown", "？")]
+    [InlineData(null, "？")]
+    public void Stat_RecordsWinOrLoss(string? outcome, string expected)
+    {
+        Assert.Equal(expected, (string?)RunRecorder.Stat(T0, "洛陽", 860, 900, outcome)["result"]);
+    }
+
     [Fact]
     public void Stat_PrefersGameTime_AndKeepsLast50()
     {

@@ -76,6 +76,15 @@ public static partial class CardDecider
             }
         }
 
+        // 野外尋寶率已達上限：寶箱出現尋寶類的卡就放逐（使用者 2026-11-25）。道具欄大多是尋寶道具時，
+        // 寶箱只會出它們的精煉，三張全是尋寶卡只能選一張；放逐後這局不再出現。保留放逐次數給放逐清單（同 KeepAllows）
+        if (p.IsChest && !st.IsEvent && s.TreasureCap && st.Treasure >= s.TreasureCapN)
+        {
+            var t = all.FirstOrDefault(i => HasTreasure(cards[i]) && Usable(cards[i], ActKind.Banish) && KeepAllows(cards[i], s, st), -1);
+            if (t >= 0)
+                return new(PickDo.Banish, t, $"尋寶率已滿（{st.Treasure:0}%）：放逐尋寶道具");
+        }
+
         // 道具專注：勾了 ★ 的道具出現時先按「專注」（升級卡、寶箱卡都適用；每個道具每局只專注一次）
         if (s.AutoFocus && s.ItemFocus.Count > 0)
         {

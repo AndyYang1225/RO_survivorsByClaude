@@ -12,6 +12,10 @@ public class CardDeciderTests
 
     private static PickerInfo Picker(bool chest, params CardInfo[] cards) => new(chest, cards, Btn(ActKind.Reroll, left: 5));
 
+    /// <summary>放逐都用完了（拿掉放逐鈕）：尋寶率到上限後會先放逐尋寶卡，測「放逐不了時怎麼選」用</summary>
+    private static PickerInfo NoBanish(PickerInfo p)
+        => p with { Cards = [.. p.Cards.Select(c => c with { Buttons = [.. c.Buttons.Where(b => b.Kind != ActKind.Banish)] })] };
+
     private static PickSettings Settings(SkillCfg? skills = null, bool autoFocus = false, int autoFocusN = 1, string pickOrder = "treasure",
         bool deityPrio = false, string deityOrder = "none", bool deityLock = false, string[]? deity = null, string[]? deityBan = null,
         string[]? itemPrio = null, string[]? itemBan = null, string[]? itemFocus = null, bool avoidNew = true, bool rerollAll = true,
@@ -368,7 +372,7 @@ public class CardDeciderTests
     [Fact]
     public void Capped_SkipsTreasureCards_RarestOfRest()
     {
-        var picker = Picker(true, Card(0, "攻擊力", rarity: 1), Card(1, "尋寶藥水", rarity: 4, text: "尋寶藥水 +10% 尋寶率"), Card(2, "防禦力", rarity: 2));
+        var picker = NoBanish(Picker(true, Card(0, "攻擊力", rarity: 1), Card(1, "尋寶藥水", rarity: 4, text: "尋寶藥水 +10% 尋寶率"), Card(2, "防禦力", rarity: 2)));
 
         var d = CardDecider.Decide(picker, Settings(treasureCap: true, treasureCapN: 300), Treasure(300));
 
@@ -449,7 +453,7 @@ public class CardDeciderTests
     [Fact]
     public void Capped_OnlyTreasureCards_StillPicksOne()
     {
-        var picker = Picker(true, Card(0, "尋寶藥水", rarity: 0, text: "+10% 尋寶率"), Card(1, "豐饒祝福", rarity: 2, text: "+5% 尋寶率"));
+        var picker = NoBanish(Picker(true, Card(0, "尋寶藥水", rarity: 0, text: "+10% 尋寶率"), Card(1, "豐饒祝福", rarity: 2, text: "+5% 尋寶率")));
 
         var d = CardDecider.Decide(picker, Settings(treasureCap: true), Treasure(500));
 
@@ -464,8 +468,8 @@ public class CardDeciderTests
     [InlineData("恢復速度")]
     public void Capped_HpAfterCap_PicksRarestHpCard(string hpText)
     {
-        var picker = Picker(true, Card(0, "攻擊力", rarity: 4), Card(1, "生存", rarity: 0, text: hpText), Card(2, "生存2", rarity: 1, text: hpText),
-            Card(3, "尋寶藥水", rarity: 5, text: "+10% 尋寶率"));
+        var picker = NoBanish(Picker(true, Card(0, "攻擊力", rarity: 4), Card(1, "生存", rarity: 0, text: hpText), Card(2, "生存2", rarity: 1, text: hpText),
+            Card(3, "尋寶藥水", rarity: 5, text: "+10% 尋寶率")));
 
         var d = CardDecider.Decide(picker, Settings(treasureCap: true, hpAfterCap: true), Treasure(300));
 
@@ -493,7 +497,7 @@ public class CardDeciderTests
     [Fact]
     public void RarityOrder_SameRarity_TreasureFirst_UnlessCapped()
     {
-        var picker = Picker(true, Card(0, "攻擊力", rarity: 2), Card(1, "金幣袋", rarity: 2, text: "+5% 尋寶率"), Card(2, "防禦力", rarity: 1));
+        var picker = NoBanish(Picker(true, Card(0, "攻擊力", rarity: 2), Card(1, "金幣袋", rarity: 2, text: "+5% 尋寶率"), Card(2, "防禦力", rarity: 1)));
 
         Assert.Equal(new PickDecision(PickDo.Pick, 1, "稀有度優先"), CardDecider.Decide(picker, Settings(pickOrder: "rarity"), new RunPickState()));
         Assert.Equal(new PickDecision(PickDo.Pick, 0, "稀有度優先"), CardDecider.Decide(picker, Settings(pickOrder: "rarity", treasureCap: true), Treasure(300)));
@@ -502,7 +506,7 @@ public class CardDeciderTests
     [Fact]
     public void FirstOrder_Capped_SkipsTreasureCard()
     {
-        var picker = Picker(true, Card(0, "金幣袋", text: "+5% 尋寶率"), Card(1, "攻擊力"));
+        var picker = NoBanish(Picker(true, Card(0, "金幣袋", text: "+5% 尋寶率"), Card(1, "攻擊力")));
 
         Assert.Equal(new PickDecision(PickDo.Pick, 1, "第一張"), CardDecider.Decide(picker, Settings(pickOrder: "first", treasureCap: true), Treasure(300)));
     }
@@ -622,7 +626,7 @@ public class CardDeciderTests
     [Fact]
     public void ChestReroll_TreasureCardAboveCap_NotWanted()
     {
-        var d = CardDecider.Decide(Picker(true, Chest(0, "回復藥水"), Chest(1, "尋寶藥水")),
+        var d = CardDecider.Decide(NoBanish(Picker(true, Chest(0, "回復藥水"), Chest(1, "尋寶藥水"))),
             Capped(), Treasure(200), Groups, _ => 0);
 
         Assert.Equal(PickDo.RerollCard, d.Do);
@@ -728,10 +732,47 @@ public class CardDeciderTests
     [Fact]
     public void Rank_Capped_SkipsRankedTreasure()
     {
-        var p = Picker(true, Card(0, "尋寶藥水", text: "+10% 尋寶率"), Card(1, "傷害秘藥"));
+        // 放逐用完（沒有能用的放逐鈕）：不選排第 1 的尋寶藥水，改選排名下一個
+        ActButton[] noBan = [Btn(ActKind.Focus)];
+        var p = Picker(true, Card(0, "尋寶藥水", text: "+10% 尋寶率", buttons: noBan), Card(1, "傷害秘藥", buttons: noBan));
         var s = (Ranked() with { TreasureCap = true, TreasureCapN = 300 }).ForRun(false);
 
         Assert.Equal(new PickDecision(PickDo.Pick, 1, "道具排名：傷害秘藥"), CardDecider.Decide(p, s, Treasure(300)));
+    }
+
+    /// <summary>野外尋寶率到上限：寶箱出現尋寶類的卡就放逐（豐饒祝福、貪婪神器這種附帶尋寶率的也算）</summary>
+    [Theory]
+    [InlineData("豐饒祝福", "")]
+    [InlineData("貪婪神器", "神器 +20% 金幣 +4% 尋寶率")]
+    public void Capped_BanishesTreasureChestCard(string name, string text)
+    {
+        var p = Picker(true, Chest(0, "INT 料理"), Chest(1, name, text: text.Length > 0 ? text : null));
+        var s = Settings(treasureCap: true);
+
+        var d = CardDecider.Decide(p, s, Treasure(366));
+
+        Assert.Equal(PickDo.Banish, d.Do);
+        Assert.Equal(1, d.Index);
+    }
+
+    [Fact]
+    public void NotCapped_OrEvent_DoesNotBanishTreasure()
+    {
+        var p = Picker(true, Chest(0, "尋寶藥水"), Chest(1, "INT 料理"));
+
+        Assert.NotEqual(PickDo.Banish, CardDecider.Decide(p, Settings(treasureCap: true), Treasure(299)).Do);
+        Assert.NotEqual(PickDo.Banish, CardDecider.Decide(p, Settings(treasureCap: true), new RunPickState { Treasure = 366, IsEvent = true }).Do);
+    }
+
+    /// <summary>放逐清單（雷爆術）還沒放逐完、放逐只剩保留的 2 次：不放逐尋寶道具，留給放逐清單</summary>
+    [Fact]
+    public void Capped_KeepsBanishesForBanList()
+    {
+        ActButton[] two = [Btn(ActKind.Focus), Btn(ActKind.Banish, left: 2)];
+        var p = Picker(true, Card(0, "尋寶藥水", buttons: two), Card(1, "INT 料理", buttons: two));
+        var s = Settings(treasureCap: true, skills: Skills(after: ["雷爆術"]));
+
+        Assert.NotEqual(PickDo.Banish, CardDecider.Decide(p, s, Treasure(366)).Do);
     }
 
     /// <summary>「爆擊傷害秘藥」不是「傷害秘藥」（名字包含也不算）</summary>

@@ -457,13 +457,20 @@ function recordsPage() {
   // 同舊面板 FormatStat
   const fmt = x => {
     const secs = Number.isInteger(x.secs) ? x.secs : 0;
-    return `${x.t ?? ''}｜${x.stage ?? ''}｜${Math.floor(secs / 60)}分${secs % 60}秒｜王掉落 ${x.loot ?? ''}｜扭蛋 ${x.balls ?? ''}｜寶箱 ${x.chests ?? ''}`;
+    return `${x.result ?? '？'}｜${x.t ?? ''}｜${x.stage ?? ''}｜${Math.floor(secs / 60)}分${secs % 60}秒`;
   };
   const last10 = stats.slice(-10).reverse();
+  // 勝敗統計（存活＝勝、死亡＝敗；讀不到結算的不算）
+  const tally = list => {
+    const w = list.filter(x => x.result === '勝').length, l = list.filter(x => x.result === '敗').length;
+    return w + l ? `勝 ${w}｜敗 ${l}｜勝率 ${Math.round((w * 100) / (w + l))}%` : '—';
+  };
   const limit = bool('runLimit') ? ` / ${num('runLimitN')}` : '';
   const debugRule = state.schema.rules.find(r => r.key === 'debugLog');
   return [
     card('戰績（最近 10 局）',
+      h('div', { class: 'kv' }, h('span', {}, '最近 10 局'), h('b', {}, tally(last10))),
+      h('div', { class: 'kv' }, h('span', {}, `最近 ${stats.length} 局`), h('b', {}, tally(stats))),
       last10.length ? h('ul', { class: 'stats' }, last10.map(x => h('li', {}, fmt(x)))) : note('（還沒有）'),
       h('div', { class: 'btns' },
         btn('複製全部戰績', () => send({ type: 'copyStats' })),

@@ -80,7 +80,7 @@ public sealed partial class PanelForm
     private static string FormatStat(JsonObject x)
     {
         var secs = x["secs"] is JsonValue v && v.TryGetValue(out int s) ? s : 0;
-        return $"{x["t"]}｜{x["stage"]}｜{secs / 60}分{secs % 60}秒｜王掉落 {x["loot"]}｜扭蛋 {x["balls"]}｜寶箱 {x["chests"]}";
+        return $"{x["result"] ?? "？"}｜{x["t"]}｜{x["stage"]}｜{secs / 60}分{secs % 60}秒";
     }
 
     private Button Button(string text, Action onClick)
