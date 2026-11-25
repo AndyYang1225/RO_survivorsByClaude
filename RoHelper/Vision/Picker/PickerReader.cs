@@ -110,11 +110,16 @@ public sealed partial class PickerReader(OcrReader ocr)
                 break;
             }
 
-        return new PickerInfo(isChest, infos, rerollAll, auto, slots);
+        // 技能神祇選擇畫面：標題「選擇你的神祇」，或至少兩張卡名以 Deity 結尾（OCR 常只讀到「De」，實測 2026-11-25）。不是寶箱
+        var isDeity = Has("選擇你的") || infos.Count(c => DeitySuffix().IsMatch(c.Name)) >= 2;
+        return new PickerInfo(isChest && !isDeity, infos, rerollAll, auto, slots) { IsDeityPick = isDeity };
     }
 
     [GeneratedRegex(@"(\d)\s*/\s*(\d)")]
     private static partial Regex SlotCount();
+
+    [GeneratedRegex(@"(^|\s)De(ity)?\s*$")]
+    private static partial Regex DeitySuffix();
 
     // 讀按鈕右上角小圓圈的數字；讀不到時能按＝99、不能按＝0。
     // 範圍大致是右緣 -8～+14、上緣 -14～+8，但實測圓圈位置跟按鈕有幾 px 差距，所以範圍取大一點（右緣 -18～+14、上緣 -24～+8），

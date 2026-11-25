@@ -16,6 +16,7 @@ public sealed record SkillCfg(IReadOnlyList<string> Order, IReadOnlyList<string>
 /// <summary>
 /// 選卡用的設定快照（每次選卡從 cfg 讀一次）。欄位名稱對應 engine.js 的 cfg 鍵（DeityLock＝cfg.deityLock 這個勾選，不是這局鎖定的神祇）。
 /// TreasureCap／TreasureCapN＝cfg treasureCap（尋寶率超過 N % 就不再選尋寶卡）；HpAfterCap＝超過之後優先選生命的卡。
+/// ChestReroll＝寶箱卡都不是要的時單張重抽（見 CardDecider）；Party＝組隊中（隊長或隊員），組隊時選卡有秒數限制，每個寶箱畫面的重抽次數有上限。
 /// 暫停不在這裡判斷：VisionEngine 暫停時根本不截圖。
 /// </summary>
 public sealed partial record PickSettings(
@@ -25,7 +26,8 @@ public sealed partial record PickSettings(
     bool AutoFocus, int AutoFocusN, IReadOnlyList<string> ItemFocus, IReadOnlyList<string> ItemPrio, IReadOnlyList<string> ItemBan,
     bool RerollAll, bool AvoidNew, bool BanishKeep, int BanishKeepN, string PickOrder,
     bool PickSkill, bool PickChest, int PickDelay, bool DebugLog, bool AutoAfterBan = false,
-    bool TreasureCap = false, int TreasureCapN = 300, bool HpAfterCap = false, bool AutoChest = true)
+    bool TreasureCap = false, int TreasureCapN = 300, bool HpAfterCap = false, bool AutoChest = true,
+    bool ChestReroll = false, bool Party = false)
 {
     public static PickSettings From(ConfigStore c)
     {
@@ -49,7 +51,9 @@ public sealed partial record PickSettings(
             c.GetBool("pickSkill"), c.GetBool("pickChest"), c.GetInt("tPickN", 350), c.GetBool("debugLog"),
             c.GetBool("autoAfterBan"),
             c.GetBool("treasureCap"), c.GetInt("treasureCapN", 300), c.GetBool("hpAfterCap"),
-            c.Current["autoChest"] is null || c.GetBool("autoChest"));
+            c.Current["autoChest"] is null || c.GetBool("autoChest"),
+            c.Current["chestReroll"] is null || c.GetBool("chestReroll"),
+            c.GetString("partyRole", "off") is "leader" or "member");
     }
 
     private static List<string> List(JsonNode? node) => ConfigStore.ToStringList(node);

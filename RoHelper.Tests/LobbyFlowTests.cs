@@ -83,6 +83,38 @@ public class LobbyFlowTests
         Assert.False(flow.Decide(Screen() with { Return = Btn }, Cfg(), 6000).CountRun);
     }
 
+    /// <summary>
+    /// 實測（2026-11-25）：死亡結算畫面上方的計時器列讓「前往野外」範本到 0.908（門檻 0.9），
+    /// 每次完整辨識都「看到大廳按鈕」把這次結算清掉，同一局每 1～2 秒重記一次（局數 54 → 205）。
+    /// 畫面上還有「返回角色」就一定是結算畫面，同時認到的大廳按鈕不算
+    /// </summary>
+    [Fact]
+    public void Return_WithFalseLobbyButtonOnSameScreen_DoesNotCountAgain()
+    {
+        var flow = new LobbyFlow();
+
+        flow.Decide(Screen() with { Return = Btn }, Cfg(), -300);
+        Assert.True(flow.Decide(Screen() with { Return = Btn }, Cfg(), 0).CountRun);
+        flow.Decide(Screen() with { Return = Btn, GoField = Btn }, Cfg(), 1500);
+
+        Assert.False(flow.Decide(Screen() with { Return = Btn }, Cfg(), 3000).CountRun);
+        Assert.False(flow.Decide(Screen() with { Return = Btn }, Cfg(), 4500).CountRun);
+    }
+
+    /// <summary>同上，誤判成的是「組隊準備好」按鈕</summary>
+    [Fact]
+    public void Return_WithFalsePartyReadyOnSameScreen_DoesNotCountAgain()
+    {
+        var flow = new LobbyFlow();
+
+        flow.Decide(Screen() with { Return = Btn }, Cfg(), -300);
+        Assert.True(flow.Decide(Screen() with { Return = Btn }, Cfg(), 0).CountRun);
+        flow.Decide(Screen() with { Return = Btn, PartyReady = Btn }, Cfg(), 1500);
+
+        Assert.False(flow.Decide(Screen() with { Return = Btn }, Cfg(), 3000).CountRun);
+        Assert.False(flow.Decide(Screen() with { Return = Btn }, Cfg(), 4500).CountRun);
+    }
+
     /// <summary>實測野外畫面偶爾有一格讓「返回角色」範本誤判：只看到一格不能記一局、不能點</summary>
     [Fact]
     public void Return_SingleFalseFrame_NotCounted()

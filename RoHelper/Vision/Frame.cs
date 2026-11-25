@@ -28,11 +28,14 @@ public sealed class Frame
     /// <summary>BGRA 像素。測試可以直接改；改了之後不要再讀 <see cref="Gray"/>（已快取的灰階不會更新）</summary>
     public byte[] Pixels { get; }
 
-    /// <summary>灰階（每點 1 byte），第一次讀時計算後快取：同一張截圖常要比對好幾個範本</summary>
-    public byte[] Gray => _gray ??= ComputeGray();
+    /// <summary>
+    /// 灰階（每點 1 byte），第一次讀時計算後快取：同一張截圖常要比對好幾個範本。
+    /// 用 LazyInitializer：<see cref="ScreenReader"/> 會在多個執行緒同時比對範本，同時第一次讀時可能各算一次，但大家拿到的是同一份
+    /// </summary>
+    public byte[] Gray => LazyInitializer.EnsureInitialized(ref _gray, ComputeGray);
 
-    /// <summary>縮成一半（最近鄰），第一次讀時計算後快取：範本比對的金字塔粗找用，同一張截圖會比好幾個範本</summary>
-    public Frame Half => _half ??= Resize(0.5);
+    /// <summary>縮成一半（最近鄰），第一次讀時計算後快取：範本比對的金字塔粗找用，同一張截圖會比好幾個範本（執行緒安全，同 <see cref="Gray"/>）</summary>
+    public Frame Half => LazyInitializer.EnsureInitialized(ref _half, () => Resize(0.5));
 
     public (byte R, byte G, byte B) At(int x, int y)
     {

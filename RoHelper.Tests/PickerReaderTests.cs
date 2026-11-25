@@ -21,6 +21,35 @@ public class PickerReaderTests
         Assert.Equal(names, string.Join("|", p.Cards.Select(c => c.Name)));
     }
 
+    /// <summary>
+    /// 技能神祇選擇畫面（2026-11-25 實測，Lv 21 點道具欄紫色「!」）：標題「選擇你的神祇」，4 張「X Deity」卡。
+    /// OCR 把卡名讀成「冰箾術 De」（Deity 只剩 De、箭讀成箾），名字比對交給 CardDecider 的 OcrFix
+    /// </summary>
+    [Fact]
+    public async Task ReadAsync_DeityPick()
+    {
+        var p = (await Reader.ReadAsync(CardLayoutTests.Fixture("技能神祇選擇"), 1.0))!;
+
+        Assert.True(p.IsDeityPick);
+        Assert.False(p.IsChest);
+        Assert.Equal(4, p.Cards.Count);
+        Assert.Contains("雷擊術", p.Cards[1].Name);
+        // 測試圖截在卡片淡入動畫中（第 3、4 張半透明），第 4 張讀成「火壁 Deity」；這裡只確認讀得出是神祇卡
+        Assert.EndsWith("Deity", p.Cards[3].Name);
+    }
+
+    [Theory]
+    [InlineData("升級選卡2")]
+    [InlineData("升級選卡3")]
+    [InlineData("寶箱選卡3")]
+    [InlineData("寶箱改版神器")]
+    [InlineData("升級改版")]
+    public async Task ReadAsync_OtherPickers_NotDeityPick(string fixture)
+    {
+        var p = (await Reader.ReadAsync(CardLayoutTests.Fixture(fixture), 1.0))!;
+
+        Assert.False(p.IsDeityPick);
+    }
     [Fact]
     public async Task ReadAsync_UpgradeWithNewSkills()
     {

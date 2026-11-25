@@ -131,7 +131,9 @@ public sealed class DevApiHost(Control ui, VisionKit kit, VisionEngine engine, P
         if (await new PickerReader(kit.Ocr).ReadAsync(frame, kit.Viewport.Dpr) is not { } info)
             return new JsonObject { ["picker"] = null };
         // 只預覽：CardDecider 只讀不改選卡狀態，這裡也不按鍵、不點
-        var d = CardDecider.Decide(info, PickSettings.From(config), engine.PickState);
+        var d = info.IsDeityPick
+            ? CardDecider.DecideDeity(info, PickSettings.From(config))
+            : CardDecider.Decide(info, PickSettings.From(config), engine.PickState, engine.Schema.Items, _ => 0);
         return new JsonObject
         {
             ["picker"] = new JsonObject

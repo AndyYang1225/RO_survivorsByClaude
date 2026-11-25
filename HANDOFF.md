@@ -21,7 +21,7 @@
    ```
    dotnet build RoHelper/RoHelper.csproj
    dotnet test RoHelper.Tests
-   dotnet run --project RoHelper
+   dotnet run -c Release --project RoHelper   # Release：辨識是逐像素運算，Debug 版約慢 2 倍
    ```
    預期：0 個錯誤、135 個測試全部通過。執行中的 RoHelper.exe 會鎖住檔案，建置／測試前要先關掉。
 
@@ -64,10 +64,21 @@
 
 - 回覆用繁體中文；程式識別字英文、註解／XML doc／log 繁中（`coding-style` skill）。
 - 寫計畫用 superpowers:writing-plans，執行用 Subagent-Driven（每個 Task 一個 agent ＋ 審查），commit 在分支上。
-- 要使用者實機測試時，Claude 幫忙 `dotnet run`；使用者說「重新啟動」就是要重開程式。
+- 要使用者實機測試時，Claude 幫忙 `dotnet run -c Release`（Debug 版辨識約慢 2 倍）；使用者說「重新啟動」就是要重開程式。
 
 ## 2026-11-20 晚更新
 
 - 計畫 3 實機驗證完成；新增「放逐完後按遊戲『自動』」、重存「返回角色」範本。
-- 計畫 4a（開發介面＋自動存證據）：要實機測試時用 `dotnet run --project RoHelper -- --dev-api` 啟動，Claude 用 `curl 127.0.0.1:8765/...` 自己截圖、讀畫面、操作（見 `RoHelper/README.md`「開發介面」）。登入由使用者自己做一次。
+- 計畫 4a（開發介面＋自動存證據）：要實機測試時用 `dotnet run -c Release --project RoHelper -- --dev-api` 啟動，Claude 用 `curl 127.0.0.1:8765/...` 自己截圖、讀畫面、操作（見 `RoHelper/README.md`「開發介面」）。登入由使用者自己做一次。
 - 執行中的 RoHelper.exe 會鎖住 bin：跑測試用 `dotnet test RoHelper.Tests --artifacts-path <暫存資料夾>`，不用關掉程式。
+
+## 2026-11-25 進度（分支 panel-redesign，換電腦前）
+
+- 已完成並 commit：效能改善（辨識加速、移到背景）、新版面板第 1 階段（WebView2、遊戲風、左側導覽）、結算重複計數修正、技能神祇自動選、寶箱卡單張重抽、自動專注只專注指定的。
+- 設計與計畫：`docs/superpowers/specs/`、`docs/superpowers/plans/`（2026-11-25 開頭的檔案）。
+- 還沒做：
+  1. 技能神祇＋寶箱單張重抽＋專注修正的總審查（換電腦前正在跑，結果沒拿到，要重跑一次整批審查）。
+  2. 實機驗證：重開程式（`dotnet run -c Release --project RoHelper -- --dev-api`），確認野外看到紫色「!」會點開、神祇照設定選、寶箱卡單張重抽、不會再亂專注。
+  3. 新版面板的操作清單（改設定、技能 ★、F8／F9、匯入匯出）和 `--profile=B` 多開。
+  4. 面板改版第 2 階段（總覽儀表板）、第 3 階段（移除舊面板）的計畫。
+- 這台電腦的 git 沒設作者，commit 用 `git -c user.name=AndyYang1225 -c user.email=sabc6604@gmail.com commit …`。

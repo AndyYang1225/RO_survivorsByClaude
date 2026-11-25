@@ -91,17 +91,26 @@ public sealed class VisionEngine : IAutomation, IDisposable
 
     /// <summary>
     /// 讀尋寶率（<see cref="TreasureReader"/>：滑鼠移到道具欄每一格、OCR 說明框）。移滑鼠會打斷走位（那一輪不走），所以不照 JS 每 5 秒讀，改成：
-    /// 選卡畫面關掉後 <see cref="TreasureSettle"/>（選了卡，尋寶率可能變了）、道具欄有東西的格數變了就讀；其餘每 <see cref="TreasureEvery"/> 補讀一次；
+    /// 選卡畫面關掉後 <see cref="TreasureSettle"/>（選了卡，尋寶率可能變了）、道具欄有東西的格數變了就讀，其餘時間不讀（<see cref="TreasureIdle"/>）；
     /// 讀失敗（等不到說明框）<see cref="TreasureRetry"/> 後再試；兩次讀之間至少隔 <see cref="TreasureGap"/>。
     /// </summary>
     private const long TreasureSettle = 1500;
-    private const long TreasureEvery = 30_000;
+
+    /// <summary>
+    /// 讀完之後的下一次：不定時補讀。尋寶率只會因為選卡（道具升級、精煉）或道具欄變動而改變，這兩種都會觸發重讀；
+    /// 原本每 30 秒補讀一次，但每次要停下走位約 1 秒（2026-11-25 拿掉）
+    /// </summary>
+    private const long TreasureIdle = long.MaxValue / 2;
     private const long TreasureRetry = 10_000;
     private const long TreasureGap = 3000;
     private TreasureReader? _treasureReader;
     private long _treasureDue = long.MinValue / 2;
     private long _treasureAt = long.MinValue / 2;
     private int _treasureSlots = -1;
+
+    /// <summary>點了技能神祇「!」之後，這麼久之內不再點（等選擇畫面打開，打開後由選卡流程接手）</summary>
+    private const long DeityClickGap = 3000;
+    private long _deityClickAt = long.MinValue / 2;
 
     /// <summary>面板「下一隻」那一行（不在野外時空字串）</summary>
     private string _next = "";
@@ -184,6 +193,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
     {
         _kit = kit;
         _reader = new ScreenReader(kit.Templates);
+        _picker.ItemGroups = Schema.Items;
         _pickerReader = kit.Ocr is { } ocr ? new PickerReader(ocr) : null;
         _hudReader = kit.Ocr is null ? null : new HudReader(kit.Ocr);
         _bannerReader = kit.Ocr is null ? null : new BannerReader(kit.Ocr);
@@ -269,9 +279,16 @@ public sealed class VisionEngine : IAutomation, IDisposable
             // 步驟 2：辨識。在野外時只找返回角色，每 FullReadEvery 才完整辨識一次（看到大廳的東西後就每輪完整辨識，見 _lobbySeen）
             var readAt = Environment.TickCount64;
             var full = !_gate.InField || _lobbySeen || readAt - _fullReadAt >= FullReadEvery;
+            // 範本比對丟到背景執行緒：這是每輪最花時間的一段，在 UI 執行緒做的話面板和遊戲視窗會跟著卡住。
+            // 只有比對（截圖進、辨識結果出，不碰任何狀態）在背景，之後的判斷、改狀態、點擊照舊在 UI 執行緒，狀態一樣只有一個地方在改。
+            // 比對期間 UI 執行緒空著，使用者可能剛好暫停或改了設定（設定會整份換掉）：這一輪是用舊設定判斷的，丟掉不執行，下一輪用新設定重來
+            var (reader, shot, cfgAtRead) = (_reader, frame, _config.Current);
+            var screen = await Task.Run(() => reader.Read(shot, dpr, lobby: settings.AutoEvent, inField: !full, expe: settings.AutoExpe));
+            if (!ReferenceEquals(_config.Current, cfgAtRead))
+                return;
+            // 這一輪確定有效才記下完整辨識的時間：被丟掉的那輪不算，下一輪會再做完整辨識
             if (full)
                 _fullReadAt = readAt;
-            var screen = _reader.Read(frame, dpr, lobby: settings.AutoEvent, inField: !full, expe: settings.AutoExpe);
             // 返回角色不算：只找返回角色的那幾輪也找得到它，不必為了它改成每輪完整辨識
             _lobbySeen = full && FieldGate.LobbyVisible(screen with { Return = null });
 
@@ -519,7 +536,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
     /// 進野外滿 ZoomDelay 後也讀地名與職業（<see cref="ReadInfoAsync"/>，讀到為止）。
     /// 每 <see cref="ClockEvery"/> OCR 一次遊戲時間（<see cref="GameClock"/>）。
     /// 不在躲鐘時先看累積升級（<see cref="BankAsync"/>，同 JS 順序：躲鐘 → 升級 → 走位）：這一輪要按 B 或等選卡畫面時不走位。
-    /// 接著是讀尋寶率（<see cref="TreasureAsync"/>，躲鐘、撿取倒數時不讀）：有移滑鼠讀的那一輪不走位。
+    /// 接著是點技能神祇「!」（<see cref="DeityIconAsync"/>）、讀尋寶率（<see cref="TreasureAsync"/>），躲鐘、撿取倒數時都不做：有點或移滑鼠的那一輪不走位。
     /// 回傳面板文字：走位的狀態前面加「走位：」，升級的狀態照 JS 原文；升級打不開的附註接在最後（同 JS bankNote）。空字串＝什麼都沒做。
     /// </summary>
     private async Task<string> FieldStepAsync(Frame frame, double dpr, long now)
@@ -557,6 +574,9 @@ public sealed class VisionEngine : IAutomation, IDisposable
                 return bank.Status;
             note = bank.Note;
         }
+        // 技能神祇：道具欄出現紫色「!」就點開（選擇畫面由選卡流程處理）。躲鐘、撿取倒數時不點，點的這一輪不走位
+        if (bell is null && !lootPhase && await DeityIconAsync(frame, dpr, now))
+            return "打開技能神祇";
         // 讀尋寶率要移滑鼠：躲鐘、撿取倒數時不讀，讀的這一輪不走位
         if (bell is null && !lootPhase && await TreasureAsync(frame, dpr, now))
             return "讀道具欄（尋寶率）";
@@ -582,6 +602,20 @@ public sealed class VisionEngine : IAutomation, IDisposable
     }
 
     /// <summary>
+    /// 技能神祇「!」（<see cref="DeityIconReader"/>）：有開「升級卡自動選」才點；點了之後 <see cref="DeityClickGap"/> 內不重點。
+    /// 有點回 true（這一輪不走位）。
+    /// </summary>
+    private async Task<bool> DeityIconAsync(Frame frame, double dpr, long now)
+    {
+        if (!_config.GetBool("pickSkill") || now - _deityClickAt < DeityClickGap || DeityIconReader.Find(frame, dpr) is not { } icon)
+            return false;
+        _deityClickAt = now;
+        var (x, y) = _kit!.Viewport.ToCss(icon.X, icon.Y);
+        await _kit.Input.ClickAsync(x, y);
+        return true;
+    }
+
+    /// <summary>
     /// 讀尋寶率（時機見 <see cref="TreasureSettle"/>）。進野外滿 <see cref="ZoomDelay"/> 後才讀（畫面載入完）。
     /// 道具欄全空時不移滑鼠，尋寶率直接是 0、這一輪照常走位（回 false）；有移滑鼠讀（不管成功與否）回 true＝這一輪不走位。
     /// 讀失敗（中途跳出選卡畫面之類）保留上次的值。
@@ -601,7 +635,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
         if (slots.Count == 0)
         {
             SetTreasure(new TreasureRead(0, [], 0));
-            _treasureDue = now + TreasureEvery;
+            _treasureDue = TreasureIdle;
             return false;
         }
         var kit = _kit!;
@@ -617,7 +651,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
             return true;
         }
         SetTreasure(r);
-        _treasureDue = end + TreasureEvery;
+        _treasureDue = TreasureIdle;
         return true;
     }
 

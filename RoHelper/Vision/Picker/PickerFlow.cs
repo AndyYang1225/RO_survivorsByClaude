@@ -4,21 +4,39 @@ namespace RoHelper.Vision.Picker;
 public sealed record PickerAction(string Status, char? Key = null, Point? Click = null, PickDecision? Decision = null);
 
 /// <summary>
-/// 選卡流程（同 engine.js pickerStep）：選卡畫面出現後等 tPick 再判斷；做完放逐／專注／重抽後等畫面更新（同 JS 的 +400 ms，
-/// 視覺模式多算截圖和 OCR 的時間，用 700 ms）；選卡用數字鍵（同 JS pressKey），按了 1.5 秒畫面還在就改點卡片（同 JS 的 click 補救）。
+/// 選卡流程（同 engine.js pickerStep）：選卡畫面出現後等 tPick 再判斷；做完放逐／專注／重抽後等畫面更新（同 JS 的 +400 ms）；
+/// 選卡用數字鍵（同 JS pressKey），按了 0.6 秒畫面還在就改點卡片（同 JS 的 click 補救）。
+/// 這兩個等待原本放寬成 700 ms、1.5 秒，是因為辨識在 UI 執行緒上、一輪要好幾秒；辨識移到背景加速後（2026-11-25）縮回來，連續升級時下一張卡不用多等。
 /// 也負責一局內的狀態（<see cref="RunPickState"/>）：專注過的、學過的「學到後放逐」技能、鎖定的神祇。
+/// 寶箱單張重抽：點那張卡的「重抽卡片」、等 Settle；組隊時每個寶箱畫面最多重抽 <see cref="PartyChestRerolls"/> 次。
 /// 純邏輯：時間由呼叫端傳入，不截圖、不送輸入。
 /// </summary>
-public sealed class PickerFlow
+public sealed class PickerFlow(Func<int, int>? random = null)
 {
     /// <summary>放逐／專注／重抽之後，等畫面換成新卡片的時間</summary>
-    private const long Settle = 700;
+    private const long Settle = 400;
 
-    /// <summary>按了選卡數字鍵之後，畫面還在就改點卡片的等待時間</summary>
-    private const long KeyTimeout = 1_500;
+    /// <summary>
+    /// 按了選卡數字鍵之後，畫面還在就改點卡片的等待時間。
+    /// 刻意不再更短：遊戲收到按鍵到關掉選卡畫面要一點時間，太短會在按鍵其實有效時又補點一次。
+    /// 補點前會確認同一張卡還在原位（見 <see cref="Act"/>），補點的就是同一張卡，不會選錯；但多一次點擊沒有意義
+    /// </summary>
+    private const long KeyTimeout = 600;
 
     /// <summary>按了遊戲「自動」之後，選卡畫面還停這麼久沒被選走，就當沒按到</summary>
     private const long GameAutoTimeout = 5_000;
+
+    /// <summary>組隊時每個寶箱畫面最多重抽幾次（單張＋重抽全部）：組隊選卡有秒數限制，連續重抽太多次會來不及（使用者 2026-11-25）</summary>
+    private const int PartyChestRerolls = 3;
+
+    /// <summary>這個選卡畫面已經重抽了幾次（<see cref="Gone"/> 歸零）</summary>
+    private int _screenRerolls;
+
+    /// <summary>道具分類（schema 的 Items）：寶箱單張重抽判斷「同類有沒有要的」。VisionEngine 啟動時設定</summary>
+    public IReadOnlyList<KeyValuePair<string, List<string>>> ItemGroups { get; set; } = [];
+
+    /// <summary>技能神祇選擇畫面出現後至少等多久才選（卡片淡入動畫，見 Act 裡的註解）</summary>
+    private const long DeitySettle = 2_000;
 
     private long? _seenAt;
     private long _readyAt;
@@ -36,6 +54,7 @@ public sealed class PickerFlow
         _seenAt = null;
         _readyAt = 0;
         _pendingPick = null;
+        _screenRerolls = 0;
     }
 
     /// <summary>還在等（剛出現未滿 tPick、動作後畫面還沒更新）就回 true：這一輪不用花時間 OCR</summary>
@@ -64,6 +83,20 @@ public sealed class PickerFlow
             }
         }
 
+        // 技能神祇選擇畫面：沒有放逐／專注／重抽，也不受遊戲「自動」影響（自動技能不會幫你選神祇）；用數字鍵選，沒反應同樣會改點卡片。
+        // 出現後至少等 DeitySettle 才選，不管 tPick 設多少：卡片是一張張淡入的，實測（2026-11-25）打開 1.5 秒時第 3、4 張還半透明，
+        // OCR 把「火焰之壁 Deity」讀成「火壁 Deity」，太早讀會對不上設定的順序。每局只選一次，多等一點沒關係
+        if (p.IsDeityPick)
+        {
+            if (now - (_seenAt ?? now) < DeitySettle)
+                return new("等技能神祇卡片出現…");
+            var dd = CardDecider.DecideDeity(p, s);
+            var chosen = p.Cards[dd.Index!.Value];
+            _pendingPick = (dd.Index.Value, chosen.Name, chosen.Bounds);
+            _readyAt = now + KeyTimeout;
+            return new($"選技能神祇：{chosen.Name}（{dd.Why}）", Key: (char)('1' + dd.Index.Value), Decision: dd);
+        }
+
         // 已經按過這種畫面的遊戲「自動」（升級卡＝自動技能、寶箱卡＝自動寶箱，分開記）：交給遊戲選。
         // 同一個選卡畫面停超過 GameAutoTimeout 都沒被選走，代表沒按到（或被關掉），再按一次
         var autoName = p.IsChest ? "自動寶箱" : "自動技能";
@@ -86,7 +119,8 @@ public sealed class PickerFlow
             return new($"按遊戲「{autoName}」（{why}）", Click: Center(auto.Bounds), Decision: new(PickDo.GameAuto, null, why));
         }
 
-        var d = CardDecider.Decide(p, s, State);
+        var budget = p.IsChest && s.Party ? Math.Max(0, PartyChestRerolls - _screenRerolls) : int.MaxValue;
+        var d = CardDecider.Decide(p, s, State, ItemGroups, random, budget);
         var name = d.Index is { } i ? p.Cards[i].Name : "";
         switch (d.Do)
         {
@@ -100,8 +134,14 @@ public sealed class PickerFlow
                 _readyAt = now + Settle;
                 return new($"專注：{name}（{d.Why}）", Click: Center(p.Cards[d.Index!.Value].Button(ActKind.Focus)!.Bounds), Decision: d);
             case PickDo.Reroll:
+                if (p.IsChest)
+                    _screenRerolls++;
                 _readyAt = now + Settle;
                 return new($"重抽全部（{d.Why}）", Click: Center(p.RerollAll!.Bounds), Decision: d);
+            case PickDo.RerollCard:
+                _screenRerolls++;
+                _readyAt = now + Settle;
+                return new($"單張重抽：{name}（{d.Why}）", Click: Center(p.Cards[d.Index!.Value].Button(ActKind.Reroll)!.Bounds), Decision: d);
         }
 
         // 選卡：記住學過的「學到後放逐」技能、第一次選的神祇（之後只精煉同一個）
@@ -109,6 +149,9 @@ public sealed class PickerFlow
         var picked = p.Cards[idx];
         if (CardDecider.IsDeity(picked) && State.DeityLock.Length == 0)
             State.DeityLock = CardDecider.DeityName(picked.Name);
+        // 寶箱卡：記下拿過的道具，之後再出現（強化它）算要的卡，不會為它單張重抽
+        if (p.IsChest && picked.Name.Length > 0)
+            State.Owned.Add(CardDecider.SkillKey(picked.Name));
         if (CardDecider.SkillOf(picked, s.Skills.After) is { } w)
             State.Picked.Add(w);
         // 不得已學了清單外的新技能（重抽、放逐都用完）：記下來，之後再出現就放逐

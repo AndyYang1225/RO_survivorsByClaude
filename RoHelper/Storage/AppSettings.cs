@@ -29,6 +29,12 @@ public sealed class AppSettings
     /// <summary>卡住時自動重新整理（見 StallWatch）。遊戲視窗選單「選項 → 卡住時自動重新整理」切換</summary>
     public bool StallRecovery { get; set; } = true;
 
+    /// <summary>
+    /// 用新版面板（WebView2 + HTML）。關掉＝用舊的 WinForms 面板（改版第 3 階段刪除舊面板前的退路）。
+    /// 切換要重新啟動才生效：面板的內容在啟動時就決定了
+    /// </summary>
+    public bool WebPanel { get; set; } = true;
+
     public static AppSettings Load()
     {
         try

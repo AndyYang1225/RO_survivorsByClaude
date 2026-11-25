@@ -34,6 +34,12 @@ public sealed record PickerInfo(bool IsChest, IReadOnlyList<CardInfo> Cards, Act
 {
     /// <summary>欄位滿了（技能都選完、六格道具都有了）；讀不到欄位數時是 null</summary>
     public bool? SlotsFull => Slots is { Max: > 0 } x ? x.Used >= x.Max : null;
+
+    /// <summary>
+    /// 技能神祇選擇畫面（遊戲 2026.11.23 版起，點道具欄紫色「!」打開）：「選擇你的神祇」4 張「X Deity」卡，數字鍵 1–4 選，沒有放逐／專注／重抽。
+    /// 每局只選一次，之後神祇自己升級。選法見 <see cref="CardDecider.DecideDeity"/>
+    /// </summary>
+    public bool IsDeityPick { get; init; }
 }
 
 /// <summary>選卡的動作種類（同 JS decide() 回傳的 do）</summary>
@@ -45,6 +51,8 @@ public enum PickDo
     Reroll,
     /// <summary>按遊戲的「自動」，這局之後交給遊戲選</summary>
     GameAuto,
+    /// <summary>按某一張卡的「重抽卡片」（單張重抽，只會換成同一類；目前只用在寶箱卡）</summary>
+    RerollCard,
 }
 
 /// <summary>
@@ -84,6 +92,9 @@ public sealed class RunPickState
         set => GameAutoSkill = GameAutoChest = value;
     }
     public HashSet<string> Focused { get; } = [];
+
+    /// <summary>這局小幫手選過的寶箱卡（<see cref="CardDecider.SkillKey"/> 後的卡名）：再出現就是「已經有的道具的強化」，算要的卡（不會為它單張重抽）</summary>
+    public HashSet<string> Owned { get; } = [];
     public string DeityLock { get; set; } = "";
     public double Treasure { get; set; }
 

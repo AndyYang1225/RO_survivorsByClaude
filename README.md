@@ -32,7 +32,7 @@
 ```bash
 dotnet build RoHelper/RoHelper.csproj
 dotnet test RoHelper.Tests
-dotnet run --project RoHelper
+dotnet run -c Release --project RoHelper   # Release：辨識是逐像素運算，Debug 版約慢 2 倍
 ```
 
 發佈成單一 exe（自帶 .NET）：
@@ -47,7 +47,7 @@ dotnet publish -c Release -o publish
 ## 使用
 
 - **F8**：暫停／繼續
-- **F9**：顯示／隱藏控制面板（規則設定都在面板裡）
+- **F9**：顯示／隱藏控制面板（規則設定都在面板裡；左側導覽：總覽、選卡、走位、出發、紀錄、其他）
 - 按遊戲視窗的「最小化」時，視窗其實是移到螢幕外，遊戲照常跑
 - 標題列顯示「[分身] 第 N 局｜目前動作」，從工作列就看得出每個視窗在做什麼
 - 選單「選項」：靜音、啟動時自動繼續（預設開，重開後不用手動解除暫停）、卡住時自動重新整理（預設開）

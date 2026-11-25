@@ -143,6 +143,13 @@ public sealed partial class PanelForm : Form
 
     private void ShowStatus(JsonObject s)
     {
+        if (WebMode)
+        {
+            _lastStatus = s;
+            PostStatus();
+            return;
+        }
+
         var runs = s["runs"]?.ToString() ?? "0";
         var limit = s["runLimit"]?.ToString() ?? "0";
         _runsLabel.Text = $"局數 {runs}{(limit != "0" ? " / " + limit : "")}｜本局尋寶率 +{s["treasure"]}%";
@@ -161,6 +168,12 @@ public sealed partial class PanelForm : Form
         if (_schema is not null)
             return;
         _schema = schema;
+        // 新版面板：規則清單交給網頁畫，不建 WinForms 控制項
+        if (WebMode)
+        {
+            PostSchema();
+            return;
+        }
 
         SuspendLayout();
         _tabs.TabPages.Clear();
@@ -206,7 +219,8 @@ public sealed partial class PanelForm : Form
     /// </summary>
     private void ApplyConfig()
     {
-        if (_schema is null)
+        // 新版面板的設定由 PostConfig 送給網頁
+        if (_schema is null || WebMode)
             return;
         _applying = true;
         try
