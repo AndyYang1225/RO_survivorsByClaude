@@ -69,3 +69,32 @@ public sealed class TemplateLibraryTests : IDisposable
         Assert.Throws<ArgumentException>(() => lib.Save("a/b", TestFrames.Solid(2, 2, 0, 0, 0), new RectangleF(0, 0, 1, 1), 0.9, 1.0));
     }
 }
+
+/// <summary>內建範本：換一台電腦（%AppData% 的範本資料夾是空的）也要認得出畫面</summary>
+public sealed class BuiltInTemplateTests
+{
+    [Fact]
+    public void BuiltIn_HasEveryRequiredTemplate()
+    {
+        var lib = new TemplateLibrary(Path.Combine(Path.GetTempPath(), "RoHelperTests", "不存在" + Guid.NewGuid().ToString("N")), builtIn: true);
+
+        foreach (var name in ScreenTemplates.All.Concat(ScreenTemplates.Expedition)
+                     .Concat([ScreenTemplates.Discard, ScreenTemplates.DiscardOk, ScreenTemplates.AfkOk, ScreenTemplates.ChannelNo,
+                              ScreenTemplates.Title, ScreenTemplates.CharSelect, ScreenTemplates.PartyPropose, ScreenTemplates.PartyReady, ScreenTemplates.PartyChannel]))
+            Assert.True(lib.Get(name) is not null, "內建範本缺：" + name);
+    }
+
+    [Fact]
+    public void BuiltIn_ReadsRegionFromJson()
+    {
+        var lib = new TemplateLibrary(Path.Combine(Path.GetTempPath(), "RoHelperTests", "不存在" + Guid.NewGuid().ToString("N")), builtIn: true);
+
+        Assert.NotEqual(new RectangleF(0, 0, 1, 1), lib.Get(ScreenTemplates.Solo)!.Region);
+    }
+
+    [Fact]
+    public void WithoutBuiltIn_EmptyDirIsEmpty()
+    {
+        Assert.Empty(new TemplateLibrary(Path.Combine(Path.GetTempPath(), "RoHelperTests", "不存在" + Guid.NewGuid().ToString("N"))).Names);
+    }
+}

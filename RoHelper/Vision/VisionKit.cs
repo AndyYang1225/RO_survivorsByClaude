@@ -16,7 +16,7 @@ public sealed class VisionKit
         _dpr = dpr;
         Grabber = new ScreenGrabber(hwnd);
         Input = new CdpInput(core);
-        Templates = new TemplateLibrary(AppPaths.TemplatesDir);
+        Templates = new TemplateLibrary(AppPaths.TemplatesDir, builtIn: true);
         Ocr = OcrReader.TryCreate(out var error);
         OcrError = error;
     }

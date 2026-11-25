@@ -70,7 +70,7 @@
 - 規則清單：視覺模式用內建的 `Engine/schema.json`。改了 `engine.js` 的規則要重新產生：`node tools/gen-schema.js RoHelper/Engine/engine.js > RoHelper/Engine/schema.json`（在 `C:Ro` 執行；`BuiltInSchemaTests` 會檢查有沒有忘記）
 - 遊戲視窗選單「視覺除錯」：即時截圖、點擊測試、框選 OCR、存範本、找範本
 - 截圖用 Windows 的 PrintWindow（約 50 ms，視窗移到螢幕外掛機時也截得到）
-- 範本存在 `%AppData%\RoHelper\templates`：每個範本是 `名稱.png`＋`名稱.json`（`X/Y/W/H`＝搜尋範圍佔截圖的比例、`Threshold`＝門檻、`Dpr`＝截圖當下的顯示縮放）
+- 範本內建在 exe（專案的 `Templates` 資料夾，要更新內建範本就把新的 png／json 放進去）；`%AppData%\RoHelper\templates` 裡同名的範本優先。每個範本是 `名稱.png`＋`名稱.json`（`X/Y/W/H`＝搜尋範圍佔截圖的比例、`Threshold`＝門檻、`Dpr`＝截圖當下的顯示縮放）
 - OCR 需要 Windows 的繁體中文 OCR 語言套件（設定 → 時間與語言 → 語言與地區 → 中文（台灣）→ 光學字元辨識）
 - 計畫書：`C:\Ro\docs\superpowers\plans\`
 

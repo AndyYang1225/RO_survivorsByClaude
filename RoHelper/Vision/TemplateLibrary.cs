@@ -18,12 +18,17 @@ public sealed class TemplateLibrary
 {
     public const double DefaultThreshold = 0.9;
 
+    private const string BuiltInPrefix = "RoHelper.Templates.";
+
     private readonly string _dir;
+    private readonly bool _builtIn;
     private readonly Dictionary<string, TemplateInfo> _items = new(StringComparer.OrdinalIgnoreCase);
 
-    public TemplateLibrary(string dir)
+    /// <param name="builtIn">先載入 exe 內建的範本（專案的 Templates 資料夾），資料夾裡同名的範本蓋過內建的</param>
+    public TemplateLibrary(string dir, bool builtIn = false)
     {
         _dir = dir;
+        _builtIn = builtIn;
         Reload();
     }
 
@@ -34,18 +39,52 @@ public sealed class TemplateLibrary
     public void Reload()
     {
         _items.Clear();
+        if (_builtIn)
+            LoadBuiltIn();
         if (!Directory.Exists(_dir))
             return;
         foreach (var png in Directory.EnumerateFiles(_dir, "*.png"))
         {
             var name = Path.GetFileNameWithoutExtension(png);
             // 刻意先讀成 byte[] 再建 Bitmap：new Bitmap(path) 會鎖住檔案，之後就不能用同一個名稱覆蓋存檔
-            using var ms = new MemoryStream(File.ReadAllBytes(png));
-            using var bmp = new Bitmap(ms);
-            var meta = ReadMeta(Path.ChangeExtension(png, ".json"));
-            _items[name] = new TemplateInfo(name, Frame.FromBitmap(bmp), new RectangleF(meta.X, meta.Y, meta.W, meta.H), meta.Threshold, meta.Dpr);
+            Add(name, File.ReadAllBytes(png), ReadMeta(Path.ChangeExtension(png, ".json")));
         }
     }
+
+    private void LoadBuiltIn()
+    {
+        var asm = typeof(TemplateLibrary).Assembly;
+        foreach (var res in asm.GetManifestResourceNames().Where(r => r.StartsWith(BuiltInPrefix) && r.EndsWith(".png")))
+        {
+            var name = res[BuiltInPrefix.Length..^".png".Length];
+            using var png = asm.GetManifestResourceStream(res)!;
+            using var buf = new MemoryStream();
+            png.CopyTo(buf);
+            var meta = TemplateMeta.Default;
+            if (asm.GetManifestResourceStream(BuiltInPrefix + name + ".json") is { } js)
+            {
+                using (js)
+                {
+                    try { meta = JsonSerializer.Deserialize<TemplateMeta>(js, JsonFile.Options) ?? meta; }
+                    catch (JsonException) { }
+                }
+            }
+            Add(name, buf.ToArray(), meta);
+        }
+    }
+
+    private void Add(string name, byte[] png, TemplateMeta meta)
+    {
+        using var ms = new MemoryStream(png);
+        using var bmp = new Bitmap(ms);
+        _items[name] = new TemplateInfo(name, Frame.FromBitmap(bmp), new RectangleF(meta.X, meta.Y, meta.W, meta.H), meta.Threshold, meta.Dpr);
+    }
+
+    /// <summary>exe 內建的範本名稱（測試用）</summary>
+    public static IReadOnlyList<string> BuiltInNames()
+        => typeof(TemplateLibrary).Assembly.GetManifestResourceNames()
+            .Where(r => r.StartsWith(BuiltInPrefix) && r.EndsWith(".png"))
+            .Select(r => r[BuiltInPrefix.Length..^".png".Length]).ToList();
 
     public void Save(string name, Frame image, RectangleF region, double threshold, double dpr)
     {

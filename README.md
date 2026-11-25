@@ -42,7 +42,7 @@ cd RoHelper
 dotnet publish -c Release -o publish
 ```
 
-第一次執行要在遊戲裡登入一次，之後 WebView2 會記住登入狀態。大廳流程需要的畫面範本存在 `%AppData%\RoHelper\templates`，可以從「視覺除錯」視窗自己存。
+第一次執行要在遊戲裡登入一次，之後 WebView2 會記住登入狀態。大廳流程需要的畫面範本已內建在 exe 裡（專案的 `RoHelper/Templates`），換電腦不用重存；在「視覺除錯」視窗存的同名範本（`%AppData%\RoHelper\templates`）會蓋過內建的。
 
 ## 使用
 
