@@ -12,7 +12,11 @@ namespace RoHelper.Vision.Picker;
 /// </summary>
 public static partial class CardDecider
 {
-    public static PickDecision Decide(PickerInfo p, PickSettings s, RunPickState st)
+    /// <param name="itemGroups">道具分類（schema 的 Items：藥水、秘藥…）；寶箱單張重抽用它判斷「同類有沒有要的」。null＝不知道分類</param>
+    /// <param name="random">隨機函式（回 0～n−1）；null＝Random.Shared。測試傳固定值</param>
+    /// <param name="rerollBudget">這個畫面還能重抽幾次（寶箱單張重抽與重抽全部合計；組隊時呼叫端限制）；≤ 0 不重抽</param>
+    public static PickDecision Decide(PickerInfo p, PickSettings s, RunPickState st,
+        IReadOnlyList<KeyValuePair<string, List<string>>>? itemGroups = null, Func<int, int>? random = null, int rerollBudget = int.MaxValue)
     {
         var cards = p.Cards;
         var all = Enumerable.Range(0, cards.Count).ToList();
@@ -130,6 +134,26 @@ public static partial class CardDecider
             }
             else if (bad.Count == pool.Count && s.RerollAll && p.RerollAll is { Usable: true })
                 return new(PickDo.Reroll, null, "只有不要的新技能");
+        }
+
+        // 寶箱卡單張重抽（使用者 2026-11-25）：沒有一張是要的 → 單張重抽「同類抽得出要的」那張（單張只會換成同一類，挑錯類永遠抽不到）；
+        // 單張用完改按重抽全部；都用完才往下照規則選。升級卡不單張重抽（只會換成同一技能的另一種強化）
+        if (p.IsChest && s.ChestReroll && rerollBudget > 0)
+        {
+            var treasureOff = s.TreasureCap && st.Treasure >= s.TreasureCapN || st.IsEvent;
+            if (!pool.Any(i => IsWantedChest(cards[i], s, st, treasureOff)))
+            {
+                var rerollable = all.Where(i => Usable(cards[i], ActKind.Reroll)).ToList();
+                if (rerollable.Count > 0)
+                {
+                    var hopeful = rerollable.Where(i => CanYieldWanted(cards[i], s, st, treasureOff, itemGroups ?? [])).ToList();
+                    var from = hopeful.Count > 0 ? hopeful : rerollable;
+                    var next = random ?? (n => Random.Shared.Next(n));
+                    return new(PickDo.RerollCard, from[next(from.Count)], hopeful.Count > 0 ? "寶箱都不是要的：單張重抽（同類有要的）" : "寶箱都不是要的：單張重抽");
+                }
+                if (p.RerollAll is { Usable: true })
+                    return new(PickDo.Reroll, null, "寶箱都不是要的：重抽全部");
+            }
         }
 
         // 6. 道具／寶箱／其他。尋寶率超過上限、或這局是活動（尋寶率沒用）：還有別的卡時不選尋寶卡，也不優先
@@ -331,6 +355,40 @@ public static partial class CardDecider
     {
         var n = Squash(c.Name);
         return n.Length > 0 && s.ItemPrio.Any(w => w.Length > 0 && n.Contains(Squash(w)));
+    }
+
+    /// <summary>
+    /// 寶箱卡「要的」（使用者 2026-11-25）：勾選的道具、優先的神器（沒打 ✕；已鎖定時只有鎖定的那個）、尋寶率卡（還沒到上限、不是活動）、這局拿過的道具
+    /// </summary>
+    private static bool IsWantedChest(CardInfo c, PickSettings s, RunPickState st, bool treasureOff)
+        => IsFavItem(c, s) || IsWantedArtifact(c, s, st) || !treasureOff && HasTreasure(c) || st.Owned.Contains(SkillKey(c.Name));
+
+    private static bool IsWantedArtifact(CardInfo c, PickSettings s, RunPickState st)
+    {
+        if (!IsDeity(c) || IsBannedDeity(c, s))
+            return false;
+        if (s.DeityLock && st.DeityLock.Length > 0)
+            return SameDeity(c.Name, st.DeityLock);
+        return s.DeityPrio && s.DeityList.Any(w => w.Length > 0 && SameDeity(c.Name, w));
+    }
+
+    /// <summary>
+    /// 這張卡單張重抽「有機會」抽到要的嗎：單張重抽只會換成同一類（Wiki：同一寶箱欄位的不同裝備），
+    /// 所以看這張卡所屬的類別（schema 的道具分類；神器卡是神器類）裡有沒有要的東西。認不出類別回 false
+    /// </summary>
+    private static bool CanYieldWanted(CardInfo c, PickSettings s, RunPickState st, bool treasureOff, IReadOnlyList<KeyValuePair<string, List<string>>> groups)
+    {
+        if (IsDeity(c))
+            return s.DeityLock && st.DeityLock.Length > 0
+                || s.DeityPrio && s.DeityList.Any(w => OcrFix(w).Contains("神器") && !s.DeityBan.Any(b => SameDeity(w, b)))
+                || st.Owned.Any(o => o.Contains("神器"));
+        var name = Squash(c.Name);
+        var names = groups.FirstOrDefault(g => g.Value.Any(n => n.Length > 0 && name.Contains(Squash(n)))).Value;
+        if (names is null)
+            return false;
+        return names.Any(n => s.ItemPrio.Any(w => w.Length > 0 && Squash(n).Contains(Squash(w)))
+            || st.Owned.Contains(SkillKey(n))
+            || !treasureOff && TreasureItems.Any(t => Squash(n).Contains(t)));
     }
 
     /// <summary>神祇名稱比對（卡片可能寫「雷爆術 Deity」、道具欄寫「雷爆術 Deity +3」）</summary>

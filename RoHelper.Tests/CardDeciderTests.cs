@@ -16,10 +16,10 @@ public class CardDeciderTests
         bool deityPrio = false, string deityOrder = "none", bool deityLock = false, string[]? deity = null, string[]? deityBan = null,
         string[]? itemPrio = null, string[]? itemBan = null, string[]? itemFocus = null, bool avoidNew = true, bool rerollAll = true,
         bool banishKeep = true, int banishKeepN = 2, bool banExtra = false, string[]? banExtraWords = null,
-        bool treasureCap = false, int treasureCapN = 300, bool hpAfterCap = false)
+        bool treasureCap = false, int treasureCapN = 300, bool hpAfterCap = false, bool chestReroll = false)
         => new("巫師", true, skills ?? SkillCfg.Empty, banExtra, banExtraWords ?? [], deityPrio, deityOrder, deityLock, deity ?? [], deityBan ?? [],
             autoFocus, autoFocusN, itemFocus ?? [], itemPrio ?? [], itemBan ?? [], rerollAll, avoidNew, banishKeep, banishKeepN, pickOrder,
-            true, true, 350, false, TreasureCap: treasureCap, TreasureCapN: treasureCapN, HpAfterCap: hpAfterCap);
+            true, true, 350, false, TreasureCap: treasureCap, TreasureCapN: treasureCapN, HpAfterCap: hpAfterCap, ChestReroll: chestReroll);
 
     private static RunPickState Treasure(double t) => new() { Treasure = t };
 
@@ -533,5 +533,145 @@ public class CardDeciderTests
         var d = CardDecider.DecideDeity(DeityPick("冰箾術 De", "雷擊術 De"), Settings(deityBan: ["冰箭術"]));
 
         Assert.Equal(new PickDecision(PickDo.Pick, 1, "第一張"), d);
+    }
+
+    // ── 寶箱卡單張重抽 ──
+
+    private static readonly List<KeyValuePair<string, List<string>>> Groups =
+    [
+        new("藥水", ["回復藥水", "冷卻藥水", "尋寶藥水"]),
+        new("秘藥", ["傷害秘藥", "驚奇秘藥"]),
+        new("祝福", ["傷害祝福", "智慧祝福"]),
+    ];
+
+    /// <summary>寶箱卡：有單張重抽（5 次）、專注、放逐</summary>
+    private static CardInfo Chest(int i, string name, bool reroll = true, string? text = null)
+        => Card(i, name, text: text, buttons: reroll ? [Btn(ActKind.Reroll), Btn(ActKind.Focus), Btn(ActKind.Banish)] : [Btn(ActKind.Focus), Btn(ActKind.Banish)]);
+
+    /// <summary>尋寶率已經超過上限：尋寶卡不算要的</summary>
+    private static PickSettings Capped(string[]? itemPrio = null)
+        => Settings(itemPrio: itemPrio, treasureCap: true, treasureCapN: 100, chestReroll: true);
+
+    [Fact]
+    public void ChestReroll_RerollsCardWhoseCategoryHasWanted()
+    {
+        var d = CardDecider.Decide(Picker(true, Chest(0, "傷害秘藥"), Chest(1, "回復藥水"), Chest(2, "傷害祝福")),
+            Capped(itemPrio: ["冷卻藥水"]), Treasure(200), Groups, _ => 0);
+
+        Assert.Equal(PickDo.RerollCard, d.Do);
+        Assert.Equal(1, d.Index);
+    }
+
+    [Fact]
+    public void ChestReroll_SeveralHopeful_UsesRandom()
+    {
+        var d = CardDecider.Decide(Picker(true, Chest(0, "傷害秘藥"), Chest(1, "回復藥水"), Chest(2, "傷害祝福")),
+            Capped(itemPrio: ["冷卻藥水", "智慧祝福"]), Treasure(200), Groups, n => n - 1);
+
+        Assert.Equal(PickDo.RerollCard, d.Do);
+        Assert.Equal(2, d.Index);
+    }
+
+    [Fact]
+    public void ChestReroll_NoHopeful_RandomAmongAll()
+    {
+        var d = CardDecider.Decide(Picker(true, Chest(0, "傷害秘藥"), Chest(1, "回復藥水")),
+            Capped(), Treasure(200), Groups, n => n - 1);
+
+        Assert.Equal(new PickDecision(PickDo.RerollCard, 1, "寶箱都不是要的：單張重抽"), d);
+    }
+
+    [Fact]
+    public void ChestReroll_NoCardReroll_UsesRerollAll()
+    {
+        var d = CardDecider.Decide(Picker(true, Chest(0, "傷害秘藥", reroll: false), Chest(1, "回復藥水", reroll: false)),
+            Capped(), Treasure(200), Groups, _ => 0);
+
+        Assert.Equal(new PickDecision(PickDo.Reroll, null, "寶箱都不是要的：重抽全部"), d);
+    }
+
+    [Fact]
+    public void ChestReroll_NothingLeft_PicksByRules()
+    {
+        var p = new PickerInfo(true, [Chest(0, "傷害秘藥", reroll: false), Chest(1, "回復藥水", reroll: false)], Btn(ActKind.Reroll, enabled: false, left: 0));
+
+        var d = CardDecider.Decide(p, Capped(), Treasure(200), Groups, _ => 0);
+
+        Assert.Equal(PickDo.Pick, d.Do);
+    }
+
+    [Fact]
+    public void ChestReroll_FavItemPresent_Picks()
+    {
+        var d = CardDecider.Decide(Picker(true, Chest(0, "傷害秘藥"), Chest(1, "冷卻藥水")),
+            Capped(itemPrio: ["冷卻藥水"]), Treasure(200), Groups, _ => 0);
+
+        Assert.Equal(new PickDecision(PickDo.Pick, 1, "勾選的道具"), d);
+    }
+
+    [Fact]
+    public void ChestReroll_TreasureCardBelowCap_IsWanted()
+    {
+        var d = CardDecider.Decide(Picker(true, Chest(0, "回復藥水"), Chest(1, "尋寶藥水")),
+            Settings(treasureCap: true, treasureCapN: 300, chestReroll: true), Treasure(100), Groups, _ => 0);
+
+        Assert.Equal(PickDo.Pick, d.Do);
+        Assert.Equal(1, d.Index);
+    }
+
+    [Fact]
+    public void ChestReroll_TreasureCardAboveCap_NotWanted()
+    {
+        var d = CardDecider.Decide(Picker(true, Chest(0, "回復藥水"), Chest(1, "尋寶藥水")),
+            Capped(), Treasure(200), Groups, _ => 0);
+
+        Assert.Equal(PickDo.RerollCard, d.Do);
+    }
+
+    [Fact]
+    public void ChestReroll_OwnedItem_IsWanted()
+    {
+        var st = Treasure(200);
+        st.Owned.Add("回復藥水");
+
+        var d = CardDecider.Decide(Picker(true, Chest(0, "傷害秘藥"), Chest(1, "回復藥水 + 1")), Capped(), st, Groups, _ => 0);
+
+        Assert.Equal(PickDo.Pick, d.Do);
+    }
+
+    /// <summary>deityOrder「none」＝神祇步驟不直接選（交給後面），這樣才會走到寶箱重抽的「要的」判斷：優先神器在場就不重抽</summary>
+    [Fact]
+    public void ChestReroll_PriorityArtifact_IsWanted()
+    {
+        var s = Settings(deityPrio: true, deityOrder: "none", deity: ["戰爭之神"], treasureCap: true, treasureCapN: 100, chestReroll: true);
+
+        var d = CardDecider.Decide(Picker(true, Chest(0, "傷害秘藥"), Chest(1, "戰爭神器", text: "戰爭神器 神器")), s, Treasure(200), Groups, _ => 0);
+
+        Assert.Equal(PickDo.Pick, d.Do);
+    }
+
+    [Fact]
+    public void ChestReroll_UpgradeCards_NeverRerollCard()
+    {
+        var d = CardDecider.Decide(Picker(false, Chest(0, "傷害秘藥"), Chest(1, "回復藥水")), Capped(), Treasure(200), Groups, _ => 0);
+
+        Assert.NotEqual(PickDo.RerollCard, d.Do);
+    }
+
+    [Fact]
+    public void ChestReroll_Disabled_NoReroll()
+    {
+        var d = CardDecider.Decide(Picker(true, Chest(0, "傷害秘藥"), Chest(1, "回復藥水")),
+            Settings(treasureCap: true, treasureCapN: 100), Treasure(200), Groups, _ => 0);
+
+        Assert.Equal(PickDo.Pick, d.Do);
+    }
+
+    [Fact]
+    public void ChestReroll_NoBudget_PicksByRules()
+    {
+        var d = CardDecider.Decide(Picker(true, Chest(0, "傷害秘藥"), Chest(1, "回復藥水")), Capped(), Treasure(200), Groups, _ => 0, rerollBudget: 0);
+
+        Assert.Equal(PickDo.Pick, d.Do);
     }
 }
