@@ -352,8 +352,11 @@ git -c user.name=AndyYang1225 -c user.email=sabc6604@gmail.com commit -m "feat �
             true, true, 350, false);
         flow.Waiting(0, 350);
 
-        var a = flow.Act(deity, s, 400);
+        var early = flow.Act(deity, s, 1500);
+        var a = flow.Act(deity, s, 2100);
 
+        Assert.Null(early.Key);
+        Assert.Equal("等技能神祇卡片出現…", early.Status);
         Assert.Equal('3', a.Key);
         Assert.Equal("選技能神祇：火箾術 De（技能神祇優先：火箭術）", a.Status);
         Assert.Equal("", flow.State.DeityLock);
@@ -417,9 +420,13 @@ Expected: 編譯失敗，`DecideDeity` 不存在。
 `RoHelper/Vision/Picker/PickerFlow.cs` 的 `Act` 裡，在「選卡的數字鍵沒反應」那個 `if (_pendingPick is { } pending) { … }` 區塊結束之後、`// 已經按過這種畫面的遊戲「自動」` 註解之前，加上：
 
 ```csharp
-        // 技能神祇選擇畫面：沒有放逐／專注／重抽，也不受遊戲「自動」影響（自動技能不會幫你選神祇）；用數字鍵選，沒反應同樣會改點卡片
+        // 技能神祇選擇畫面：沒有放逐／專注／重抽，也不受遊戲「自動」影響（自動技能不會幫你選神祇）；用數字鍵選，沒反應同樣會改點卡片。
+        // 出現後至少等 DeitySettle 才選，不管 tPick 設多少：卡片是一張張淡入的，實測（2026-11-25）打開 1.5 秒時第 3、4 張還半透明，
+        // OCR 把「火焰之壁 Deity」讀成「火壁 Deity」，太早讀會對不上設定的順序。每局只選一次，多等一點沒關係
         if (p.IsDeityPick)
         {
+            if (now - (_seenAt ?? now) < DeitySettle)
+                return new("等技能神祇卡片出現…");
             var dd = CardDecider.DecideDeity(p, s);
             var chosen = p.Cards[dd.Index!.Value];
             _pendingPick = (dd.Index.Value, chosen.Name, chosen.Bounds);
@@ -428,13 +435,15 @@ Expected: 編譯失敗，`DecideDeity` 不存在。
         }
 ```
 
-同時把 `Act` 開頭的
+並在 `private const long GameAutoTimeout = 5_000;` 之後加上：
 
 ```csharp
-        var kind = p.IsChest ? "選寶箱卡" : "選升級卡";
+
+    /// <summary>技能神祇選擇畫面出現後至少等多久才選（卡片淡入動畫，見 Act 裡的註解）</summary>
+    private const long DeitySettle = 2_000;
 ```
 
-保持不變（神祇畫面 `IsChest` 是 false，受「升級卡自動選」`PickSkill` 開關控制，跟設計一致）。
+`Act` 開頭的 `var kind = p.IsChest ? "選寶箱卡" : "選升級卡";` 保持不變（神祇畫面 `IsChest` 是 false，受「升級卡自動選」`PickSkill` 開關控制，跟設計一致）。
 
 - [ ] **Step 5: 開發介面的預覽**
 
