@@ -75,7 +75,7 @@ public class PickerFlowTests
         var flow = new PickerFlow();
         flow.Waiting(0, 350);
 
-        var a = flow.Act(Upgrade(Card(0, "冰箭術")), Settings(Mage, autoFocus: true), 400);
+        var a = flow.Act(Upgrade(Card(0, "冰箭術")), Settings(Mage with { Focus = ["冰箭術"] }, autoFocus: true), 400);
 
         Assert.Equal(new Point(20, 415), a.Click);
         Assert.Contains("冰箭術", flow.State.Focused);

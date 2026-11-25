@@ -163,12 +163,15 @@ public class CardDeciderTests
         Assert.Equal(new PickDecision(PickDo.Banish, 0, "放逐清單"), d);
     }
 
+    /// <summary>
+    /// 只專注技能頁設成「優先＋專注」的（使用者 2026-11-25：沒設任何專注時小幫手卻去專注第 1 優先的火箭術）。
+    /// 每個技能只專注一次
+    /// </summary>
     [Fact]
-    public void AutoFocus_FirstNonAfterPriority_Once()
+    public void AutoFocus_OnlyMarkedSkills_Once()
     {
-        // 雷爆術是「學到後放逐」：要標成新卡，否則會先被放逐
-        var picker = Picker(false, Card(0, "冰箭術"), Card(1, "雷爆術", isNew: true));
-        var settings = Settings(Skills(order: ["雷爆術", "冰箭術"], after: ["雷爆術"]), autoFocus: true, autoFocusN: 1);
+        var picker = Picker(false, Card(0, "冰箭術"), Card(1, "火箭術"));
+        var settings = Settings(Skills(order: ["火箭術", "冰箭術"], focus: ["冰箭術"]), autoFocus: true);
         var st = new RunPickState();
 
         var first = CardDecider.Decide(picker, settings, st);
@@ -179,12 +182,21 @@ public class CardDeciderTests
         Assert.Equal(PickDo.Pick, second.Do);
     }
 
+    /// <summary>技能頁沒有任何「優先＋專注」：不專注（不再退回專注前 N 個優先技能）</summary>
+    [Fact]
+    public void AutoFocus_NothingMarked_DoesNotFocus()
+    {
+        var d = CardDecider.Decide(Picker(false, Card(0, "火箭術")), Settings(Skills(order: ["火箭術", "冰箭術"]), autoFocus: true, autoFocusN: 2), new RunPickState());
+
+        Assert.Equal(PickDo.Pick, d.Do);
+    }
+
     [Fact]
     public void AutoFocus_SkippedWhenFocusButtonUnusable()
     {
         var card = Card(0, "冰箭術", buttons: [Btn(ActKind.Focus, enabled: false, left: 0), Btn(ActKind.Banish)]);
 
-        var d = CardDecider.Decide(Picker(false, card), Settings(Skills(order: ["冰箭術"]), autoFocus: true), new RunPickState());
+        var d = CardDecider.Decide(Picker(false, card), Settings(Skills(order: ["冰箭術"], focus: ["冰箭術"]), autoFocus: true), new RunPickState());
 
         Assert.Equal(PickDo.Pick, d.Do);
     }

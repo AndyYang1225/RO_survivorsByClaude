@@ -58,11 +58,11 @@ public static partial class CardDecider
             if (b >= 0)
                 return new(PickDo.Banish, b, IsLearnedUnwanted(cards[b], st) ? "學到的清單外技能" : "放逐清單");
 
-            // 3. 專注：前 N 個「優先」技能（不含學到後放逐的），每個只專注一次
+            // 3. 專注：只專注技能頁設成「優先＋專注」的，每個只專注一次。
+            // 刻意不再「都沒設就專注前 N 個優先技能」（JS 的做法）：使用者 2026-11-25 回報沒設專注卻去專注第 1 優先的火箭術，要的是只專注指定的
             if (s.AutoFocus)
             {
-                var fl = s.Skills.Focus.Where(w => s.Skills.Order.Contains(w)).ToList();
-                var targets = fl.Count > 0 ? fl : s.Skills.Order.Where(w => !s.Skills.After.Contains(w)).Take(s.AutoFocusN).ToList();
+                var targets = s.Skills.Focus.Where(w => s.Skills.Order.Contains(w)).ToList();
                 var f = all.FirstOrDefault(i => SkillOf(cards[i], targets) is { } w && !st.Focused.Contains(w) && Usable(cards[i], ActKind.Focus), -1);
                 if (f >= 0)
                 {
