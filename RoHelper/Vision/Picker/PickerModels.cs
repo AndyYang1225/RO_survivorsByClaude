@@ -51,6 +51,8 @@ public enum PickDo
     Reroll,
     /// <summary>按遊戲的「自動」，這局之後交給遊戲選</summary>
     GameAuto,
+    /// <summary>按某一張卡的「重抽卡片」（單張重抽，只會換成同一類；目前只用在寶箱卡）</summary>
+    RerollCard,
 }
 
 /// <summary>
@@ -90,6 +92,9 @@ public sealed class RunPickState
         set => GameAutoSkill = GameAutoChest = value;
     }
     public HashSet<string> Focused { get; } = [];
+
+    /// <summary>這局小幫手選過的寶箱卡（<see cref="CardDecider.SkillKey"/> 後的卡名）：再出現就是「已經有的道具的強化」，算要的卡（不會為它單張重抽）</summary>
+    public HashSet<string> Owned { get; } = [];
     public string DeityLock { get; set; } = "";
     public double Treasure { get; set; }
 
