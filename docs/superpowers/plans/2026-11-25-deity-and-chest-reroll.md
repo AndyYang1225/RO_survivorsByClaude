@@ -1153,3 +1153,109 @@ git -c user.name=AndyYang1225 -c user.email=sabc6604@gmail.com commit -m "feat �
 git add RoHelper/README.md
 git -c user.name=AndyYang1225 -c user.email=sabc6604@gmail.com commit -m "modify README 加上技能神祇與寶箱單張重抽說明" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
+
+---
+
+### Task 9: 自動專注只專注指定的（拿掉「前 N 個」備用做法）
+
+使用者回報（2026-11-25）：沒有設任何「優先＋專注」，小幫手卻去點火箭術的專注。原因是「自動用專注」在技能頁沒有設「優先＋專注」時，會改專注優先順序的前 N 個。使用者決定：只專注指定的（技能頁「優先＋專注」、道具頁 ★），都沒設就不專注。
+
+**Files:**
+- Modify: `RoHelper/Vision/Picker/CardDecider.cs`（步驟 3 專注）
+- Modify: `RoHelper/Engine/engine.js`（`autoFocus` 規則）、`RoHelper/Engine/schema.json`（重新產生）
+- Test: `RoHelper.Tests/CardDeciderTests.cs`、`RoHelper.Tests/PickerFlowTests.cs`
+
+**Interfaces:**
+- `PickSettings.AutoFocusN` 保留（設定裡可能還有舊值，`PickSettingsTests` 也讀它），但決策不再使用。
+
+- [ ] **Step 1: 改測試（先紅）**
+
+`RoHelper.Tests/CardDeciderTests.cs`：把 `AutoFocus_FirstNonAfterPriority_Once` 整個換成下面兩個測試：
+
+```csharp
+    /// <summary>
+    /// 只專注技能頁設成「優先＋專注」的（使用者 2026-11-25：沒設任何專注時小幫手卻去專注第 1 優先的火箭術）。
+    /// 每個技能只專注一次
+    /// </summary>
+    [Fact]
+    public void AutoFocus_OnlyMarkedSkills_Once()
+    {
+        var picker = Picker(false, Card(0, "冰箭術"), Card(1, "火箭術"));
+        var settings = Settings(Skills(order: ["火箭術", "冰箭術"], focus: ["冰箭術"]), autoFocus: true);
+        var st = new RunPickState();
+
+        var first = CardDecider.Decide(picker, settings, st);
+        st.Focused.Add(first.FocusKey!);
+        var second = CardDecider.Decide(picker, settings, st);
+
+        Assert.Equal(new PickDecision(PickDo.Focus, 0, "專注：冰箭術", "冰箭術"), first);
+        Assert.Equal(PickDo.Pick, second.Do);
+    }
+
+    /// <summary>技能頁沒有任何「優先＋專注」：不專注（不再退回專注前 N 個優先技能）</summary>
+    [Fact]
+    public void AutoFocus_NothingMarked_DoesNotFocus()
+    {
+        var d = CardDecider.Decide(Picker(false, Card(0, "火箭術")), Settings(Skills(order: ["火箭術", "冰箭術"]), autoFocus: true, autoFocusN: 2), new RunPickState());
+
+        Assert.Equal(PickDo.Pick, d.Do);
+    }
+```
+
+同一檔案的 `AutoFocus_SkippedWhenFocusButtonUnusable` 裡，`Settings(Skills(order: ["冰箭術"]), autoFocus: true)` 改成 `Settings(Skills(order: ["冰箭術"], focus: ["冰箭術"]), autoFocus: true)`（讓它測的仍然是「按鈕不能按就不專注」）。
+
+`RoHelper.Tests/PickerFlowTests.cs` 的 `Focus_ClicksFocusButton_AndRemembers` 裡，`Settings(Mage, autoFocus: true)` 改成 `Settings(Mage with { Focus = ["冰箭術"] }, autoFocus: true)`。
+
+Run: `dotnet test RoHelper.Tests --artifacts-path "$TEMP/rohelper-test" --filter "FullyQualifiedName~CardDeciderTests|FullyQualifiedName~PickerFlowTests"`
+Expected: `AutoFocus_NothingMarked_DoesNotFocus` 失敗（目前會專注火箭術），其他通過。
+
+- [ ] **Step 2: 改決策**
+
+`RoHelper/Vision/Picker/CardDecider.cs` 步驟 3，把
+
+```csharp
+            // 3. 專注：前 N 個「優先」技能（不含學到後放逐的），每個只專注一次
+            if (s.AutoFocus)
+            {
+                var fl = s.Skills.Focus.Where(w => s.Skills.Order.Contains(w)).ToList();
+                var targets = fl.Count > 0 ? fl : s.Skills.Order.Where(w => !s.Skills.After.Contains(w)).Take(s.AutoFocusN).ToList();
+```
+
+改成：
+
+```csharp
+            // 3. 專注：只專注技能頁設成「優先＋專注」的，每個只專注一次。
+            // 刻意不再「都沒設就專注前 N 個優先技能」（JS 的做法）：使用者 2026-11-25 回報沒設專注卻去專注第 1 優先的火箭術，要的是只專注指定的
+            if (s.AutoFocus)
+            {
+                var targets = s.Skills.Focus.Where(w => s.Skills.Order.Contains(w)).ToList();
+```
+
+（後面的 `var f = …`、`if (f >= 0) { … }` 不變。）
+
+同時把類別 XML doc 第 7 行 `/// 順序：1 神祇 → 2 放逐（升級卡）→ 3 技能專注（升級卡）→ …` 保持不變。
+
+- [ ] **Step 3: 改規則文字（拿掉 N）**
+
+`RoHelper/Engine/engine.js` 把
+
+```js
+    { k: 'autoFocus',    label: '自動用「專注」（技能分頁設成「優先＋專注」的；都沒設就用前 N 個優先技能）', def: true, num: 1, min: 1, max: 2 },
+```
+
+改成：
+
+```js
+    { k: 'autoFocus',    label: '自動用「專注」（技能分頁設成「優先＋專注」的技能、道具分頁打 ★ 的道具；都沒設就不專注）', def: true },
+```
+
+重新產生：`node tools/gen-schema.js RoHelper/Engine/engine.js > RoHelper/Engine/schema.json`
+
+- [ ] **Step 4: 跑全部測試、Commit**
+
+Run: `dotnet test RoHelper.Tests --artifacts-path "$TEMP/rohelper-test"` → 全部通過（`Scan_IsCheap` 例外照實回報）。
+
+```bash
+git add RoHelper/Vision/Picker/CardDecider.cs RoHelper/Engine/engine.js RoHelper/Engine/schema.json RoHelper.Tests/CardDeciderTests.cs RoHelper.Tests/PickerFlowTests.cs
+git -c user.name=AndyYang1225 -c user.email=sabc6604@gmail.com commit -m "fix 自動專注只專注指定的技能，沒設就不專注" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
