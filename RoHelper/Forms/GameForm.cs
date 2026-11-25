@@ -86,6 +86,7 @@ public sealed class GameForm : Form
         }));
         options.DropDownItems.Add(Toggle("啟動時自動繼續（不用手動解除暫停）", settings.ResumeOnStart, on => _settings.ResumeOnStart = on));
         options.DropDownItems.Add(Toggle("卡住時自動重新整理", settings.StallRecovery, on => _settings.StallRecovery = on));
+        options.DropDownItems.Add(Toggle("新版面板（重新啟動後生效）", settings.WebPanel, on => _settings.WebPanel = on));
         menu.Items.Add(options);
         menu.Items.Add(new ToolStripMenuItem("視覺除錯", null, (_, _) => OpenVisionDebug()));
         menu.Items.Add(_engineItem);
@@ -107,6 +108,9 @@ public sealed class GameForm : Form
             var options = new CoreWebView2EnvironmentOptions(BrowserArgs);
             var env = await CoreWebView2Environment.CreateAsync(null, AppPaths.WebViewDir, options);
             await _webView.EnsureCoreWebView2Async(env);
+            // 新版面板跟遊戲共用同一個環境；要在引擎 Start（送規則清單）之前切換。刻意不 await（見 UseWebPanelAsync）
+            if (_settings.WebPanel)
+                _ = _panel.UseWebPanelAsync(env);
         }
         catch (WebView2RuntimeNotFoundException)
         {
