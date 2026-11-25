@@ -79,7 +79,7 @@ public static partial class CardDecider
         // 道具專注：勾了 ★ 的道具出現時先按「專注」（升級卡、寶箱卡都適用；每個道具每局只專注一次）
         if (s.AutoFocus && s.ItemFocus.Count > 0)
         {
-            string? ItemOf(CardInfo c) => s.ItemFocus.FirstOrDefault(x => x.Length > 0 && Squash(c.Name).Contains(Squash(x)));
+            string? ItemOf(CardInfo c) => s.ItemFocus.FirstOrDefault(x => x.Length > 0 && ItemIs(Squash(c.Name), x));
             var f = all.FirstOrDefault(i => ItemOf(cards[i]) is { } w && !st.Focused.Contains("item:" + w) && Usable(cards[i], ActKind.Focus), -1);
             if (f >= 0)
             {
@@ -286,8 +286,16 @@ public static partial class CardDecider
         var (used, max) = p.Slots!.Value;
         if (p.IsChest)
             return s.AutoChest ? $"道具欄滿了（{used}/{max}）" : null;
+        // 有指定技能神祇（神祇清單裡有技能名，例如雷擊術）：Lv 20 選完神祇才按「自動技能」。
+        // 實測（2026-11-25）：Lv 20 前就按了自動技能，遊戲到 Lv 20 自己挑了火箭術，小幫手沒機會選
+        if (WantsSkillDeity(s) && !st.DeityPicked)
+            return null;
         return ReadyForGameAuto(s, st) ? $"技能欄滿了（{used}/{max}），放逐清單都放逐過了：" + string.Join("、", BanTargets(s)) : null;
     }
+
+    /// <summary>神祇清單裡有技能（不是「X神器」「X之神」）＝有指定技能神祇</summary>
+    public static bool WantsSkillDeity(PickSettings s)
+        => s.DeityList.Any(w => w.Length > 0 && !w.EndsWith("神器") && !w.EndsWith("之神"));
 
     public static bool ReadyForGameAuto(PickSettings s, RunPickState st)
     {
@@ -357,14 +365,14 @@ public static partial class CardDecider
 
     /// <summary>強制不選：技能「不選」、道具 ✕（神祇不算，神祇另有 IsBannedDeity）</summary>
     private static bool IsSkipped(CardInfo c, PickSettings s)
-        => !IsDeity(c) && (SkillOf(c, s.Skills.Skip) is not null || s.ItemBan.Any(x => x.Length > 0 && Squash(c.Name).Contains(Squash(x))));
+        => !IsDeity(c) && (SkillOf(c, s.Skills.Skip) is not null || s.ItemBan.Any(x => x.Length > 0 && ItemIs(Squash(c.Name), x)));
 
     private static bool IsBannedDeity(CardInfo c, PickSettings s) => IsDeity(c) && s.DeityBan.Any(n => SameDeity(c.Name, n));
 
     private static bool IsFavItem(CardInfo c, PickSettings s)
     {
         var n = Squash(c.Name);
-        return n.Length > 0 && s.ItemPrio.Any(w => w.Length > 0 && n.Contains(Squash(w)));
+        return n.Length > 0 && s.ItemPrio.Any(w => w.Length > 0 && ItemIs(n, w));
     }
 
     /// <summary>
@@ -396,7 +404,7 @@ public static partial class CardDecider
         var names = groups.FirstOrDefault(g => g.Value.Any(n => n.Length > 0 && name.Contains(Squash(n)))).Value;
         if (names is null)
             return false;
-        return names.Any(n => s.ItemPrio.Any(w => w.Length > 0 && Squash(n).Contains(Squash(w)))
+        return names.Any(n => s.ItemPrio.Any(w => w.Length > 0 && ItemIs(Squash(n), w))
             || st.Owned.Contains(SkillKey(n))
             || !treasureOff && TreasureItems.Any(t => Squash(n).Contains(t)));
     }
@@ -411,12 +419,24 @@ public static partial class CardDecider
     private static string DeityKey(string n) => Spaces().Replace(DeityNoise().Replace(OcrFix(n), ""), "");
 
     /// <summary>同 JS rarestIndex：最稀有的；一樣稀有取前面的</summary>
+    /// <summary>名字包含別的道具名的道具（「爆擊傷害秘藥」含「傷害秘藥」）：比對短的名字時要排除這些</summary>
+    private static readonly string[] LongItemNames = ["爆擊傷害秘藥", "持續傷害秘藥", "雙重詠唱祝福"];
+
+    /// <summary>
+    /// 卡名（已 Squash）是不是道具 w。不能只看「包含」：實測（2026-11-25）排名「傷害秘藥」時，「爆擊傷害秘藥 + 1」被當成傷害秘藥選走
+    /// </summary>
+    private static bool ItemIs(string name, string w)
+    {
+        var x = Squash(w);
+        return x.Length > 0 && name.Contains(x) && !LongItemNames.Any(l => l != x && l.Contains(x) && name.Contains(l));
+    }
+
     /// <summary>卡片在 ItemPrio 裡的位置（第一個對得上的；對不上回 int.MaxValue）</summary>
     private static int PrioRank(CardInfo c, PickSettings s)
     {
         var n = Squash(c.Name);
         for (var k = 0; k < s.ItemPrio.Count; k++)
-            if (s.ItemPrio[k].Length > 0 && n.Contains(Squash(s.ItemPrio[k])))
+            if (s.ItemPrio[k].Length > 0 && ItemIs(n, s.ItemPrio[k]))
                 return k;
         return int.MaxValue;
     }

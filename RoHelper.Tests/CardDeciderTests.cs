@@ -734,6 +734,23 @@ public class CardDeciderTests
         Assert.Equal(new PickDecision(PickDo.Pick, 1, "道具排名：傷害秘藥"), CardDecider.Decide(p, s, Treasure(300)));
     }
 
+    /// <summary>「爆擊傷害秘藥」不是「傷害秘藥」（名字包含也不算）</summary>
+    [Fact]
+    public void Rank_CritDamageElixirIsNotDamageElixir()
+    {
+        var p = Picker(true, Card(0, "爆擊傷害秘藥 + 1", rarity: 4), Card(1, "詠唱秘藥"));
+
+        Assert.Equal(new PickDecision(PickDo.Pick, 1, "道具排名：詠唱秘藥"), CardDecider.Decide(p, Ranked().ForRun(false), new RunPickState()));
+    }
+
+    [Fact]
+    public void ItemBan_DamageElixir_DoesNotBanCritDamageElixir()
+    {
+        var p = Picker(true, Card(0, "爆擊傷害秘藥", rarity: 2), Card(1, "回復藥水"));
+
+        Assert.Equal(0, CardDecider.Decide(p, Settings(itemBan: ["傷害秘藥"]), new RunPickState()).Index);
+    }
+
     /// <summary>野外和活動用不同排名：同樣三張卡，野外選尋寶藥水、活動選傷害秘藥</summary>
     [Fact]
     public void Rank_ExpeAndEvent_Differ()

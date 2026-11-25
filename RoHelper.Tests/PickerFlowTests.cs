@@ -190,6 +190,25 @@ public class PickerFlowTests
     private static PickerInfo WithSlots(bool chest, (int, int)? slots, params CardInfo[] cards)
         => new(chest, cards, new ActButton(ActKind.Reroll, new Rectangle(300, 470, 80, 30), true, 5), AutoBtn, slots);
 
+    /// <summary>有指定技能神祇（雷擊術）：選完 Lv 20 的技能神祇才按自動技能（不然遊戲會自己挑神祇）</summary>
+    [Fact]
+    public void GameAuto_WaitsUntilSkillDeityPicked()
+    {
+        var s = AutoSettings() with { DeityList = ["雷擊術"] };
+        var flow = new PickerFlow();
+        flow.State.Banished.UnionWith(["雷爆術", "屬性附加"]);
+        flow.Waiting(0, 350);
+
+        var before = flow.Act(WithSlots(false, (4, 4), Card(0, "火箭術"), Card(1, "冰箭術")), s, 400);
+        flow.State.DeityPicked = true;
+        flow.Gone();
+        flow.Waiting(5000, 350);
+        var after = flow.Act(WithSlots(false, (4, 4), Card(0, "火箭術"), Card(1, "冰箭術")), s, 5400);
+
+        Assert.NotEqual(PickDo.GameAuto, before.Decision?.Do);
+        Assert.Equal(PickDo.GameAuto, after.Decision?.Do);
+    }
+
     [Fact]
     public void GameAuto_SkillSlotsNotFull_NotYetEvenAfterBans()
     {

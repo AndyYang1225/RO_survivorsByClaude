@@ -82,6 +82,9 @@ public sealed class RunPickState
     /// </summary>
     public bool GameAutoSkill { get; set; }
 
+    /// <summary>這局已經選過技能神祇（Lv 20 的選擇畫面）</summary>
+    public bool DeityPicked { get; set; }
+
     /// <summary>這局已經按過寶箱卡畫面的「自動」</summary>
     public bool GameAutoChest { get; set; }
 

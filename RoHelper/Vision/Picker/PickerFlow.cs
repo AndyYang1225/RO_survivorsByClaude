@@ -99,6 +99,7 @@ public sealed class PickerFlow(Func<int, int>? random = null)
             if (now - (_seenAt ?? now) < DeitySettle)
                 return new("等技能神祇卡片出現…");
             var dd = CardDecider.DecideDeity(p, s);
+            State.DeityPicked = true;
             var chosen = p.Cards[dd.Index!.Value];
             _pendingPick = (dd.Index.Value, chosen.Name, chosen.Bounds);
             _readyAt = now + KeyTimeout;
