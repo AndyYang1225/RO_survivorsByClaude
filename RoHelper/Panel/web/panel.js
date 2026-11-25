@@ -167,7 +167,12 @@ function typing() {
 
 // 滑鼠按住時不重畫：重畫會換掉按鈕，mouseup 落空，這一下點擊就被吃掉
 let pressed = false;
-window.addEventListener('pointerdown', () => { pressed = true; }, true);
+// 下拉選單（select）的彈出清單常吃掉 pointerup，pressed 會卡住、之後的重畫全被擋；select 不算按住
+// （選完是 change，不會有按鈕被重畫換掉而吃掉點擊的問題）
+window.addEventListener('pointerdown', e => {
+  if (e.target instanceof Element && e.target.closest('select')) return;
+  pressed = true;
+}, true);
 const release = () => {
   pressed = false;
   // 等 click 事件跑完再補畫
@@ -180,6 +185,9 @@ const release = () => {
 };
 window.addEventListener('pointerup', release, true);
 window.addEventListener('pointercancel', release, true);
+// 選完下拉選單、或視窗失去焦點時 pointerup 可能不會來：一樣走放開流程，補畫就不會卡住
+document.addEventListener('change', release, true);
+window.addEventListener('blur', release);
 
 // 目前頁面實際顯示的狀態欄位；沒變就不必重畫
 function statusSig() {

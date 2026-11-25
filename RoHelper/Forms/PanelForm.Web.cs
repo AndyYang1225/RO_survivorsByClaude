@@ -34,25 +34,47 @@ public sealed partial class PanelForm
     public async Task UseWebPanelAsync(CoreWebView2Environment env)
     {
         _web = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = Color.FromArgb(0xE9, 0xED, 0xF5) };
-        SuspendLayout();
-        foreach (var old in Controls.Cast<Control>().ToList())
-        {
-            Controls.Remove(old);
-            old.Dispose();
-        }
-        Controls.Add(_web);
-        ResumeLayout();
-        _config.Changed += PostConfig;
-        _log.Changed += PostStatus;
-        _runs.Changed += PostStatus;
-
+        // try 從 _web 指定完就開始包：呼叫端不 await，第一個 await 之前丟的例外也要在這裡接住
         try
         {
+            SuspendLayout();
+            foreach (var old in Controls.Cast<Control>().ToList())
+            {
+                Controls.Remove(old);
+                old.Dispose();
+            }
+            Controls.Add(_web);
+            ResumeLayout();
+            _config.Changed += PostConfig;
+            _log.Changed += PostStatus;
+            _runs.Changed += PostStatus;
+
             await _web.EnsureCoreWebView2Async(env);
             var core = _web.CoreWebView2;
             core.Settings.AreDefaultContextMenusEnabled = false;
             core.Settings.IsZoomControlEnabled = false;
             core.Settings.IsStatusBarEnabled = false;
+            // 面板不需要瀏覽器自己的快速鍵（F5 重新整理、Ctrl+F、Ctrl+P…）；F8／F9 由 panel.js 的 keydown 轉發，不受影響
+            core.Settings.AreBrowserAcceleratorKeysEnabled = false;
+            // 面板只能待在自己的網頁：任何其他網址的導覽一律取消
+            core.NavigationStarting += (_, e) =>
+            {
+                if (!e.Uri.StartsWith(PanelAssets.Origin, StringComparison.OrdinalIgnoreCase))
+                    e.Cancel = true;
+            };
+            // 瀏覽器處理程序當掉時重新載入面板（在事件外執行，避免在 WebView2 事件裡重入）
+            core.ProcessFailed += (_, _) => BeginInvoke(() =>
+            {
+                try
+                {
+                    _webReady = false;
+                    _web?.CoreWebView2?.Reload();
+                }
+                catch (Exception)
+                {
+                    // 重新載入也失敗就維持現狀，不讓例外逃出去
+                }
+            });
             core.AddWebResourceRequestedFilter(PanelAssets.Origin + "*", CoreWebView2WebResourceContext.All);
             core.WebResourceRequested += (_, e) =>
             {
@@ -92,6 +114,22 @@ public sealed partial class PanelForm
         if (msg is null)
             return;
 
+        // 實際處理延後到事件之外：匯出、匯入、複製會開對話框（巢狀訊息迴圈），WebView2 不支援在事件處理裡這樣做
+        BeginInvoke(() =>
+        {
+            try
+            {
+                HandleWebMessage(msg);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, $"面板操作失敗 : {ex.Message}", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        });
+    }
+
+    private void HandleWebMessage(JsonObject msg)
+    {
         switch (EngineSchema.Str(msg["type"]))
         {
             case "ready":

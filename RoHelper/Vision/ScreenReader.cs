@@ -121,6 +121,9 @@ public sealed class ScreenReader
             walkers.Add((ScreenTemplates.TalkPrompt, null));
             walkers.Add((ScreenTemplates.FestivalHost, null));
         }
+        // 這幾個範本都是整張畫面走一半大小的金字塔：先算好一次，不用每個平行的執行緒各算一遍
+        if (walkers.Count > 0)
+            _ = frame.Half.Gray;
         var seen = FindAll(frame, dpr, walkers);
         if (expe)
             s = s with { LeaderPrompt = seen[ScreenTemplates.LeaderPrompt], ExpeLeader = seen[ScreenTemplates.ExpeLeader] };
@@ -158,7 +161,8 @@ public sealed class ScreenReader
         }
         var result = new Dictionary<string, Rectangle?>(finds.Count);
         for (var i = 0; i < finds.Count; i++)
-            result[finds[i].Name] = found[i];
+            // 用 Add：範本名稱重複要直接丟例外，不能默默蓋掉前一個的結果
+            result.Add(finds[i].Name, found[i]);
         return result;
     }
 

@@ -274,8 +274,6 @@ public sealed class VisionEngine : IAutomation, IDisposable
             // 步驟 2：辨識。在野外時只找返回角色，每 FullReadEvery 才完整辨識一次（看到大廳的東西後就每輪完整辨識，見 _lobbySeen）
             var readAt = Environment.TickCount64;
             var full = !_gate.InField || _lobbySeen || readAt - _fullReadAt >= FullReadEvery;
-            if (full)
-                _fullReadAt = readAt;
             // 範本比對丟到背景執行緒：這是每輪最花時間的一段，在 UI 執行緒做的話面板和遊戲視窗會跟著卡住。
             // 只有比對（截圖進、辨識結果出，不碰任何狀態）在背景，之後的判斷、改狀態、點擊照舊在 UI 執行緒，狀態一樣只有一個地方在改。
             // 比對期間 UI 執行緒空著，使用者可能剛好暫停或改了設定（設定會整份換掉）：這一輪是用舊設定判斷的，丟掉不執行，下一輪用新設定重來
@@ -283,6 +281,9 @@ public sealed class VisionEngine : IAutomation, IDisposable
             var screen = await Task.Run(() => reader.Read(shot, dpr, lobby: settings.AutoEvent, inField: !full, expe: settings.AutoExpe));
             if (!ReferenceEquals(_config.Current, cfgAtRead))
                 return;
+            // 這一輪確定有效才記下完整辨識的時間：被丟掉的那輪不算，下一輪會再做完整辨識
+            if (full)
+                _fullReadAt = readAt;
             // 返回角色不算：只找返回角色的那幾輪也找得到它，不必為了它改成每輪完整辨識
             _lobbySeen = full && FieldGate.LobbyVisible(screen with { Return = null });
 
