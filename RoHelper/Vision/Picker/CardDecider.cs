@@ -177,6 +177,38 @@ public static partial class CardDecider
     }
 
     /// <summary>
+    /// 技能神祇選擇畫面（<see cref="PickerInfo.IsDeityPick"/>）的選法，使用者 2026-11-25 確認：
+    /// 1. 「神祇」頁該職業的技能神祇優先順序（DeityList），跳過打 ✕ 的；2. 都沒有 → 「技能」頁優先順序；3. 還是沒有 → 第一張（沒打 ✕ 的）。
+    /// 每局只選一次（之後神祇自己升級），所以不鎖定、不跟寶箱神器的鎖定（RunPickState.DeityLock）混在一起。
+    /// 卡名是「火箭術 Deity」，OCR 常讀成「火箾術 De」：比對前去掉 Deity／De、套用 OcrFix。
+    /// </summary>
+    public static PickDecision DecideDeity(PickerInfo p, PickSettings s)
+    {
+        var cards = p.Cards;
+        var all = Enumerable.Range(0, cards.Count).ToList();
+        bool Is(int i, string w) => w.Length > 0 && DeitySkill(cards[i].Name).Contains(Squash(w));
+        var ok = all.Where(i => !s.DeityBan.Any(b => Is(i, b))).ToList();
+        if (ok.Count == 0)
+            ok = all;
+        foreach (var w in s.DeityList)
+        {
+            var i = ok.FirstOrDefault(i => Is(i, w), -1);
+            if (i >= 0)
+                return new(PickDo.Pick, i, "技能神祇優先：" + w);
+        }
+        foreach (var w in s.Skills.Order)
+        {
+            var i = ok.FirstOrDefault(i => Is(i, w), -1);
+            if (i >= 0)
+                return new(PickDo.Pick, i, "技能優先：" + w);
+        }
+        return new(PickDo.Pick, ok[0], "第一張");
+    }
+
+    /// <summary>技能神祇卡名去掉結尾的 Deity／De 和空白（「火箾術 De」→「火箭術」）</summary>
+    private static string DeitySkill(string name) => Squash(DeitySuffix().Replace(name, ""));
+
+    /// <summary>
     /// 尋寶卡：卡片文字有「尋寶」（同 JS hasTreasure），或卡名是已知的尋寶道具（尋寶藥水、驚奇秘藥、豐饒祝福；JS 註解列的）。
     /// 後者是 exe 新增：OCR 偶爾把「尋寶」二字讀錯，卡名比較大、比較好讀。
     /// </summary>
@@ -330,6 +362,9 @@ public static partial class CardDecider
 
     [GeneratedRegex(@"\s*\+\s*\d+.*$")]
     private static partial Regex PlusLevel();
+
+    [GeneratedRegex(@"\s*De(ity)?\s*$", RegexOptions.IgnoreCase)]
+    private static partial Regex DeitySuffix();
 
     [GeneratedRegex(@"\s+")]
     private static partial Regex Spaces();

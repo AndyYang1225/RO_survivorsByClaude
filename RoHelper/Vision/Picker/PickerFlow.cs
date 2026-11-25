@@ -25,6 +25,9 @@ public sealed class PickerFlow
     /// <summary>按了遊戲「自動」之後，選卡畫面還停這麼久沒被選走，就當沒按到</summary>
     private const long GameAutoTimeout = 5_000;
 
+    /// <summary>技能神祇選擇畫面出現後至少等多久才選（卡片淡入動畫，見 Act 裡的註解）</summary>
+    private const long DeitySettle = 2_000;
+
     private long? _seenAt;
     private long _readyAt;
     private (int Index, string Name, Rectangle Card)? _pendingPick;
@@ -67,6 +70,20 @@ public sealed class PickerFlow
                 var card = pending.Card;
                 return new($"選卡按鍵沒反應，改點卡片：{pending.Name}", Click: new Point(card.X + card.Width / 2, card.Y + card.Height / 2));
             }
+        }
+
+        // 技能神祇選擇畫面：沒有放逐／專注／重抽，也不受遊戲「自動」影響（自動技能不會幫你選神祇）；用數字鍵選，沒反應同樣會改點卡片。
+        // 出現後至少等 DeitySettle 才選，不管 tPick 設多少：卡片是一張張淡入的，實測（2026-11-25）打開 1.5 秒時第 3、4 張還半透明，
+        // OCR 把「火焰之壁 Deity」讀成「火壁 Deity」，太早讀會對不上設定的順序。每局只選一次，多等一點沒關係
+        if (p.IsDeityPick)
+        {
+            if (now - (_seenAt ?? now) < DeitySettle)
+                return new("等技能神祇卡片出現…");
+            var dd = CardDecider.DecideDeity(p, s);
+            var chosen = p.Cards[dd.Index!.Value];
+            _pendingPick = (dd.Index.Value, chosen.Name, chosen.Bounds);
+            _readyAt = now + KeyTimeout;
+            return new($"選技能神祇：{chosen.Name}（{dd.Why}）", Key: (char)('1' + dd.Index.Value), Decision: dd);
         }
 
         // 已經按過這種畫面的遊戲「自動」（升級卡＝自動技能、寶箱卡＝自動寶箱，分開記）：交給遊戲選。

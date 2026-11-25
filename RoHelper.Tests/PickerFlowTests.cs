@@ -368,4 +368,26 @@ public class PickerFlowTests
         Assert.False(flow.State.GameAuto);
         Assert.Empty(flow.State.Banished);
     }
+
+    [Fact]
+    public void DeityPick_PressesKeyOfChosenCard_IgnoresGameAuto()
+    {
+        var flow = new PickerFlow();
+        flow.State.GameAutoSkill = true;
+        var cards = new[] { "冰箾術 De", "雷擊術 De", "火箾術 De" }
+            .Select((n, i) => new CardInfo(i, new Rectangle(i * 240, 40, 214, 352), n, n, 0, false, false, [])).ToArray();
+        var deity = new PickerInfo(false, cards, null) { IsDeityPick = true };
+        var s = new PickSettings("巫師", true, Mage, false, [], false, "none", true, ["火箭術"], [], false, 1, [], [], [], true, true, true, 2, "treasure",
+            true, true, 350, false);
+        flow.Waiting(0, 350);
+
+        var early = flow.Act(deity, s, 1500);
+        var a = flow.Act(deity, s, 2100);
+
+        Assert.Null(early.Key);
+        Assert.Equal("等技能神祇卡片出現…", early.Status);
+        Assert.Equal('3', a.Key);
+        Assert.Equal("選技能神祇：火箾術 De（技能神祇優先：火箭術）", a.Status);
+        Assert.Equal("", flow.State.DeityLock);
+    }
 }

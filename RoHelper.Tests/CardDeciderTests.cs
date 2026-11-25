@@ -494,4 +494,32 @@ public class CardDeciderTests
 
         Assert.Equal(new PickDecision(PickDo.Pick, 1, "第一張"), CardDecider.Decide(picker, Settings(pickOrder: "first", treasureCap: true), Treasure(300)));
     }
+
+    private static PickerInfo DeityPick(params string[] names)
+        => new(false, names.Select((n, i) => Card(i, n, buttons: [])).ToArray(), null) { IsDeityPick = true };
+
+    [Fact]
+    public void Deity_FollowsDeityList_IgnoringOcrSuffix()
+    {
+        var d = CardDecider.DecideDeity(DeityPick("冰箾術 De", "雷擊術 De", "火箾術 De"), Settings(Skills(order: ["冰箭術"]), deity: ["火箭術", "雷擊術"]));
+
+        Assert.Equal(new PickDecision(PickDo.Pick, 2, "技能神祇優先：火箭術"), d);
+    }
+
+    [Fact]
+    public void Deity_BannedSkipped_ThenSkillOrder()
+    {
+        var d = CardDecider.DecideDeity(DeityPick("冰箾術 De", "雷擊術 Deity", "火焰之壁 De"),
+            Settings(Skills(order: ["火焰之壁", "雷擊術"]), deity: ["冰箭術"], deityBan: ["冰箭術"]));
+
+        Assert.Equal(new PickDecision(PickDo.Pick, 2, "技能優先：火焰之壁"), d);
+    }
+
+    [Fact]
+    public void Deity_NothingMatches_FirstNotBanned()
+    {
+        var d = CardDecider.DecideDeity(DeityPick("冰箾術 De", "雷擊術 De"), Settings(deityBan: ["冰箭術"]));
+
+        Assert.Equal(new PickDecision(PickDo.Pick, 1, "第一張"), d);
+    }
 }
