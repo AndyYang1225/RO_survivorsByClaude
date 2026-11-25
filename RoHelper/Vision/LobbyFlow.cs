@@ -147,11 +147,14 @@ public sealed class LobbyFlow
         if (c.Paused)
             return new("已暫停");
 
-        // 看到結算以外的大廳畫面＝上一次結算已經結束，之後再看到「返回角色」就是新的一局
-        if (s.Solo is not null || s.Start is not null || s.GoField is not null || s.FestivalHost is not null || s.TalkPrompt is not null
+        // 看到結算以外的大廳畫面＝上一次結算已經結束，之後再看到「返回角色」就是新的一局。
+        // 畫面上還有「返回角色」時不算：大廳畫面不會有這顆按鈕，同時認到的大廳按鈕是誤判
+        // （實測 2026-11-25：死亡結算畫面上方讓「前往野外」範本到 0.908，同一局每 1～2 秒重記一次）
+        if (s.Return is null
+            && (s.Solo is not null || s.Start is not null || s.GoField is not null || s.FestivalHost is not null || s.TalkPrompt is not null
             || s.Title is not null || s.CharSelect is not null || s.Discard is not null || s.DiscardOk is not null || s.AfkOk is not null || s.ChannelNo is not null
             || s.ExpeLeader is not null || s.LeaderPrompt is not null || s.StageList is not null || s.DiffTitle is not null
-            || s.PartyReady is not null || s.PartyChannel is not null)
+            || s.PartyReady is not null || s.PartyChannel is not null))
             _returnAt = null;
         var limit = c.RunLimit && c.Runs >= c.RunLimitN;
 
