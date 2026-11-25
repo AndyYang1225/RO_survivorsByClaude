@@ -165,8 +165,33 @@ function typing() {
   return a && $main.contains(a) && a.tagName === 'INPUT' && (a.type === 'text' || a.type === 'number');
 }
 
+// 滑鼠按住時不重畫：重畫會換掉按鈕，mouseup 落空，這一下點擊就被吃掉
+let pressed = false;
+window.addEventListener('pointerdown', () => { pressed = true; }, true);
+const release = () => {
+  pressed = false;
+  // 等 click 事件跑完再補畫
+  setTimeout(() => {
+    if (renderPending && !pressed && !typing()) {
+      renderPending = false;
+      render();
+    }
+  }, 0);
+};
+window.addEventListener('pointerup', release, true);
+window.addEventListener('pointercancel', release, true);
+
+// 目前頁面實際顯示的狀態欄位；沒變就不必重畫
+function statusSig() {
+  const s = state.status || {};
+  if (state.page === 'overview') return JSON.stringify([s.action, s.treasure, s.next]);
+  if (state.page === 'records') return JSON.stringify([s.logCount, s.runsRecorded]);
+  return '';
+}
+let renderedSig = '';
+
 function renderSoon() {
-  if (typing()) {
+  if (pressed || typing()) {
     renderPending = true;
     return;
   }
@@ -174,13 +199,15 @@ function renderSoon() {
 }
 
 $main.addEventListener('focusout', () => setTimeout(() => {
-  if (renderPending && !typing()) {
+  // 按著滑鼠時留給 pointerup 補畫
+  if (renderPending && !pressed && !typing()) {
     renderPending = false;
     render();
   }
 }, 0));
 
 function render() {
+  renderedSig = statusSig();
   const top = $main.scrollTop;
   $main.replaceChildren(...pageContent());
   $main.scrollTop = top;
@@ -274,7 +301,11 @@ function ruleRow(r) {
       value: Math.min(r.max, Math.max(r.min, num(r.key + 'N', r.min))),
       onchange: e => {
         const v = Math.round(Number(e.target.value));
-        if (Number.isFinite(v)) patch({ [r.key + 'N']: Math.min(r.max, Math.max(r.min, v)) });
+        if (!Number.isFinite(v)) return;
+        const c = Math.min(r.max, Math.max(r.min, v));
+        // 設定值沒變就不會重畫，欄位要自己改回夾過的值
+        e.target.value = c;
+        patch({ [r.key + 'N']: c });
       },
     });
     row.append(h('span', { class: 'label' }, before), input, h('span', { class: 'label' }, after));
@@ -489,7 +520,7 @@ window.chrome.webview.addEventListener('message', e => {
     case 'status':
       state.status = m.status || {};
       // 狀態一秒變好幾次，只有會顯示狀態的頁面才重畫
-      if (state.page === 'overview' || state.page === 'records') renderSoon();
+      if ((state.page === 'overview' || state.page === 'records') && statusSig() !== renderedSig) renderSoon();
       break;
     case 'window':
       state.topMost = !!m.topMost;
