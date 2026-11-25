@@ -13,8 +13,15 @@ public sealed record PickerAction(string Status, char? Key = null, Point? Click 
 /// </summary>
 public sealed class PickerFlow(Func<int, int>? random = null)
 {
-    /// <summary>放逐／專注／重抽之後，等畫面換成新卡片的時間</summary>
+    /// <summary>專注、改點卡片之後的等待（卡片本身不換）</summary>
     private const long Settle = 400;
+
+    /// <summary>
+    /// 放逐、重抽全部、單張重抽之後：換上來的卡片會重新淡入，等久一點才讀。
+    /// 實測（2026-11-25，C 柏伊亞嵐島）：重抽全部後 0.4 秒就讀，淡入中的「火焰之壁」被讀成「升火 , 內的」、也沒看到「新！」，
+    /// 認不出是「不選」的技能，被當成一般卡用「最稀有」選走
+    /// </summary>
+    private const long NewCardSettle = 1_000;
 
     /// <summary>
     /// 按了選卡數字鍵之後，畫面還在就改點卡片的等待時間。
@@ -66,6 +73,7 @@ public sealed class PickerFlow(Func<int, int>? random = null)
 
     public PickerAction Act(PickerInfo p, PickSettings s, long now)
     {
+        s = s.ForRun(State.IsEvent);
         var kind = p.IsChest ? "選寶箱卡" : "選升級卡";
         if (!(p.IsChest ? s.PickChest : s.PickSkill))
             return new("等你選卡");
@@ -127,7 +135,7 @@ public sealed class PickerFlow(Func<int, int>? random = null)
             case PickDo.Banish:
                 if (CardDecider.SkillOf(p.Cards[d.Index!.Value], CardDecider.BanTargets(s)) is { } bw)
                     State.Banished.Add(bw);
-                _readyAt = now + Settle;
+                _readyAt = now + NewCardSettle;
                 return new($"放逐：{name}（{d.Why}）", Click: Center(p.Cards[d.Index!.Value].Button(ActKind.Banish)!.Bounds), Decision: d);
             case PickDo.Focus:
                 State.Focused.Add(d.FocusKey!);
@@ -136,11 +144,11 @@ public sealed class PickerFlow(Func<int, int>? random = null)
             case PickDo.Reroll:
                 if (p.IsChest)
                     _screenRerolls++;
-                _readyAt = now + Settle;
+                _readyAt = now + NewCardSettle;
                 return new($"重抽全部（{d.Why}）", Click: Center(p.RerollAll!.Bounds), Decision: d);
             case PickDo.RerollCard:
                 _screenRerolls++;
-                _readyAt = now + Settle;
+                _readyAt = now + NewCardSettle;
                 return new($"單張重抽：{name}（{d.Why}）", Click: Center(p.Cards[d.Index!.Value].Button(ActKind.Reroll)!.Bounds), Decision: d);
         }
 

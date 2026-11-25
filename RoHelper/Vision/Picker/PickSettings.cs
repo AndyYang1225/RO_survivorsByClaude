@@ -27,8 +27,27 @@ public sealed partial record PickSettings(
     bool RerollAll, bool AvoidNew, bool BanishKeep, int BanishKeepN, string PickOrder,
     bool PickSkill, bool PickChest, int PickDelay, bool DebugLog, bool AutoAfterBan = false,
     bool TreasureCap = false, int TreasureCapN = 300, bool HpAfterCap = false, bool AutoChest = true,
-    bool ChestReroll = false, bool Party = false)
+    bool ChestReroll = false, bool Party = false,
+    IReadOnlyList<IReadOnlyList<string>>? RankExpe = null, IReadOnlyList<IReadOnlyList<string>>? RankEvent = null,
+    bool ItemPrioRanked = false)
 {
+    /// <summary>
+    /// 這局用的設定：有設「道具排名」（cfg itemRankExpe／itemRankEvent：{類別: [第1, 第2, 第3]}）就照野外或活動換掉 ItemPrio，
+    /// 排成「各類第 1 名 → 各類第 2 名 → 各類第 3 名」，CardDecider 照這個順序選（使用者 2026-11-25）。沒設就照舊用 itemPrio
+    /// </summary>
+    public PickSettings ForRun(bool isEvent)
+    {
+        if ((isEvent ? RankEvent : RankExpe) is not { Count: > 0 } ranks)
+            return this;
+        var order = new List<string>();
+        for (var k = 0; k < ranks.Max(r => r.Count); k++)
+            order.AddRange(ranks.Where(r => k < r.Count).Select(r => r[k]));
+        return this with { ItemPrio = order, ItemPrioRanked = true };
+    }
+
+    private static List<IReadOnlyList<string>>? Ranks(JsonNode? node)
+        => node is JsonObject o && o.Count > 0 ? [.. o.Select(kv => (IReadOnlyList<string>)List(kv.Value))] : null;
+
     public static PickSettings From(ConfigStore c)
     {
         // 目前職業：面板選「自動」時用上次偵測到的職業（設定裡的 curJob；視覺模式進野外後讀角色框寫入，見 FieldInfoReader）
@@ -53,7 +72,8 @@ public sealed partial record PickSettings(
             c.GetBool("treasureCap"), c.GetInt("treasureCapN", 300), c.GetBool("hpAfterCap"),
             c.Current["autoChest"] is null || c.GetBool("autoChest"),
             c.Current["chestReroll"] is null || c.GetBool("chestReroll"),
-            c.GetString("partyRole", "off") is "leader" or "member");
+            c.GetString("partyRole", "off") is "leader" or "member",
+            Ranks(c.Current["itemRankExpe"]), Ranks(c.Current["itemRankEvent"]));
     }
 
     private static List<string> List(JsonNode? node) => ConfigStore.ToStringList(node);

@@ -88,9 +88,9 @@ public class PickerFlowTests
         flow.Waiting(0, 350);
         flow.Act(Upgrade(Card(0, "雷爆術", isNew: false), Card(1, "冰箭術")), Settings(Mage), 400);
 
-        // 動作在 400，等 400 ms 畫面換卡：800 之前還在等
-        Assert.True(flow.Waiting(750, 350));
-        Assert.False(flow.Waiting(850, 350));
+        // 放逐在 400，換上來的卡要淡入，等 1 秒：1400 之前還在等
+        Assert.True(flow.Waiting(1350, 350));
+        Assert.False(flow.Waiting(1450, 350));
     }
 
     [Fact]
@@ -418,8 +418,8 @@ public class PickerFlowTests
 
         Assert.Equal(new Point(20, 415), a.Click);
         Assert.StartsWith("單張重抽：傷害秘藥", a.Status);
-        Assert.True(flow.Waiting(750, 350));
-        Assert.False(flow.Waiting(850, 350));
+        Assert.True(flow.Waiting(1350, 350));
+        Assert.False(flow.Waiting(1450, 350));
     }
 
     [Fact]

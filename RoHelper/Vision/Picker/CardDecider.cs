@@ -161,7 +161,9 @@ public static partial class CardDecider
         var noTreasure = capped || st.IsEvent;
         if (noTreasure)
         {
-            var nt = pool.Where(i => !HasTreasure(cards[i])).ToList();
+            // 活動：排名裡的道具（例如活動排第 1 的智慧神器，附帶尋寶率）照排名選，不因為帶尋寶率被濾掉。
+            // 尋寶率已達上限時一律不選尋寶卡（上限優先於排名）
+            var nt = pool.Where(i => !HasTreasure(cards[i]) || !capped && IsFavItem(cards[i], s)).ToList();
             if (nt.Count > 0)
                 pool = nt;
         }
@@ -176,7 +178,15 @@ public static partial class CardDecider
         {
             var fav = pool.Where(i => IsFavItem(cards[i], s)).ToList();
             if (fav.Count > 0)
-                return new(PickDo.Pick, RarestIndex(cards, fav), "勾選的道具");
+            {
+                // 有設道具排名：照 ItemPrio 的順序（見 PickSettings.ForRun），各類的第 1 名先於第 2 名，同名次選比較稀有的。
+                // 只有勾選（沒有先後）：照舊選勾選裡最稀有的
+                if (!s.ItemPrioRanked)
+                    return new(PickDo.Pick, RarestIndex(cards, fav), "勾選的道具");
+                var best = fav.Min(i => PrioRank(cards[i], s));
+                var top = fav.Where(i => PrioRank(cards[i], s) == best).ToList();
+                return new(PickDo.Pick, RarestIndex(cards, top), "道具排名：" + s.ItemPrio[best]);
+            }
         }
         if (capped && s.HpAfterCap)
         {
@@ -401,6 +411,16 @@ public static partial class CardDecider
     private static string DeityKey(string n) => Spaces().Replace(DeityNoise().Replace(OcrFix(n), ""), "");
 
     /// <summary>同 JS rarestIndex：最稀有的；一樣稀有取前面的</summary>
+    /// <summary>卡片在 ItemPrio 裡的位置（第一個對得上的；對不上回 int.MaxValue）</summary>
+    private static int PrioRank(CardInfo c, PickSettings s)
+    {
+        var n = Squash(c.Name);
+        for (var k = 0; k < s.ItemPrio.Count; k++)
+            if (s.ItemPrio[k].Length > 0 && n.Contains(Squash(s.ItemPrio[k])))
+                return k;
+        return int.MaxValue;
+    }
+
     private static int RarestIndex(IReadOnlyList<CardInfo> cards, List<int> pool)
     {
         var top = pool.Max(i => cards[i].Rarity);

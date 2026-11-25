@@ -33,6 +33,10 @@ public sealed partial class PanelForm
     /// </summary>
     public async Task UseWebPanelAsync(CoreWebView2Environment env)
     {
+        // 面板設定成隱藏時，視窗從沒顯示過就沒有 Handle：網頁送來的 ready 要 BeginInvoke 到面板，沒有 Handle 會丟例外（被 WebView2 吞掉），
+        // 面板就永遠停在「等待遊戲載入…」。先建好 Handle（不會顯示視窗）
+        if (!IsHandleCreated)
+            CreateHandle();
         _web = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = Color.FromArgb(0xE9, 0xED, 0xF5) };
         // try 從 _web 指定完就開始包：呼叫端不 await，第一個 await 之前丟的例外也要在這裡接住
         try

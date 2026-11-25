@@ -674,4 +674,73 @@ public class CardDeciderTests
 
         Assert.Equal(PickDo.Pick, d.Do);
     }
+
+    // ── 道具排名（野外／活動分開，使用者 2026-11-25）──
+
+    private static PickSettings Ranked()
+        => Settings() with
+        {
+            RankExpe = [["尋寶藥水", "貪婪藥水", "傷害藥水"], ["驚奇秘藥", "傷害秘藥", "詠唱秘藥"], ["貪婪神器", "智慧神器", "思想神器"]],
+            RankEvent = [["傷害藥水", "詠唱藥水", "護甲藥水"], ["傷害秘藥", "詠唱秘藥", "生命秘藥"], ["智慧神器", "思想神器", "戰爭神器"]],
+        };
+
+    [Fact]
+    public void Rank_ForRun_OrdersFirstsThenSeconds()
+    {
+        var s = Ranked().ForRun(isEvent: false);
+
+        Assert.True(s.ItemPrioRanked);
+        Assert.Equal(["尋寶藥水", "驚奇秘藥", "貪婪神器", "貪婪藥水", "傷害秘藥", "智慧神器", "傷害藥水", "詠唱秘藥", "思想神器"], s.ItemPrio);
+    }
+
+    [Fact]
+    public void Rank_NotSet_KeepsItemPrio()
+    {
+        var s = Settings(itemPrio: ["傷害祝福"]).ForRun(isEvent: true);
+
+        Assert.False(s.ItemPrioRanked);
+        Assert.Equal(["傷害祝福"], s.ItemPrio);
+    }
+
+    /// <summary>不同類：第 1 名先於第 2 名，就算第 2 名比較稀有</summary>
+    [Fact]
+    public void Rank_Event_FirstBeatsRarerSecond()
+    {
+        var p = Picker(true, Card(0, "詠唱秘藥", rarity: 3), Card(1, "傷害藥水", rarity: 0), Card(2, "回復祝福", rarity: 4));
+
+        var d = CardDecider.Decide(p, Ranked().ForRun(isEvent: true), new RunPickState { IsEvent = true });
+
+        Assert.Equal(new PickDecision(PickDo.Pick, 1, "道具排名：傷害藥水"), d);
+    }
+
+    /// <summary>活動排第 1 的智慧神器帶尋寶率：活動會濾掉尋寶卡，但排名裡的照選</summary>
+    [Fact]
+    public void Rank_Event_RankedTreasureArtifactNotFiltered()
+    {
+        var p = Picker(true, Card(0, "生命秘藥", rarity: 2), Card(1, "智慧神器", text: "神器 +20% 經驗值 +4% 尋寶率"));
+
+        var d = CardDecider.Decide(p, Ranked().ForRun(isEvent: true), new RunPickState { IsEvent = true });
+
+        Assert.Equal(new PickDecision(PickDo.Pick, 1, "道具排名：智慧神器"), d);
+    }
+
+    /// <summary>野外尋寶率已達上限：排第 1 的尋寶藥水也不選，改選排名下一個</summary>
+    [Fact]
+    public void Rank_Capped_SkipsRankedTreasure()
+    {
+        var p = Picker(true, Card(0, "尋寶藥水", text: "+10% 尋寶率"), Card(1, "傷害秘藥"));
+        var s = (Ranked() with { TreasureCap = true, TreasureCapN = 300 }).ForRun(false);
+
+        Assert.Equal(new PickDecision(PickDo.Pick, 1, "道具排名：傷害秘藥"), CardDecider.Decide(p, s, Treasure(300)));
+    }
+
+    /// <summary>野外和活動用不同排名：同樣三張卡，野外選尋寶藥水、活動選傷害秘藥</summary>
+    [Fact]
+    public void Rank_ExpeAndEvent_Differ()
+    {
+        var p = Picker(true, Card(0, "尋寶藥水", text: "+10% 尋寶率"), Card(1, "傷害秘藥"), Card(2, "STR 料理"));
+
+        Assert.Equal(0, CardDecider.Decide(p, Ranked().ForRun(false), new RunPickState()).Index);
+        Assert.Equal(1, CardDecider.Decide(p, Ranked().ForRun(true), new RunPickState { IsEvent = true }).Index);
+    }
 }
