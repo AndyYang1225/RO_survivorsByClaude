@@ -1,3 +1,5 @@
+using System.Runtime.ExceptionServices;
+
 namespace RoHelper.Vision;
 
 /// <summary>
@@ -12,6 +14,7 @@ namespace RoHelper.Vision;
 /// 1. 開發介面存範本時沒辦法指定範圍（一律整張畫面）；整張畫面找會走金字塔，實測（ExpeditionScreenTests）小範本位置的奇偶跟範本不同時常找不到
 ///    （隊長交談提示、難度標題整張畫面找 0.86、0.85，限縮範圍後 1.0）。
 /// 2. 「遠征出發」只在遠征視窗標題的右下方找、難度對話框的「前往野外」用既有的「前往野外」範本在難度標題下方找（對話框比活動的高，不在範本自己的範圍裡）。
+/// 同一組裡互不相依的範本同時比對（<see cref="FindAll"/>），結果跟逐一比對相同。本身沒有狀態，可以在背景執行緒呼叫（VisionEngine 就是這樣用）。
 /// </summary>
 public sealed class ScreenReader
 {
@@ -21,42 +24,74 @@ public sealed class ScreenReader
 
     public ScreenState Read(Frame frame, double dpr, bool lobby, bool inField = false, bool expe = false)
     {
-        Rectangle? Find(string name) => _templates.Find(frame, name, dpr)?.Bounds;
+        // 先算好截圖的灰階：下面多個執行緒同時比對範本時不用各自第一次計算
+        _ = frame.Gray;
 
         // Missing 照樣算（只查字典，不花時間）：面板的「缺少範本」提示不會因為進野外就忽隱忽現
         var missing = ScreenTemplates.All.Concat(expe ? ScreenTemplates.Expedition : []).Where(n => _templates.Get(n) is null).ToList();
-        // 組隊結算的戰利品分配（在結算畫面上，野外模式也要看；範本沒存時 Find 直接回 null）
-        var greed = Find(ScreenTemplates.LootGreed);
-        var lootReady = greed is { } g
-            ? FindIn(ScreenTemplates.PartyReady, Rectangle.Intersect(new Rectangle(g.Right, g.Y - (int)(15 * dpr), (int)(200 * dpr), g.Height + (int)(30 * dpr)), new Rectangle(0, 0, frame.Width, frame.Height)))
-            : null;
         if (inField)
-            return new ScreenState(new Size(frame.Width, frame.Height), dpr) { Return = Find(ScreenTemplates.Return), LootGreed = greed, LootReady = lootReady, Missing = missing };
+        {
+            // 組隊結算的戰利品分配（在結算畫面上，野外模式也要看；範本沒存時 Find 直接回 null）
+            var field = FindAll(frame, dpr, [(ScreenTemplates.Return, null), (ScreenTemplates.LootGreed, null)]);
+            var fieldGreed = field[ScreenTemplates.LootGreed];
+            return new ScreenState(new Size(frame.Width, frame.Height), dpr)
+            {
+                Return = field[ScreenTemplates.Return],
+                LootGreed = fieldGreed,
+                LootReady = LootReady(fieldGreed),
+                Missing = missing,
+            };
+        }
 
+        // 步驟 1：按鈕那一組。彼此互不相依，同時找；要靠別的範本位置決定範圍的（戰利品的準備好、遠征出發、難度的前往野外）等這一組找完再找
+        List<(string Name, Rectangle? Area)> buttons =
+        [
+            (ScreenTemplates.Solo, null),
+            (ScreenTemplates.Return, null),
+            (ScreenTemplates.Start, null),
+            (ScreenTemplates.GoField, null),
+            (ScreenTemplates.Discard, null),
+            (ScreenTemplates.DiscardOk, null),
+            (ScreenTemplates.AfkOk, null),
+            (ScreenTemplates.ChannelNo, null),
+            (ScreenTemplates.Title, null),
+            (ScreenTemplates.CharSelect, null),
+            // 組隊的兩個對話框（範本沒存時 Find 直接回 null，不花時間）
+            (ScreenTemplates.PartyReady, null),
+            (ScreenTemplates.PartyChannel, null),
+            (ScreenTemplates.LootGreed, null),
+            (ScreenTemplates.MaintenanceRetry, null),
+        ];
+        if (expe)
+        {
+            buttons.Add((ScreenTemplates.StageList, StageListArea(frame, dpr)));
+            buttons.Add((ScreenTemplates.DiffTitle, DiffTitleArea(frame, dpr)));
+        }
+        var hit = FindAll(frame, dpr, buttons);
+        var greed = hit[ScreenTemplates.LootGreed];
         var s = new ScreenState(new Size(frame.Width, frame.Height), dpr)
         {
-            Solo = Find(ScreenTemplates.Solo),
-            Return = Find(ScreenTemplates.Return),
-            Start = Find(ScreenTemplates.Start),
-            GoField = Find(ScreenTemplates.GoField),
-            Discard = Find(ScreenTemplates.Discard),
-            DiscardOk = Find(ScreenTemplates.DiscardOk),
-            AfkOk = Find(ScreenTemplates.AfkOk),
-            ChannelNo = Find(ScreenTemplates.ChannelNo),
-            Title = Find(ScreenTemplates.Title),
-            CharSelect = Find(ScreenTemplates.CharSelect),
-            // 組隊的兩個對話框（範本沒存時 Find 直接回 null，不花時間）
-            PartyReady = Find(ScreenTemplates.PartyReady),
-            PartyChannel = Find(ScreenTemplates.PartyChannel),
+            Solo = hit[ScreenTemplates.Solo],
+            Return = hit[ScreenTemplates.Return],
+            Start = hit[ScreenTemplates.Start],
+            GoField = hit[ScreenTemplates.GoField],
+            Discard = hit[ScreenTemplates.Discard],
+            DiscardOk = hit[ScreenTemplates.DiscardOk],
+            AfkOk = hit[ScreenTemplates.AfkOk],
+            ChannelNo = hit[ScreenTemplates.ChannelNo],
+            Title = hit[ScreenTemplates.Title],
+            CharSelect = hit[ScreenTemplates.CharSelect],
+            PartyReady = hit[ScreenTemplates.PartyReady],
+            PartyChannel = hit[ScreenTemplates.PartyChannel],
             LootGreed = greed,
-            LootReady = lootReady,
-            MaintenanceRetry = Find(ScreenTemplates.MaintenanceRetry),
+            LootReady = LootReady(greed),
+            MaintenanceRetry = hit[ScreenTemplates.MaintenanceRetry],
             Missing = missing,
         };
         if (expe)
         {
-            var list = FindIn(ScreenTemplates.StageList, StageListArea(frame, dpr));
-            var diff = FindIn(ScreenTemplates.DiffTitle, DiffTitleArea(frame, dpr));
+            var list = hit[ScreenTemplates.StageList];
+            var diff = hit[ScreenTemplates.DiffTitle];
             // 組隊時難度對話框的按鈕是「向隊伍提議」（同一個位置）
             var go = diff is { } d ? FindIn(ScreenTemplates.GoField, DiffGoArea(d, dpr)) : null;
             var propose = diff is { } d2 && go is null ? FindIn(ScreenTemplates.PartyPropose, DiffGoArea(d2, dpr)) : null;
@@ -73,22 +108,61 @@ public sealed class ScreenReader
             || s.Discard is not null || s.DiscardOk is not null || s.AfkOk is not null || s.ChannelNo is not null || s.Title is not null || s.CharSelect is not null
             || s.StageList is not null || s.DiffTitle is not null || s.PartyReady is not null || s.PartyChannel is not null || s.LootGreed is not null || s.MaintenanceRetry is not null)
             return s;
+
+        // 步驟 2：沒有按鈕才找會跟著畫面移動的 NPC 名字和交談提示（一樣同時找）
+        List<(string Name, Rectangle? Area)> walkers = [];
         if (expe)
-            s = s with
-            {
-                LeaderPrompt = FindIn(ScreenTemplates.LeaderPrompt, LeaderPromptArea(frame, dpr)),
-                ExpeLeader = Find(ScreenTemplates.ExpeLeader),
-            };
+        {
+            walkers.Add((ScreenTemplates.LeaderPrompt, LeaderPromptArea(frame, dpr)));
+            walkers.Add((ScreenTemplates.ExpeLeader, null));
+        }
         if (lobby)
-            s = s with
-            {
-                TalkPrompt = Find(ScreenTemplates.TalkPrompt),
-                FestivalHost = Find(ScreenTemplates.FestivalHost),
-            };
+        {
+            walkers.Add((ScreenTemplates.TalkPrompt, null));
+            walkers.Add((ScreenTemplates.FestivalHost, null));
+        }
+        var seen = FindAll(frame, dpr, walkers);
+        if (expe)
+            s = s with { LeaderPrompt = seen[ScreenTemplates.LeaderPrompt], ExpeLeader = seen[ScreenTemplates.ExpeLeader] };
+        if (lobby)
+            s = s with { TalkPrompt = seen[ScreenTemplates.TalkPrompt], FestivalHost = seen[ScreenTemplates.FestivalHost] };
         return s;
 
         Rectangle? FindIn(string name, Rectangle area) => _templates.FindIn(frame, name, dpr, area)?.Bounds;
+
+        // 戰利品分配的「準備好了」在「其餘全 Greed」右邊找
+        Rectangle? LootReady(Rectangle? greedAt) => greedAt is { } g
+            ? FindIn(ScreenTemplates.PartyReady, Rectangle.Intersect(new Rectangle(g.Right, g.Y - (int)(15 * dpr), (int)(200 * dpr), g.Height + (int)(30 * dpr)), new Rectangle(0, 0, frame.Width, frame.Height)))
+            : null;
     }
+
+    /// <summary>
+    /// 同時比對多個範本：每個範本的比對互不相依，結果跟一個一個找完全一樣。Area＝null 時用範本自己存的搜尋範圍，否則只在 Area 裡找。
+    /// 同時跑的數量限制在核心數的一半：遊戲畫面（WebView2）也要 CPU，全部核心都拿來比對會讓遊戲本身掉幀。
+    /// 比對中丟的例外拆開 AggregateException 再拋，面板顯示的才是真正的原因（不是「發生一或多個錯誤」）。
+    /// </summary>
+    private Dictionary<string, Rectangle?> FindAll(Frame frame, double dpr, IReadOnlyList<(string Name, Rectangle? Area)> finds)
+    {
+        var found = new Rectangle?[finds.Count];
+        try
+        {
+            Parallel.For(0, finds.Count, Parallelism, i =>
+            {
+                var (name, area) = finds[i];
+                found[i] = (area is { } a ? _templates.FindIn(frame, name, dpr, a) : _templates.Find(frame, name, dpr))?.Bounds;
+            });
+        }
+        catch (AggregateException ex) when (ex.InnerExceptions.Count > 0)
+        {
+            ExceptionDispatchInfo.Capture(ex.InnerExceptions[0]).Throw();
+        }
+        var result = new Dictionary<string, Rectangle?>(finds.Count);
+        for (var i = 0; i < finds.Count; i++)
+            result[finds[i].Name] = found[i];
+        return result;
+    }
+
+    private static readonly ParallelOptions Parallelism = new() { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2) };
 
     /// <summary>遠征視窗標題的搜尋範圍：畫面左半、上面 1/3（實測標題範本在 (522, 32)，對話框水平置中）</summary>
     internal static Rectangle StageListArea(Frame f, double dpr) => new(0, 0, f.Width / 2, f.Height / 3);

@@ -1,3 +1,7 @@
+using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
+using System.Runtime.Intrinsics.X86;
+
 namespace RoHelper.Vision;
 
 /// <summary>範本比對結果。Score＝1 − 平均灰階差／255，1 代表完全一樣</summary>
@@ -128,8 +132,27 @@ public static class TemplateMatcher
 
     /// <summary>
     /// 平均絕對差。累積的差已經超過 limit（目前最佳）就提早回傳 MaxValue：這個位置不可能更好了，省下大部分的計算。
+    /// 每一列用 SIMD 一次算 32／16 點（<see cref="RowSum"/>），不支援的 CPU 或取樣不是 1、2 時退回 <see cref="DiffScalar"/>。
+    /// 結果跟純量版逐位相同（整數加總、同樣在每列結束時檢查門檻），粗找的候選排序不會因此改變（見 TemplateMatcherTests）。
     /// </summary>
-    private static double Diff(byte[] f, int fw, byte[] t, int tw, int th, int ox, int oy, int sample, double limit)
+    internal static double Diff(byte[] f, int fw, byte[] t, int tw, int th, int ox, int oy, int sample, double limit)
+    {
+        if (!Sse2.IsSupported || sample is not (1 or 2))
+            return DiffScalar(f, fw, t, tw, th, ox, oy, sample, limit);
+        long total = (long)((tw + sample - 1) / sample) * ((th + sample - 1) / sample);
+        var cap = limit == double.MaxValue ? long.MaxValue : (long)(limit * total);
+        long sum = 0;
+        for (var y = 0; y < th; y += sample)
+        {
+            sum += RowSum(f, (oy + y) * fw + ox, t, y * tw, tw, sample);
+            if (sum > cap)
+                return double.MaxValue;
+        }
+        return (double)sum / total;
+    }
+
+    /// <summary>純量版的 <see cref="Diff"/>：不支援 SIMD 時用，也是測試 SIMD 版的對照組</summary>
+    internal static double DiffScalar(byte[] f, int fw, byte[] t, int tw, int th, int ox, int oy, int sample, double limit)
     {
         long total = (long)((tw + sample - 1) / sample) * ((th + sample - 1) / sample);
         var cap = limit == double.MaxValue ? long.MaxValue : (long)(limit * total);
@@ -144,5 +167,47 @@ public static class TemplateMatcher
                 return double.MaxValue;
         }
         return (double)sum / total;
+    }
+
+    /// <summary>
+    /// 一列的絕對差總和（截圖從 fi 起、範本從 ti 起，共 tw 點，每 sample 點取 1 點）。
+    /// 用 psadbw（SumAbsoluteDifferences：每 8 bytes 的絕對差加總）；sample 2 時先把奇數位的 byte 兩邊都遮成 0，|0 − 0|＝0 不影響總和。
+    /// 每段 SIMD 都從偶數位開始（16 的倍數），奇偶跟純量版一致；剩下不滿一段的尾巴用純量補。
+    /// 讀取不會超出這一列：每段都在 x + 寬度 ≤ tw 以內才用 SIMD。
+    /// </summary>
+    private static long RowSum(byte[] f, int fi, byte[] t, int ti, int tw, int sample)
+    {
+        ref var fr = ref MemoryMarshal.GetArrayDataReference(f);
+        ref var tr = ref MemoryMarshal.GetArrayDataReference(t);
+        var x = 0;
+        ulong sum = 0;
+        if (Avx2.IsSupported && tw >= 32)
+        {
+            var mask = sample == 2 ? Vector256.Create((ushort)0x00FF).AsByte() : Vector256<byte>.AllBitsSet;
+            var acc = Vector256<ulong>.Zero;
+            for (; x + 32 <= tw; x += 32)
+            {
+                var a = Vector256.LoadUnsafe(ref fr, (nuint)(fi + x)) & mask;
+                var b = Vector256.LoadUnsafe(ref tr, (nuint)(ti + x)) & mask;
+                acc += Avx2.SumAbsoluteDifferences(a, b).AsUInt64();
+            }
+            sum += Vector256.Sum(acc);
+        }
+        if (tw - x >= 16)
+        {
+            var mask = sample == 2 ? Vector128.Create((ushort)0x00FF).AsByte() : Vector128<byte>.AllBitsSet;
+            var acc = Vector128<ulong>.Zero;
+            for (; x + 16 <= tw; x += 16)
+            {
+                var a = Vector128.LoadUnsafe(ref fr, (nuint)(fi + x)) & mask;
+                var b = Vector128.LoadUnsafe(ref tr, (nuint)(ti + x)) & mask;
+                acc += Sse2.SumAbsoluteDifferences(a, b).AsUInt64();
+            }
+            sum += Vector128.Sum(acc);
+        }
+        var rest = 0L;
+        for (; x < tw; x += sample)
+            rest += Math.Abs(f[fi + x] - t[ti + x]);
+        return (long)sum + rest;
     }
 }

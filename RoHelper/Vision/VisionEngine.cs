@@ -91,11 +91,16 @@ public sealed class VisionEngine : IAutomation, IDisposable
 
     /// <summary>
     /// 讀尋寶率（<see cref="TreasureReader"/>：滑鼠移到道具欄每一格、OCR 說明框）。移滑鼠會打斷走位（那一輪不走），所以不照 JS 每 5 秒讀，改成：
-    /// 選卡畫面關掉後 <see cref="TreasureSettle"/>（選了卡，尋寶率可能變了）、道具欄有東西的格數變了就讀；其餘每 <see cref="TreasureEvery"/> 補讀一次；
+    /// 選卡畫面關掉後 <see cref="TreasureSettle"/>（選了卡，尋寶率可能變了）、道具欄有東西的格數變了就讀，其餘時間不讀（<see cref="TreasureIdle"/>）；
     /// 讀失敗（等不到說明框）<see cref="TreasureRetry"/> 後再試；兩次讀之間至少隔 <see cref="TreasureGap"/>。
     /// </summary>
     private const long TreasureSettle = 1500;
-    private const long TreasureEvery = 30_000;
+
+    /// <summary>
+    /// 讀完之後的下一次：不定時補讀。尋寶率只會因為選卡（道具升級、精煉）或道具欄變動而改變，這兩種都會觸發重讀；
+    /// 原本每 30 秒補讀一次，但每次要停下走位約 1 秒（2026-11-25 拿掉）
+    /// </summary>
+    private const long TreasureIdle = long.MaxValue / 2;
     private const long TreasureRetry = 10_000;
     private const long TreasureGap = 3000;
     private TreasureReader? _treasureReader;
@@ -271,7 +276,13 @@ public sealed class VisionEngine : IAutomation, IDisposable
             var full = !_gate.InField || _lobbySeen || readAt - _fullReadAt >= FullReadEvery;
             if (full)
                 _fullReadAt = readAt;
-            var screen = _reader.Read(frame, dpr, lobby: settings.AutoEvent, inField: !full, expe: settings.AutoExpe);
+            // 範本比對丟到背景執行緒：這是每輪最花時間的一段，在 UI 執行緒做的話面板和遊戲視窗會跟著卡住。
+            // 只有比對（截圖進、辨識結果出，不碰任何狀態）在背景，之後的判斷、改狀態、點擊照舊在 UI 執行緒，狀態一樣只有一個地方在改。
+            // 比對期間 UI 執行緒空著，使用者可能剛好暫停或改了設定（設定會整份換掉）：這一輪是用舊設定判斷的，丟掉不執行，下一輪用新設定重來
+            var (reader, shot, cfgAtRead) = (_reader, frame, _config.Current);
+            var screen = await Task.Run(() => reader.Read(shot, dpr, lobby: settings.AutoEvent, inField: !full, expe: settings.AutoExpe));
+            if (!ReferenceEquals(_config.Current, cfgAtRead))
+                return;
             // 返回角色不算：只找返回角色的那幾輪也找得到它，不必為了它改成每輪完整辨識
             _lobbySeen = full && FieldGate.LobbyVisible(screen with { Return = null });
 
@@ -601,7 +612,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
         if (slots.Count == 0)
         {
             SetTreasure(new TreasureRead(0, [], 0));
-            _treasureDue = now + TreasureEvery;
+            _treasureDue = TreasureIdle;
             return false;
         }
         var kit = _kit!;
@@ -617,7 +628,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
             return true;
         }
         SetTreasure(r);
-        _treasureDue = end + TreasureEvery;
+        _treasureDue = TreasureIdle;
         return true;
     }
 

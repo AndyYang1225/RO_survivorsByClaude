@@ -75,7 +75,7 @@
 - 計畫書：`C:\Ro\docs\superpowers\plans\`
 
 ## 開發介面（給 Claude 用，預設關閉）
-用 `dotnet run --project RoHelper -- --dev-api`（或 `RoHelper.exe --dev-api[=port]`）啟動時，在 `http://127.0.0.1:8765/` 開一個本機 HTTP 介面，讓 Claude 自己截圖、讀畫面、操作；同時自動存證據。沒帶這個參數時程式行為完全不變。
+用 `dotnet run -c Release --project RoHelper -- --dev-api`（或 `RoHelper.exe --dev-api[=port]`）啟動時，在 `http://127.0.0.1:8765/` 開一個本機 HTTP 介面，讓 Claude 自己截圖、讀畫面、操作；同時自動存證據。沒帶這個參數時程式行為完全不變。
 
 | 端點 | 用途 |
 |---|---|

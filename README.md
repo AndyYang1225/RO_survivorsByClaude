@@ -32,7 +32,7 @@
 ```bash
 dotnet build RoHelper/RoHelper.csproj
 dotnet test RoHelper.Tests
-dotnet run --project RoHelper
+dotnet run -c Release --project RoHelper   # Release：辨識是逐像素運算，Debug 版約慢 2 倍
 ```
 
 發佈成單一 exe（自帶 .NET）：

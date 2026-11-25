@@ -88,8 +88,9 @@ public class PickerFlowTests
         flow.Waiting(0, 350);
         flow.Act(Upgrade(Card(0, "雷爆術", isNew: false), Card(1, "冰箭術")), Settings(Mage), 400);
 
-        Assert.True(flow.Waiting(900, 350));
-        Assert.False(flow.Waiting(1200, 350));
+        // 動作在 400，等 400 ms 畫面換卡：800 之前還在等
+        Assert.True(flow.Waiting(750, 350));
+        Assert.False(flow.Waiting(850, 350));
     }
 
     [Fact]
@@ -100,9 +101,10 @@ public class PickerFlowTests
         flow.Waiting(0, 350);
         flow.Act(picker, Settings(Mage), 400);
 
-        Assert.True(flow.Waiting(1500, 350));
-        Assert.False(flow.Waiting(2000, 350));
-        var retry = flow.Act(picker, Settings(Mage), 2000);
+        // 按鍵在 400，600 ms 後畫面還在才改點卡片：1000 之前還在等
+        Assert.True(flow.Waiting(950, 350));
+        Assert.False(flow.Waiting(1050, 350));
+        var retry = flow.Act(picker, Settings(Mage), 1050);
 
         Assert.Null(retry.Key);
         Assert.Equal(new Point(240 + 107, 40 + 176), retry.Click);

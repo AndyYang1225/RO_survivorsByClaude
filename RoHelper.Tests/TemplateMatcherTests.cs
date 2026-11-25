@@ -4,6 +4,31 @@ namespace RoHelper.Tests;
 
 public class TemplateMatcherTests
 {
+    /// <summary>
+    /// SIMD 版的差值計算一定要跟純量版逐位相同（不只是「差不多」）：粗找的候選排序、提早放棄的門檻都吃這個值，
+    /// 差一點點就可能換掉找到的位置。寬度涵蓋 SIMD 一次處理的 16、32 bytes 前後，取樣 1、2 點都試，門檻有無都試
+    /// </summary>
+    [Fact]
+    public void Diff_Simd_EqualsScalar()
+    {
+        var rnd = new Random(1);
+        const int fw = 220, fh = 40;
+        var f = new byte[fw * fh];
+        rnd.NextBytes(f);
+        var t = new byte[100 * 9];
+        rnd.NextBytes(t);
+        foreach (var tw in Enumerable.Range(1, 100))
+            foreach (var th in new[] { 1, 2, 9 })
+                foreach (var sample in new[] { 1, 2 })
+                    foreach (var limit in new[] { double.MaxValue, 60.0, 127.5 })
+                        foreach (var (ox, oy) in new[] { (0, 0), (3, 5), (fw - tw, fh - th) })
+                        {
+                            var expected = TemplateMatcher.DiffScalar(f, fw, t, tw, th, ox, oy, sample, limit);
+                            var actual = TemplateMatcher.Diff(f, fw, t, tw, th, ox, oy, sample, limit);
+                            Assert.True(expected == actual, $"tw={tw} th={th} sample={sample} limit={limit} at ({ox},{oy}) : {expected} vs {actual}");
+                        }
+    }
+
     [Fact]
     public void Find_LocatesExactCrop_AtOddPosition()
     {

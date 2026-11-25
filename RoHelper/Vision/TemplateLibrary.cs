@@ -22,7 +22,12 @@ public sealed class TemplateLibrary
 
     private readonly string _dir;
     private readonly bool _builtIn;
-    private readonly Dictionary<string, TemplateInfo> _items = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// 範本清單。刻意不直接改這份字典：視覺引擎在背景執行緒比對範本（見 VisionEngine.TickAsync），
+    /// 同時 UI 執行緒可能在重新載入、存新範本；改的時候一律複製一份改好再整份換上去，讀的人拿到的永遠是完整的一份
+    /// </summary>
+    private volatile Dictionary<string, TemplateInfo> _items = new(StringComparer.OrdinalIgnoreCase);
 
     /// <param name="builtIn">先載入 exe 內建的範本（專案的 Templates 資料夾），資料夾裡同名的範本蓋過內建的</param>
     public TemplateLibrary(string dir, bool builtIn = false)
@@ -38,20 +43,22 @@ public sealed class TemplateLibrary
 
     public void Reload()
     {
-        _items.Clear();
+        var items = new Dictionary<string, TemplateInfo>(StringComparer.OrdinalIgnoreCase);
         if (_builtIn)
-            LoadBuiltIn();
-        if (!Directory.Exists(_dir))
-            return;
-        foreach (var png in Directory.EnumerateFiles(_dir, "*.png"))
+            LoadBuiltIn(items);
+        if (Directory.Exists(_dir))
         {
-            var name = Path.GetFileNameWithoutExtension(png);
-            // 刻意先讀成 byte[] 再建 Bitmap：new Bitmap(path) 會鎖住檔案，之後就不能用同一個名稱覆蓋存檔
-            Add(name, File.ReadAllBytes(png), ReadMeta(Path.ChangeExtension(png, ".json")));
+            foreach (var png in Directory.EnumerateFiles(_dir, "*.png"))
+            {
+                var name = Path.GetFileNameWithoutExtension(png);
+                // 刻意先讀成 byte[] 再建 Bitmap：new Bitmap(path) 會鎖住檔案，之後就不能用同一個名稱覆蓋存檔
+                Add(items, name, File.ReadAllBytes(png), ReadMeta(Path.ChangeExtension(png, ".json")));
+            }
         }
+        _items = items;
     }
 
-    private void LoadBuiltIn()
+    private static void LoadBuiltIn(Dictionary<string, TemplateInfo> items)
     {
         var asm = typeof(TemplateLibrary).Assembly;
         foreach (var res in asm.GetManifestResourceNames().Where(r => r.StartsWith(BuiltInPrefix) && r.EndsWith(".png")))
@@ -69,15 +76,23 @@ public sealed class TemplateLibrary
                     catch (JsonException) { }
                 }
             }
-            Add(name, buf.ToArray(), meta);
+            Add(items, name, buf.ToArray(), meta);
         }
     }
 
-    private void Add(string name, byte[] png, TemplateMeta meta)
+    private static void Add(Dictionary<string, TemplateInfo> items, string name, byte[] png, TemplateMeta meta)
     {
         using var ms = new MemoryStream(png);
         using var bmp = new Bitmap(ms);
-        _items[name] = new TemplateInfo(name, Frame.FromBitmap(bmp), new RectangleF(meta.X, meta.Y, meta.W, meta.H), meta.Threshold, meta.Dpr);
+        items[name] = new TemplateInfo(name, Warm(Frame.FromBitmap(bmp)), new RectangleF(meta.X, meta.Y, meta.W, meta.H), meta.Threshold, meta.Dpr);
+    }
+
+    /// <summary>載入時先算好比對要用的灰階和縮圖（範本很小，幾乎不花時間），比對時不用在多個執行緒之間第一次計算</summary>
+    private static Frame Warm(Frame image)
+    {
+        _ = image.Gray;
+        _ = image.Half.Gray;
+        return image;
     }
 
     /// <summary>exe 內建的範本名稱（測試用）</summary>
@@ -95,14 +110,18 @@ public sealed class TemplateLibrary
             bmp.Save(Path.Combine(_dir, name + ".png"), ImageFormat.Png);
         var meta = new TemplateMeta(region.X, region.Y, region.Width, region.Height, threshold, dpr);
         JsonFile.WriteText(Path.Combine(_dir, name + ".json"), JsonSerializer.Serialize(meta, JsonFile.Options));
-        _items[name] = new TemplateInfo(name, image, region, threshold, dpr);
+        _items = new Dictionary<string, TemplateInfo>(_items, StringComparer.OrdinalIgnoreCase)
+        {
+            [name] = new TemplateInfo(name, Warm(image), region, threshold, dpr),
+        };
     }
 
     /// <summary>找最像的位置，不管分數有沒有過門檻（除錯視窗要顯示分數）。範本不存在或比搜尋範圍大時回 null</summary>
     public MatchResult? Match(Frame frame, string name, double dpr)
+        => Get(name) is { } t ? Match(frame, t, dpr) : null;
+
+    private static MatchResult? Match(Frame frame, TemplateInfo t, double dpr)
     {
-        if (Get(name) is not { } t)
-            return null;
         var image = Math.Abs(dpr - t.Dpr) < 0.01 ? t.Image : t.Image.Resize(dpr / t.Dpr);
         var region = new Rectangle(
             (int)(t.Region.X * frame.Width),
@@ -112,9 +131,9 @@ public sealed class TemplateLibrary
         return TemplateMatcher.Find(frame, image, region);
     }
 
-    /// <summary>找範本，分數達到門檻才算找到</summary>
+    /// <summary>找範本，分數達到門檻才算找到（範本只查一次：重新載入可能剛好在中間把字典換掉）</summary>
     public MatchResult? Find(Frame frame, string name, double dpr)
-        => Match(frame, name, dpr) is { } m && m.Score >= Get(name)!.Threshold ? m : null;
+        => Get(name) is { } t && Match(frame, t, dpr) is { } m && m.Score >= t.Threshold ? m : null;
 
     /// <summary>
     /// 在指定範圍（截圖像素，不用範本自己存的搜尋範圍）找範本，分數達到門檻才算找到。

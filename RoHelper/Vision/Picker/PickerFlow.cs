@@ -4,18 +4,23 @@ namespace RoHelper.Vision.Picker;
 public sealed record PickerAction(string Status, char? Key = null, Point? Click = null, PickDecision? Decision = null);
 
 /// <summary>
-/// 選卡流程（同 engine.js pickerStep）：選卡畫面出現後等 tPick 再判斷；做完放逐／專注／重抽後等畫面更新（同 JS 的 +400 ms，
-/// 視覺模式多算截圖和 OCR 的時間，用 700 ms）；選卡用數字鍵（同 JS pressKey），按了 1.5 秒畫面還在就改點卡片（同 JS 的 click 補救）。
+/// 選卡流程（同 engine.js pickerStep）：選卡畫面出現後等 tPick 再判斷；做完放逐／專注／重抽後等畫面更新（同 JS 的 +400 ms）；
+/// 選卡用數字鍵（同 JS pressKey），按了 0.6 秒畫面還在就改點卡片（同 JS 的 click 補救）。
+/// 這兩個等待原本放寬成 700 ms、1.5 秒，是因為辨識在 UI 執行緒上、一輪要好幾秒；辨識移到背景加速後（2026-11-25）縮回來，連續升級時下一張卡不用多等。
 /// 也負責一局內的狀態（<see cref="RunPickState"/>）：專注過的、學過的「學到後放逐」技能、鎖定的神祇。
 /// 純邏輯：時間由呼叫端傳入，不截圖、不送輸入。
 /// </summary>
 public sealed class PickerFlow
 {
     /// <summary>放逐／專注／重抽之後，等畫面換成新卡片的時間</summary>
-    private const long Settle = 700;
+    private const long Settle = 400;
 
-    /// <summary>按了選卡數字鍵之後，畫面還在就改點卡片的等待時間</summary>
-    private const long KeyTimeout = 1_500;
+    /// <summary>
+    /// 按了選卡數字鍵之後，畫面還在就改點卡片的等待時間。
+    /// 刻意不再更短：遊戲收到按鍵到關掉選卡畫面要一點時間，太短會在按鍵其實有效時又補點一次。
+    /// 補點前會確認同一張卡還在原位（見 <see cref="Act"/>），補點的就是同一張卡，不會選錯；但多一次點擊沒有意義
+    /// </summary>
+    private const long KeyTimeout = 600;
 
     /// <summary>按了遊戲「自動」之後，選卡畫面還停這麼久沒被選走，就當沒按到</summary>
     private const long GameAutoTimeout = 5_000;
