@@ -7,13 +7,24 @@ public class TreasureReaderTests
 {
     private static OcrReader Ocr() => OcrReader.TryCreate(out var error) ?? throw new InvalidOperationException(error);
 
+    /// <summary>
+    /// 遊戲 2026.11.23 版起道具欄 6 格（實測第 1 格中心 x 843、畫面中心 952）。
+    /// 舊的 5 格截圖（道具說明框、野外3錢不夠…）的 5 個格子剛好落在新的第 2～6 格（舊第 1 格 880 ≈ 新第 2 格 879），所以下面用舊截圖的格子編號都 +1
+    /// </summary>
     [Fact]
     public void SlotCenter_CenteredOnScreen_FromBottom()
     {
         var f = TestFrames.Solid(1904, 682, 0, 0, 0);
 
-        Assert.Equal(new PointF(880, 580), TreasureReader.SlotCenter(f, 1.0, 0));
-        Assert.Equal(new PointF(1024, 580), TreasureReader.SlotCenter(f, 1.0, 4));
+        Assert.Equal(new PointF(843, 580), TreasureReader.SlotCenter(f, 1.0, 0));
+        Assert.Equal(new PointF(1023, 580), TreasureReader.SlotCenter(f, 1.0, 5));
+    }
+
+    /// <summary>6 格截圖：第 1 格有東西、第 2 格是空格（＋）、第 3～5 格有東西、第 6 格上鎖（灰色鎖頭）</summary>
+    [Fact]
+    public void FilledSlots_SixSlotBar_SkipsEmptyAndLocked()
+    {
+        Assert.Equal([0, 2, 3, 4], TreasureReader.FilledSlots(CardLayoutTests.Fixture("野外道具6格"), 1.0));
     }
 
     [Theory]
@@ -36,7 +47,7 @@ public class TreasureReaderTests
     {
         var f = CardLayoutTests.Fixture("道具說明框");
 
-        var box = TreasureReader.FindTip(f, 1.0, 0);
+        var box = TreasureReader.FindTip(f, 1.0, 1);
 
         // 實測說明框 x 795～966、y 476～553（外框各 1 px 不算）
         Assert.NotNull(box);
@@ -48,11 +59,12 @@ public class TreasureReaderTests
     }
 
     [Theory]
-    [InlineData("道具說明框", 1)]
-    [InlineData("道具說明框", 4)]
-    [InlineData("野外3錢不夠", 0)]
-    [InlineData("野外1", 0)]
-    [InlineData("野外2寶箱", 2)]
+    [InlineData("道具說明框", 0)]
+    [InlineData("道具說明框", 2)]
+    [InlineData("道具說明框", 5)]
+    [InlineData("野外3錢不夠", 1)]
+    [InlineData("野外1", 1)]
+    [InlineData("野外2寶箱", 3)]
     public void FindTip_NoTooltipAboveSlot_ReturnsNull(string fixture, int slot)
     {
         Assert.Null(TreasureReader.FindTip(CardLayoutTests.Fixture(fixture), 1.0, slot));
@@ -63,7 +75,7 @@ public class TreasureReaderTests
     {
         var f = CardLayoutTests.Fixture("道具說明框");
 
-        var tip = await new TreasureReader(Ocr()).ReadTipAsync(f, TreasureReader.FindTip(f, 1.0, 0)!, 1.0);
+        var tip = await new TreasureReader(Ocr()).ReadTipAsync(f, TreasureReader.FindTip(f, 1.0, 1)!, 1.0);
 
         // 實測讀成「範藥水 +0」（「圍」太小常漏掉）；「+18% 範圍」不是尋寶率
         Assert.Contains("藥水", tip.Head);
@@ -111,7 +123,7 @@ public class TreasureReaderTests
     [Fact]
     public async Task ReadAsync_SecondSlotNoTooltip_GivesUpAndMovesBackToCenter()
     {
-        // 每次截圖都是「滑鼠在第 1 格」的畫面：第 1 格讀得到，第 2 格等不到自己的說明框 → 整次放棄
+        // 每次截圖都是「滑鼠在第一個道具」的畫面（舊 5 格截圖，道具在新編號第 2～6 格）：第一個讀得到，第二個等不到自己的說明框 → 整次放棄
         var f = CardLayoutTests.Fixture("道具說明框");
         var moves = new List<PointF>();
         var t = 0L;
@@ -120,6 +132,6 @@ public class TreasureReaderTests
             p => { moves.Add(p); return Task.CompletedTask; }, () => t += 100);
 
         Assert.Null(r);
-        Assert.Equal([new PointF(880, 580), new PointF(916, 580), new PointF(952, 341)], moves);
+        Assert.Equal([new PointF(879, 580), new PointF(915, 580), new PointF(952, 341)], moves);
     }
 }
