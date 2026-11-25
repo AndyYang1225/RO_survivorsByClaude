@@ -19,6 +19,7 @@ public sealed partial class PanelForm
     // 上次重建時的設定內容；沒變就不重建（重建會讓下拉選單失去焦點、畫面閃一下）
     private string _skillsSig = "";
     private string _deitySig = "";
+    private bool _rebuildQueued;
 
     #region 職業選單（技能、神祇兩頁共用）
 
@@ -52,6 +53,44 @@ public sealed partial class PanelForm
         foreach (var note in _jobNotes)
             note.Text = jobSel == "auto" ? (curJob.Length > 0 ? "→ " + curJob : "（尚未偵測）") : "";
 
+        QueueListRebuild();
+    }
+
+    /// <summary>
+    /// 排一次技能／神祇清單重建。刻意用 BeginInvoke 延後：改技能下拉或勾神祇時，事件 → Send → 設定 Changed → 這裡是同步的，
+    /// 當下重建會把「正在處理這個訊息」的控制項 Dispose 掉，回到它的 WndProc 就 AccessViolation 整個程式閃退。
+    /// 視窗還沒建 handle（初次建置）時沒有這個問題，直接重建。
+    /// </summary>
+    private void QueueListRebuild()
+    {
+        if (!IsHandleCreated)
+        {
+            RebuildListsIfChanged();
+            return;
+        }
+        if (_rebuildQueued)
+            return;
+        _rebuildQueued = true;
+        BeginInvoke(() =>
+        {
+            _rebuildQueued = false;
+            if (IsDisposed)
+                return;
+            // 重建時會設控制項初值，擋住事件免得又送一次設定
+            _applying = true;
+            try
+            {
+                RebuildListsIfChanged();
+            }
+            finally
+            {
+                _applying = false;
+            }
+        });
+    }
+
+    private void RebuildListsIfChanged()
+    {
         var job = _config.CurrentJob();
         var skillsSig = job + "|" + _config.Current["skills"]?[job]?.ToJsonString();
         if (skillsSig != _skillsSig)
