@@ -1,0 +1,119 @@
+<h2>外觀風格要哪一種？</h2>
+<p class="subtitle">版面都用你選的 B（左側導覽列），只換配色與質感。面板會長時間擺在遊戲旁邊，可以考慮刺不刺眼、跟遊戲搭不搭。</p>
+
+<style>
+  .sv { width: 340px; margin: 0 auto; border-radius: 10px; font-size: 12px; overflow: hidden; }
+  .sv * { box-sizing: border-box; }
+  .sv .bar { display: flex; align-items: center; gap: 6px; padding: 8px 10px; }
+  .sv .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .sv .title { font-weight: 700; flex: 1; }
+  .sv .btn { border-radius: 6px; padding: 2px 8px; font-size: 11px; }
+  .sv .nav { display: flex; flex-direction: column; gap: 2px; padding: 8px 4px; width: 58px; }
+  .sv .nav div { text-align: center; padding: 6px 0; border-radius: 6px; font-size: 10px; }
+  .sv .sec { margin: 8px; border-radius: 8px; padding: 8px 10px; }
+  .sv .lbl { font-size: 10px; margin-bottom: 4px; }
+  .sv .steps { display: flex; gap: 3px; }
+  .sv .st { flex: 1; text-align: center; padding: 4px 0; border-radius: 4px; font-size: 10px; }
+  .sv .now-text { margin-top: 6px; font-weight: 600; }
+  .sv .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .sv .kv { border-radius: 6px; padding: 5px 7px; }
+  .sv .kv b { display: block; font-size: 14px; }
+  .sv .alert { margin: 8px 8px 0; padding: 6px 10px; border-radius: 8px; }
+
+  /* 亮色 */
+  .light { background: #f6f7fb; color: #1f2430; border: 1px solid #dfe3ec; }
+  .light .bar, .light .nav { background: #fff; }
+  .light .bar { border-bottom: 1px solid #e6e9f0; }
+  .light .nav { border-right: 1px solid #e6e9f0; }
+  .light .nav div { color: #5b6275; } .light .nav .on { background: #e8efff; color: #2f6fed; font-weight: 700; }
+  .light .dot { background: #22a06b; }
+  .light .btn { border: 1px solid #d5dae5; background: #fff; }
+  .light .sec { background: #fff; border: 1px solid #e6e9f0; }
+  .light .lbl { color: #7a8193; }
+  .light .st { background: #edf0f6; color: #9aa1b2; } .light .st.done { background: #dbe7ff; color: #2f6fed; } .light .st.now { background: #2f6fed; color: #fff; font-weight: 700; }
+  .light .kv { background: #f6f7fb; }
+  .light .alert { background: #fff4e5; border: 1px solid #ffd59e; color: #8a5300; }
+
+  /* 暗色 */
+  .dark { background: #15181f; color: #e4e7ee; border: 1px solid #2a2f3a; }
+  .dark .bar, .dark .nav { background: #1c2029; }
+  .dark .bar { border-bottom: 1px solid #2a2f3a; }
+  .dark .nav { border-right: 1px solid #2a2f3a; }
+  .dark .nav div { color: #8b93a7; } .dark .nav .on { background: #23324f; color: #7fb0ff; font-weight: 700; }
+  .dark .dot { background: #3ddc97; }
+  .dark .btn { border: 1px solid #39404f; background: #232834; color: #e4e7ee; }
+  .dark .sec { background: #1c2029; border: 1px solid #2a2f3a; }
+  .dark .lbl { color: #8b93a7; }
+  .dark .st { background: #262b36; color: #6b7386; } .dark .st.done { background: #23324f; color: #7fb0ff; } .dark .st.now { background: #4c8dff; color: #fff; font-weight: 700; }
+  .dark .kv { background: #232834; }
+  .dark .alert { background: #3a2a12; border: 1px solid #6b4a14; color: #ffc46b; }
+
+  /* 遊戲風 */
+  .game { background: #e9edf5; color: #23304a; border: 2px solid #8ea4cf; border-radius: 12px; }
+  .game .bar { background: linear-gradient(#5c7fc4, #3d5fa8); color: #fff; }
+  .game .nav { background: #f7f8fc; border-right: 1px solid #c7d2e8; }
+  .game .nav div { color: #4a5a7a; } .game .nav .on { background: linear-gradient(#6f8fd0, #4a6db4); color: #fff; font-weight: 700; }
+  .game .dot { background: #7dffb2; box-shadow: 0 0 4px #7dffb2; }
+  .game .btn { border: 1px solid #a9bde6; background: #fff; color: #2f4f94; }
+  .game .sec { background: #fff; border: 1px solid #c7d2e8; box-shadow: inset 0 1px 0 #fff; }
+  .game .lbl { color: #4a6db4; font-weight: 700; }
+  .game .st { background: #e3e8f3; color: #8a96b0; } .game .st.done { background: #cfdcf6; color: #3d5fa8; } .game .st.now { background: linear-gradient(#6f8fd0, #3d5fa8); color: #fff; font-weight: 700; }
+  .game .kv { background: #f2f5fb; border: 1px solid #e0e6f2; }
+  .game .alert { background: #fff6e0; border: 1px solid #f0c36d; color: #8a5a00; }
+</style>
+
+<div class="cards">
+
+  <div class="card" data-choice="light" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="sv light">
+        <div class="bar"><span class="dot"></span><span class="title">運行中 · 第 54 局</span><span class="btn">⏸ 暫停</span></div>
+        <div style="display:flex">
+          <div class="nav"><div class="on">📊<br>總覽</div><div>🃏<br>選卡</div><div>🚶<br>走位</div><div>🗺<br>出發</div><div>📜<br>紀錄</div><div>⚙<br>其他</div></div>
+          <div style="flex:1">
+            <div class="alert">⚠ 卡住 40 秒</div>
+            <div class="sec"><div class="lbl">現在在哪一步</div><div class="steps"><span class="st done">大廳</span><span class="st done">地圖</span><span class="st done">出發</span><span class="st now">野外</span><span class="st">結算</span></div><div class="now-text">走位：繞圈</div></div>
+            <div class="sec"><div class="lbl">本局</div><div class="grid"><div class="kv">時間<b>03:28</b></div><div class="kv">尋寶率<b>+120%</b></div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body"><h3>亮色清爽</h3><p>白底、藍色重點色，像一般現代軟體。最好讀，但晚上或暗房裡擺在遊戲旁邊比較亮。</p></div>
+  </div>
+
+  <div class="card" data-choice="dark" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="sv dark">
+        <div class="bar"><span class="dot"></span><span class="title">運行中 · 第 54 局</span><span class="btn">⏸ 暫停</span></div>
+        <div style="display:flex">
+          <div class="nav"><div class="on">📊<br>總覽</div><div>🃏<br>選卡</div><div>🚶<br>走位</div><div>🗺<br>出發</div><div>📜<br>紀錄</div><div>⚙<br>其他</div></div>
+          <div style="flex:1">
+            <div class="alert">⚠ 卡住 40 秒</div>
+            <div class="sec"><div class="lbl">現在在哪一步</div><div class="steps"><span class="st done">大廳</span><span class="st done">地圖</span><span class="st done">出發</span><span class="st now">野外</span><span class="st">結算</span></div><div class="now-text">走位：繞圈</div></div>
+            <div class="sec"><div class="lbl">本局</div><div class="grid"><div class="kv">時間<b>03:28</b></div><div class="kv">尋寶率<b>+120%</b></div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body"><h3>暗色</h3><p>深灰底、亮色重點。長時間掛著不刺眼，警示的橘色會特別明顯，像 Discord 或遊戲工具常見的樣子。</p></div>
+  </div>
+
+  <div class="card" data-choice="game" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="sv game">
+        <div class="bar"><span class="dot"></span><span class="title">運行中 · 第 54 局</span><span class="btn">⏸ 暫停</span></div>
+        <div style="display:flex">
+          <div class="nav"><div class="on">📊<br>總覽</div><div>🃏<br>選卡</div><div>🚶<br>走位</div><div>🗺<br>出發</div><div>📜<br>紀錄</div><div>⚙<br>其他</div></div>
+          <div style="flex:1">
+            <div class="alert">⚠ 卡住 40 秒</div>
+            <div class="sec"><div class="lbl">現在在哪一步</div><div class="steps"><span class="st done">大廳</span><span class="st done">地圖</span><span class="st done">出發</span><span class="st now">野外</span><span class="st">結算</span></div><div class="now-text">走位：繞圈</div></div>
+            <div class="sec"><div class="lbl">本局</div><div class="grid"><div class="kv">時間<b>03:28</b></div><div class="kv">尋寶率<b>+120%</b></div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body"><h3>遊戲風</h3><p>藍色漸層標題列、淺色面板，仿遊戲裡結算視窗的樣式，擺在遊戲旁邊看起來像同一套介面。</p></div>
+  </div>
+
+</div>
+<p class="subtitle" style="margin-top:16px">另外也可以做成「跟著 Windows 的亮色／暗色設定自動切換」（亮色＋暗色兩套都做），如果你想要這樣請在終端機說一聲。</p>
