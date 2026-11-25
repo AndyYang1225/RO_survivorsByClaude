@@ -108,6 +108,10 @@ public sealed class VisionEngine : IAutomation, IDisposable
     private long _treasureAt = long.MinValue / 2;
     private int _treasureSlots = -1;
 
+    /// <summary>點了技能神祇「!」之後，這麼久之內不再點（等選擇畫面打開，打開後由選卡流程接手）</summary>
+    private const long DeityClickGap = 3000;
+    private long _deityClickAt = long.MinValue / 2;
+
     /// <summary>面板「下一隻」那一行（不在野外時空字串）</summary>
     private string _next = "";
     private VisionKit? _kit;
@@ -531,7 +535,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
     /// 進野外滿 ZoomDelay 後也讀地名與職業（<see cref="ReadInfoAsync"/>，讀到為止）。
     /// 每 <see cref="ClockEvery"/> OCR 一次遊戲時間（<see cref="GameClock"/>）。
     /// 不在躲鐘時先看累積升級（<see cref="BankAsync"/>，同 JS 順序：躲鐘 → 升級 → 走位）：這一輪要按 B 或等選卡畫面時不走位。
-    /// 接著是讀尋寶率（<see cref="TreasureAsync"/>，躲鐘、撿取倒數時不讀）：有移滑鼠讀的那一輪不走位。
+    /// 接著是點技能神祇「!」（<see cref="DeityIconAsync"/>）、讀尋寶率（<see cref="TreasureAsync"/>），躲鐘、撿取倒數時都不做：有點或移滑鼠的那一輪不走位。
     /// 回傳面板文字：走位的狀態前面加「走位：」，升級的狀態照 JS 原文；升級打不開的附註接在最後（同 JS bankNote）。空字串＝什麼都沒做。
     /// </summary>
     private async Task<string> FieldStepAsync(Frame frame, double dpr, long now)
@@ -569,6 +573,9 @@ public sealed class VisionEngine : IAutomation, IDisposable
                 return bank.Status;
             note = bank.Note;
         }
+        // 技能神祇：道具欄出現紫色「!」就點開（選擇畫面由選卡流程處理）。躲鐘、撿取倒數時不點，點的這一輪不走位
+        if (bell is null && !lootPhase && await DeityIconAsync(frame, dpr, now))
+            return "打開技能神祇";
         // 讀尋寶率要移滑鼠：躲鐘、撿取倒數時不讀，讀的這一輪不走位
         if (bell is null && !lootPhase && await TreasureAsync(frame, dpr, now))
             return "讀道具欄（尋寶率）";
@@ -591,6 +598,20 @@ public sealed class VisionEngine : IAutomation, IDisposable
         }
         var walk = d.Status.Length > 0 ? "走位：" + d.Status : "";
         return note.Length == 0 ? walk : walk.Length == 0 ? note : walk + " " + note;
+    }
+
+    /// <summary>
+    /// 技能神祇「!」（<see cref="DeityIconReader"/>）：有開「升級卡自動選」才點；點了之後 <see cref="DeityClickGap"/> 內不重點。
+    /// 有點回 true（這一輪不走位）。
+    /// </summary>
+    private async Task<bool> DeityIconAsync(Frame frame, double dpr, long now)
+    {
+        if (!_config.GetBool("pickSkill") || now - _deityClickAt < DeityClickGap || DeityIconReader.Find(frame, dpr) is not { } icon)
+            return false;
+        _deityClickAt = now;
+        var (x, y) = _kit!.Viewport.ToCss(icon.X, icon.Y);
+        await _kit.Input.ClickAsync(x, y);
+        return true;
     }
 
     /// <summary>
