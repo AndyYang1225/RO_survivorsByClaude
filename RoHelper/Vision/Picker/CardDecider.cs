@@ -5,7 +5,7 @@ namespace RoHelper.Vision.Picker;
 /// <summary>
 /// 選卡決策：engine.js decide()（約 448～559 行）的 C# 版，判斷順序和理由文字一行對一行。
 /// 順序：1 神祇 → 2 放逐（升級卡）→ 3 技能專注（升級卡）→ 道具專注 → 可選的卡（排除放逐／強制不選／別的神祇）
-/// → 4 技能優先（升級卡）→ 5 不學清單外的新技能（升級卡）→ 6 尋寶率上限／活動 → 職業用不到的道具 → 勾選的道具 → 尋寶已滿→生命 → 選法（第一張／稀有度／尋寶率優先）。
+/// → 4 技能優先（升級卡；稀有度 &gt; 順序）→ 5 不學清單外的新技能（升級卡）→ 6 尋寶率上限／活動 → 職業用不到的道具 → 勾選的道具 → 尋寶已滿→生命 → 選法（第一張／稀有度／尋寶率優先）。
 /// 尋寶率（RunPickState.Treasure）由 VisionEngine 把滑鼠移到道具欄讀說明框得到（<see cref="Field.TreasureReader"/>）。
 /// 跟 JS 不同：尋寶卡除了卡片文字有「尋寶」，卡名是已知的尋寶道具也算（<see cref="HasTreasure"/>），因為 OCR 偶爾把「尋寶」讀錯。
 /// 純函式：不改 RunPickState（選了之後要記什麼由 PickerFlow 負責）。
@@ -116,11 +116,11 @@ public static partial class CardDecider
             var order = s.Skills.Order;
             int Rank(int i) => order.ToList().FindIndex(w => w.Length > 0 && OcrFix(cards[i].Name).Contains(OcrFix(w)));
 
-            // 4. 技能優先：第一個有出現就選；其餘的看稀有度，同稀有度照順序
-            var first = pool.FirstOrDefault(i => Rank(i) == 0, -1);
-            if (first >= 0)
-                return new(PickDo.Pick, first, "技能第 1 優先");
-            var hits = pool.Where(i => Rank(i) > 0).OrderByDescending(i => cards[i].Rarity).ThenBy(Rank).ToList();
+            // 4. 技能優先：清單裡的技能一起比，先比稀有度、同稀有度照順序（使用者 2026-11-27：冰箭、火箭、雷擊同時出現選稀有度高的；
+            // 以前是第 1 優先只要出現就選）。只有一張清單裡的技能、而且是第 1 優先時，理由照舊寫「技能第 1 優先」
+            var hits = pool.Where(i => Rank(i) >= 0).OrderByDescending(i => cards[i].Rarity).ThenBy(Rank).ToList();
+            if (hits.Count == 1 && Rank(hits[0]) == 0)
+                return new(PickDo.Pick, hits[0], "技能第 1 優先");
             if (hits.Count > 0)
                 return new(PickDo.Pick, hits[0], "技能優先（稀有度 > 順序）");
 
@@ -269,6 +269,18 @@ public static partial class CardDecider
     private static readonly string[] DodgeItems = ["迴避秘藥"];
 
     internal static string[] UselessFor(string job) => MageJobs.Contains(job) ? DodgeItems : [];
+
+    /// <summary>
+    /// 選這張卡會增加多少尋寶率（%）：卡片文字的「N% 尋寶」加總。不是尋寶卡回 0；
+    /// 是尋寶卡但數字讀不到（OCR 讀錯）時回 10（百科：尋寶道具每次最少 +10%），寧可估高一點也不要漏算
+    /// </summary>
+    public static double TreasureGain(CardInfo c)
+    {
+        if (!HasTreasure(c))
+            return 0;
+        var v = Field.TreasureReader.SumTreasure(c.Name + " " + c.Text);
+        return v > 0 ? v : 10;
+    }
 
     /// <summary>已知會加尋寶率的道具卡名</summary>
     private static readonly string[] TreasureItems = ["尋寶藥水", "驚奇秘藥", "豐饒祝福"];

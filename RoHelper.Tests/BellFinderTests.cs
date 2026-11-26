@@ -20,6 +20,81 @@ public class BellFinderTests
     public void Find_RealFieldWithLanternsHudAndEffects_NoBell(string fixture)
         => Assert.Null(BellFinder.Find(CardLayoutTests.Fixture(fixture), 1.0));
 
+    /// <summary>
+    /// 實測（2026-11-26 斐揚洞穴 月夜貓，MVP 戰鬥中的診斷截圖）：公告沒認出來、沒躲鐘被秒殺。
+    /// 鐘在畫面上（012815 鐘在 x 930～1150、012819 鐘在 x 1380～1600），要找得到才能靠「看到鐘」開始躲
+    /// </summary>
+    [Theory]
+    [InlineData("MVP鐘-012815", 930, 1160)]
+    [InlineData("MVP鐘-012819", 1370, 1610)]
+    [InlineData("MVP鐘-012822", 1000, 1240)]
+    public void Find_RealMvpBell_IsBigBell(string fixture, int x0, int x1)
+    {
+        var b = BellFinder.Find(CardLayoutTests.Fixture(fixture), 1.0);
+
+        Assert.NotNull(b);
+        Assert.InRange(b.X, x0, x1);
+        Assert.True(BellFinder.IsBigBell(b, 1.0));
+    }
+
+    /// <summary>MVP 剛出現、鐘還沒放的畫面（012810，只有火盆）：不能當成大鐘（「看到鐘就躲」會跑去火盆）</summary>
+    [Fact]
+    public void Find_MvpBeforeBell_NoBigBell()
+    {
+        var b = BellFinder.Find(CardLayoutTests.Fixture("MVP鐘-012810"), 1.0);
+
+        Assert.True(b is null || !BellFinder.IsBigBell(b, 1.0));
+    }
+
+    /// <summary>
+    /// 實測（2026-11-26 斐揚洞穴第 2 局）：喊躲鐘時鐘在畫面最上緣、被閃電特效切開（015209、015212），
+    /// 要認得出被切掉的鐘，不能把地上的火焰特效（x 1008～1096、y 320～392）當成鐘
+    /// </summary>
+    [Theory]
+    [InlineData("MVP鐘-015209", 1250, 1395)]
+    [InlineData("MVP鐘-015212", 1190, 1395)]
+    [InlineData("MVP鐘-015215", 1060, 1280)]
+    // 第 3 局：鐘在畫面正下方被技能列擋住（021806、021810，只露出鐘頂），畫面上緣有火盆；021813 鐘在左下貼著畫面底邊
+    [InlineData("MVP鐘-021806", 850, 980)]
+    [InlineData("MVP鐘-021810", 820, 940)]
+    [InlineData("MVP鐘-021813", 650, 780)]
+    public void Find_BellCutByScreenTop(string fixture, int x0, int x1)
+    {
+        var b = BellFinder.Find(CardLayoutTests.Fixture(fixture), 1.0);
+
+        Assert.NotNull(b);
+        Assert.InRange(b.X, x0, x1);
+    }
+
+    /// <summary>火盆的光（012819 左上、中上兩個）符合一般的鐘規則，但不是大鐘</summary>
+    [Fact]
+    public void Braziers_AreNotBigBells()
+    {
+        var blobs = BellFinder.Scan(CardLayoutTests.Fixture("MVP鐘-012819"), 1.0).Where(x => x.X1 < 1200 && x.N >= 100).ToList();
+
+        Assert.NotEmpty(blobs);
+        Assert.All(blobs, x => Assert.False(BellFinder.IsBigBell(x, 1.0)));
+    }
+
+    /// <summary>
+    /// 鐘口＝鐘身底部（要站的地方），不能被連在一起的火盆、圓盤撐偏。
+    /// 實測（2026-11-26 斐揚洞穴）：105343 外框連著右下的火盆，用外框算目標在 (958,373) 圓盤邊緣，站那裡被鐘打死；
+    /// 鐘身在 x 880～985、鐘口 y 約 250。095616、103549 是躲成功時的鐘
+    /// </summary>
+    [Theory]
+    [InlineData("MVP鐘-105343", 900, 950, 240, 300)]
+    [InlineData("MVP鐘-095616", 935, 985, 295, 345)]
+    [InlineData("MVP鐘-103549", 965, 1015, 340, 390)]
+    [InlineData("MVP鐘-012815", 1025, 1075, 370, 420)]
+    public void Find_Mouth_IsUnderBellBody(string fixture, int x0, int x1, int y0, int y1)
+    {
+        var b = BellFinder.Find(CardLayoutTests.Fixture(fixture), 1.0);
+
+        Assert.NotNull(b);
+        Assert.InRange(b.Mouth.X, x0, x1);
+        Assert.InRange(b.Mouth.Y, y0, y1);
+    }
+
     [Fact]
     public void Find_GoldBell_BottomCenter()
     {

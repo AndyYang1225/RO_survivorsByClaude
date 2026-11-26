@@ -58,6 +58,26 @@ public class TreasureReaderTests
         Assert.InRange(box.BodyTop, 521, 525);
     }
 
+    /// <summary>
+    /// 實測（2026-11-27，sabc1228）：第 6 格是技能神祇（雷擊術 Deity +4），說明框很寬（x 874～1169、y 約 430～552）、內文兩行。
+    /// 第 5 格是貪婪神器（+46% 尋寶率）。讀不到神祇格的說明框會讓整次讀取放棄，尋寶率停在舊值（新拿的尋寶道具沒算進去）
+    /// </summary>
+    [Fact]
+    public void FindTip_WideDeityTip_Found()
+    {
+        var box = TreasureReader.FindTip(CardLayoutTests.Fixture("說明框神祇"), 1.0, 5);
+
+        Assert.NotNull(box);
+        Assert.InRange(box.Box.Left, 872, 878);
+        Assert.InRange(box.Box.Right, 1166, 1172);
+    }
+
+    [Fact]
+    public void FindTip_GreedArtifact_Found()
+    {
+        Assert.NotNull(TreasureReader.FindTip(CardLayoutTests.Fixture("說明框貪婪神器"), 1.0, 4));
+    }
+
     [Theory]
     [InlineData("道具說明框", 0)]
     [InlineData("道具說明框", 2)]

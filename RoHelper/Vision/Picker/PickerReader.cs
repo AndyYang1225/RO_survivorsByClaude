@@ -111,7 +111,10 @@ public sealed partial class PickerReader(OcrReader ocr)
             }
 
         // 技能神祇選擇畫面：標題「選擇你的神祇」，或至少兩張卡名以 Deity 結尾（OCR 常只讀到「De」，實測 2026-11-25）。不是寶箱
-        var isDeity = Has("選擇你的") || infos.Count(c => DeitySuffix().IsMatch(c.Name)) >= 2;
+        // 第三個條件：卡片上沒有任何放逐／專注／重抽按鈕、底下也沒有「重抽全部」「自動」＝神祇畫面（升級、寶箱一定有這些按鈕）。
+        // 實測（2026-11-26）：神祇卡還在淡入、標題和卡名都讀不到時被當成升級卡，照技能優先選了火箭術 Deity（應該是雷擊術）
+        var noButtons = rerollAll is null && auto is null && infos.All(c => c.Buttons.Count == 0);
+        var isDeity = Has("選擇你的") || infos.Count(c => DeitySuffix().IsMatch(c.Name)) >= 2 || noButtons && !isChest;
         return new PickerInfo(isChest && !isDeity, infos, rerollAll, auto, slots) { IsDeityPick = isDeity };
     }
 

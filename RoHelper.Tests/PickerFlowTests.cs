@@ -410,6 +410,27 @@ public class PickerFlowTests
         Assert.Equal("", flow.State.DeityLock);
     }
 
+    [Fact]
+    public void DeityPick_WaitsWhileNamesUnreadable()
+    {
+        var flow = new PickerFlow();
+        var cards = new[] { "冰箾術 De", "", "火箾術 De" }
+            .Select((n, i) => new CardInfo(i, new Rectangle(i * 240, 40, 214, 352), n, n, 0, false, false, [])).ToArray();
+        var deity = new PickerInfo(false, cards, null) { IsDeityPick = true };
+        var s = new PickSettings("巫師", true, Mage, false, [], false, "none", true, ["雷擊術"], [], false, 1, [], [], [], true, true, true, 2, "treasure",
+            true, true, 350, false);
+        flow.Waiting(0, 350);
+
+        var wait = flow.Act(deity, s, 2500);
+        Assert.Null(wait.Key);
+        Assert.Equal("等技能神祇卡名讀出來…", wait.Status);
+        Assert.False(flow.State.DeityPicked);
+
+        var late = flow.Act(deity, s, 6500);
+        Assert.NotNull(late.Key);
+        Assert.True(flow.State.DeityPicked);
+    }
+
     private static CardInfo ChestCard(int i, string name)
         => new(i, new Rectangle(i * 240, 40, 214, 352), name, name, 0, false, false,
             [new ActButton(ActKind.Reroll, new Rectangle(i * 240, 400, 40, 30), true, 5), Btn(ActKind.Focus, i * 240 + 50), Btn(ActKind.Banish, i * 240 + 100)]);

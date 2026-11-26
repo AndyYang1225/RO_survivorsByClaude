@@ -1,10 +1,12 @@
-# 重開三隻小幫手（預設 sabc1229、B＝sabc1227、C＝sabc1228）換成最新編譯的版本。
+﻿# 重開三隻小幫手（預設 sabc1229、B＝sabc1227、C＝sabc1228）換成最新編譯的版本。
 # 流程：等每隻這局打完就暫停（不中斷對局）→ 全部關掉 → 編譯 → 重開 → 繼續 → 等進野外 → 視窗縮到背景。
 # 用法（在 C:\Ro）：
 #   powershell -NoProfile -ExecutionPolicy Bypass -File tools\restart.ps1          等這局打完再重開
 #   powershell -NoProfile -ExecutionPolicy Bypass -File tools\restart.ps1 -Now     不等，馬上重開
 #   加 -NoBuild：不重新編譯（只重開）
-param([switch]$Now, [switch]$NoBuild, [int]$WaitMinutes = 60)
+#   編譯成功（＝改版）時會清空戰績、局數、完整對戰紀錄（tools\reset-stats.js，舊的搬到 history\）；加 -KeepStats 不清
+#   加 -Set runLimit=true,runLimitN=5：關掉之後、重開之前改三隻的 config.json（tools\set-config.js；玩法選擇只能這樣改）
+param([switch]$Now, [switch]$NoBuild, [switch]$KeepStats, [string[]]$Set = @(), [int]$WaitMinutes = 60)
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
@@ -59,6 +61,20 @@ if (-not $NoBuild) {
         exit 1
     }
     Write-Step '編譯完成'
+    # 改版了：清空戰績、局數、完整對戰紀錄（使用者 2026-11-27，避免讀到舊版的資料；舊的搬到各帳號的 history\）。-KeepStats 不清
+    if (-not $KeepStats) {
+        Write-Step '清空戰績、局數、完整對戰紀錄'
+        & node (Join-Path $PSScriptRoot 'reset-stats.js')
+        if ($LASTEXITCODE -ne 0) { Write-Step '清空紀錄失敗（照樣重開）' }
+    }
+}
+
+# 3.5 改設定（-Set）
+$Set = @($Set | % { $_ -split ',' } | ? { $_ })  # 用 -File 執行時 a,b 不會變成陣列
+if ($Set.Count -gt 0) {
+    Write-Step "改設定：$($Set -join ' ')"
+    & node (Join-Path $PSScriptRoot 'set-config.js') @Set
+    if ($LASTEXITCODE -ne 0) { Write-Step '改設定失敗，沒有重開'; exit 1 }
 }
 
 # 4. 重開（用 cmd start 開成獨立的程序，不會跟著這個腳本結束）
@@ -68,7 +84,7 @@ while ((Get-Date) -lt $end -and ($bots | ? { -not (Get-Status $_.Port) })) { Sta
 foreach ($b in $bots) { Send-Post $b.Port 'resume' }
 Write-Step '已重開並繼續'
 
-# 5. 等進野外（最多 3 分鐘），視窗縮到背景（SC_MINIMIZE，會移到螢幕外照跑）
+# 5. 等進野外（最多 3 分鐘），B、C 視窗縮到背景（SC_MINIMIZE，會移到螢幕外照跑）
 $end = (Get-Date).AddMinutes(3)
 do {
     Start-Sleep 5
@@ -76,8 +92,13 @@ do {
     $inField = @($actions | ? { $_ -match '走位|選.*卡|準備進入' }).Count
 } while ($inField -lt $bots.Count -and (Get-Date) -lt $end)
 
-Add-Type -Namespace RoRestart -Name Win -MemberDefinition '[DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr h, int m, IntPtr w, IntPtr l);'
-Get-Process RoHelper -ErrorAction SilentlyContinue | % { [void][RoRestart.Win]::SendMessage($_.MainWindowHandle, 0x0112, [IntPtr]0xF020, [IntPtr]0) }
+# A（主帳號）留在螢幕上，B、C 移到螢幕外。用 status.json 的 Hwnd（遊戲視窗）：程序的主視窗有時是面板，送過去縮掉的是面板
+# 用 PostMessage：SendMessage 跨程序實測不一定馬上生效
+Add-Type -Namespace RoRestart -Name Win -MemberDefinition '[DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, int m, IntPtr w, IntPtr l);'
+foreach ($dir in 'profiles\B', 'profiles\C') {
+    $st = Get-Content (Join-Path $env:APPDATA "RoHelper\$dir\status.json") -Raw -Encoding UTF8 -ErrorAction SilentlyContinue | ConvertFrom-Json
+    if ($st -and $st.hwnd) { [void][RoRestart.Win]::PostMessage([IntPtr][long]$st.hwnd, 0x0112, [IntPtr]0xF020, [IntPtr]0) }
+}
 
 $actions | % { Write-Host "  $_" }
 Write-Step $(if ($inField -eq $bots.Count) { '完成：全部進野外了' } else { '完成，但有的還沒進野外（看上面的狀態）' })

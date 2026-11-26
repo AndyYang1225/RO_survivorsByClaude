@@ -10,7 +10,11 @@ public sealed record MinimapBlob(double X, double Y, int N);
 /// </summary>
 public sealed record MinimapInfo(
     MinimapBlob Me, IReadOnlyList<MinimapBlob> Magnets, IReadOnlyList<MinimapBlob> Chests,
-    IReadOnlyList<MinimapBlob> Loot, IReadOnlyList<MinimapBlob> Bosses, RectangleF Map);
+    IReadOnlyList<MinimapBlob> Loot, IReadOnlyList<MinimapBlob> Bosses, RectangleF Map)
+{
+    /// <summary>Bosses 裡的 MVP（紅圈，不含橘圈小頭目）：躲鐘找不到鐘時往這裡走（鐘是 MVP 放的）</summary>
+    public IReadOnlyList<MinimapBlob> Mvps { get; init; } = [];
+}
 
 /// <summary>
 /// 讀截圖右上角的小地圖：自己、磁鐵、寶箱、王的掉落物、王（移植 engine.js readMinimap）。
@@ -30,7 +34,7 @@ public static class MinimapReader
     public static MinimapInfo? Read(Frame f, double dpr)
     {
         var area = Area(f, dpr);
-        List<(int X, int Y)> me = [], magnets = [], chests = [], loot = [], bosses = [];
+        List<(int X, int Y)> me = [], magnets = [], chests = [], loot = [], bosses = [], mvps = [];
         int bx0 = int.MaxValue, bx1 = int.MinValue, by0 = int.MaxValue, by1 = int.MinValue;
         var px = f.Pixels;
         for (var y = area.Top; y < area.Bottom; y++)
@@ -54,7 +58,12 @@ public static class MinimapReader
                     chests.Add((x, y));
                 else if (Near(r, g, b, LootEdge, 14))
                     loot.Add((x, y));
-                else if (Near(r, g, b, Mvp, 14) || Near(r, g, b, MiniBoss, 14))
+                else if (Near(r, g, b, Mvp, 14))
+                {
+                    bosses.Add((x, y));
+                    mvps.Add((x, y));
+                }
+                else if (Near(r, g, b, MiniBoss, 14))
                     bosses.Add((x, y));
             }
 
@@ -70,7 +79,7 @@ public static class MinimapReader
         var map = bx1 > bx0
             ? new RectangleF(bx0, by0, bx1 - bx0, by1 - by0)
             : new RectangleF(area.X, area.Y, area.Width, area.Height);
-        return new MinimapInfo(self, magnetList, Clusters(chests, 3, 4), lootList, Clusters(bosses, 4, 4), map);
+        return new MinimapInfo(self, magnetList, Clusters(chests, 3, 4), lootList, Clusters(bosses, 4, 4), map) { Mvps = Clusters(mvps, 4, 4) };
     }
 
     /// <summary>

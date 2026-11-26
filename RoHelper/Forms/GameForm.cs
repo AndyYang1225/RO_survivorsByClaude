@@ -193,7 +193,7 @@ public sealed class GameForm : Form
         _statusSavedAt = Environment.TickCount64;
         try
         {
-            new InstanceStatus(Environment.ProcessId, Environment.GetCommandLineArgs()[1..], _runs, _action, _paused, _warning, DateTime.Now)
+            new InstanceStatus(Environment.ProcessId, Environment.GetCommandLineArgs()[1..], _runs, _action, _paused, _warning, DateTime.Now, Handle.ToInt64())
                 .Save(AppPaths.ProfileDir);
         }
         catch (IOException)

@@ -33,9 +33,39 @@ public class CardDeciderTests
     [Fact]
     public void FirstPrioritySkill_IsPicked()
     {
-        var d = CardDecider.Decide(Picker(false, Card(0, "火箭術"), Card(1, "雷爆術")), Settings(Skills(order: ["雷爆術", "火箭術"])), new RunPickState());
+        var d = CardDecider.Decide(Picker(false, Card(0, "攻擊力"), Card(1, "雷爆術")), Settings(Skills(order: ["雷爆術", "火箭術"])), new RunPickState());
 
         Assert.Equal(new PickDecision(PickDo.Pick, 1, "技能第 1 優先"), d);
+    }
+
+    /// <summary>同稀有度：照順序，第 1 優先先選</summary>
+    [Fact]
+    public void PrioritySkills_SameRarity_FollowOrder()
+    {
+        var d = CardDecider.Decide(Picker(false, Card(0, "火箭術"), Card(1, "雷爆術")), Settings(Skills(order: ["雷爆術", "火箭術"])), new RunPickState());
+
+        Assert.Equal(new PickDecision(PickDo.Pick, 1, "技能優先（稀有度 > 順序）"), d);
+    }
+
+    /// <summary>使用者 2026-11-27：冰箭、火箭、雷擊同時出現，選稀有度高的（第 1 優先不再無條件先選）</summary>
+    [Fact]
+    public void PrioritySkills_HigherRarityBeatsFirstPriority()
+    {
+        var d = CardDecider.Decide(Picker(false, Card(0, "冰箭術", rarity: 1), Card(1, "火箭術", rarity: 3), Card(2, "雷擊術", rarity: 2)),
+            Settings(Skills(order: ["冰箭術", "雷擊術", "火箭術"])), new RunPickState());
+
+        Assert.Equal(new PickDecision(PickDo.Pick, 1, "技能優先（稀有度 > 順序）"), d);
+    }
+
+    /// <summary>選了尋寶卡：卡上的「+N% 尋寶率」先加進尋寶率（連開寶箱中間沒機會重讀道具欄）；數字讀不到時估 10</summary>
+    [Theory]
+    [InlineData("驚奇秘藥 + 18", "+14% 尋寶率", 14)]
+    [InlineData("豐饒祝福 + 3", "+18% 金幣 · +18% 尋寶率", 18)]
+    [InlineData("驚奇秘藥 + 18", "+14% 晝賨率", 10)]
+    [InlineData("傷害秘藥", "+15% 傷害", 0)]
+    public void TreasureGain_FromCardText(string name, string text, double gain)
+    {
+        Assert.Equal(gain, CardDecider.TreasureGain(Card(0, name, text: text)), 3);
     }
 
     /// <summary>實測：OCR 把「冰箭術」讀成「冰箾術」，要照技能優先選，不是當一般卡用最稀有選</summary>

@@ -38,6 +38,17 @@ public class PickerReaderTests
         Assert.EndsWith("Deity", p.Cards[3].Name);
     }
 
+    /// <summary>卡名、標題都讀不到（淡入中）也要認得出神祇畫面：卡上沒有任何按鈕、底下沒有重抽全部／自動</summary>
+    [Fact]
+    public async Task ReadAsync_DeityPick_FromMissingButtons()
+    {
+        var p = (await Reader.ReadAsync(CardLayoutTests.Fixture("技能神祇選擇"), 1.0))!;
+
+        Assert.Null(p.RerollAll);
+        Assert.Null(p.Auto);
+        Assert.All(p.Cards, c => Assert.Empty(c.Buttons));
+    }
+
     [Theory]
     [InlineData("升級選卡2")]
     [InlineData("升級選卡3")]

@@ -192,16 +192,19 @@ public sealed partial class TreasureReader(OcrReader ocr)
     public static TreasureTip Parse(IReadOnlyList<string> head, IReadOnlyList<string> body)
     {
         var name = head.Select(l => l.Trim()).FirstOrDefault(l => l.Length > 0) ?? "";
+        return new TreasureTip(name, body.Sum(SumTreasure));
+    }
+
+    /// <summary>一行文字裡所有「N% 尋寶」的加總（規則同 <see cref="Parse"/>；選卡後估算尋寶率也用它）</summary>
+    public static double SumTreasure(string line)
+    {
         var sum = 0.0;
-        foreach (var line in body)
+        foreach (Match m in TreasurePct().Matches(line))
         {
-            foreach (Match m in TreasurePct().Matches(line))
-            {
-                if (double.TryParse(m.Groups[1].Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v))
-                    sum += v;
-            }
+            if (double.TryParse(m.Groups[1].Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v))
+                sum += v;
         }
-        return new TreasureTip(name, sum);
+        return sum;
     }
 
     /// <summary>

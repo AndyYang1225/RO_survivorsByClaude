@@ -81,6 +81,28 @@ public sealed class EvidenceStore(string dir, int maxShots = 150)
         }
     }
 
+    /// <summary>
+    /// 資料夾裡的 PNG 超過 max 張時，照修改時間刪最舊的（開發介面 /shot 用：檔名可以自訂，不能照檔名排序）。
+    /// 使用者 2026-11-27：shots/api 沒有上限，一隻累積到 1.2 GB
+    /// </summary>
+    public static void PruneOldest(string dir, int max)
+    {
+        if (!Directory.Exists(dir))
+            return;
+        var old = new DirectoryInfo(dir).GetFiles("*.png").OrderByDescending(f => f.LastWriteTimeUtc).Skip(max);
+        foreach (var f in old)
+        {
+            try
+            {
+                f.Delete();
+            }
+            catch (IOException)
+            {
+                // 剛好被別的程式開著：下次再刪
+            }
+        }
+    }
+
     /// <summary>最近 n 張的 PNG 路徑，新的在前；資料夾不存在回空</summary>
     public IReadOnlyList<string> Recent(int n) => [.. Pngs().AsEnumerable().Reverse().Take(n)];
 

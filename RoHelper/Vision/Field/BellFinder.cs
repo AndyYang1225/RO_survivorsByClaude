@@ -5,7 +5,11 @@ namespace RoHelper.Vision.Field;
 /// X0～X1、Y0～Y1 是外框；Width／Height 同 JS（x1 − x0，取樣格換成像素）；N 是取樣點數；Gold／Red 是其中金色、封印紅的點數；
 /// Fill 是外框（取樣格）裡命中的比例。
 /// </summary>
-public sealed record BellBlob(int X, int Y, int X0, int X1, int Y0, int Y1, int N, int Width, int Height, int Gold, int Red, double Fill, int Dim = 0);
+public sealed record BellBlob(int X, int Y, int X0, int X1, int Y0, int Y1, int N, int Width, int Height, int Gold, int Red, double Fill, int Dim = 0, int BX = 0, int BY = 0)
+{
+    /// <summary>鐘身的鐘口（鐘身底部中間，見 <see cref="BellFinder.Scan"/>）；合成的色塊沒給時用外框底部中間</summary>
+    public (int X, int Y) Mouth => BX == 0 && BY == 0 ? (X, Y) : (BX, BY);
+}
 
 /// <summary>
 /// 用畫面顏色找王放的鐘（移植 engine.js scanBell，只做「② 備用：看畫面顏色找鐘」）。
@@ -52,18 +56,62 @@ public static class BellFinder
     private const int MinRedWidth = 64;
 
     /// <summary>
+    /// 鐘身大小（dpr 1 的 px）：色塊裡最密的這麼大一塊＝鐘身，它的底部＝鐘口（要站的地方）。
+    /// 實測（2026-11-26 斐揚洞穴）鐘身約 100×135 px，底座圓盤約 215 px 寬、是空心的圈，旁邊的火盆、光暈會跟鐘連成一塊，
+    /// 用外框底部當目標會偏到圓盤邊緣（105343：腳在鐘口下方 100 px，站在圓盤上還是被鐘打死）
+    /// </summary>
+    private const int BodyW = 96, BodyH = 128;
+
+    /// <summary>
     /// 找畫面上最大的一塊鐘（同 JS：取最大一塊、至少 <see cref="MinN"/> 點），排除燈籠與特效（見 <see cref="IsBell"/>）；找不到回 null。
     /// last＝上次找到的鐘：封印後變紅的鐘在原地，比燈籠小也認得出來。
     /// </summary>
     public static BellBlob? Find(Frame f, double dpr, BellBlob? last = null)
-        => Scan(f, dpr).Where(b => IsBell(b, dpr, last)).MaxBy(b => b.N);
+        => Scan(f, dpr).Where(b => IsBell(b, dpr, last, f)).OrderByDescending(b => IsSureBell(b, dpr, f)).ThenByDescending(b => b.N).FirstOrDefault();
 
     /// <summary>
     /// 像不像鐘：至少 25 點（JS）、填滿 ≥ 0.3（排除燈籠的光環）；幾乎全是封印紅的話（燈籠的紅色、紅色特效也符合封印紅），
     /// 要比燈籠寬（≥ 64 px），或在上次找到的鐘附近（中心距離不超過上次的鐘寬，封印後原地變紅）
     /// </summary>
-    private static bool IsBell(BellBlob b, double dpr, BellBlob? last)
+    /// <summary>
+    /// 大鐘（鐘身＋底座圓盤）：實測（2026-11-26 斐揚洞穴，4 張 MVP 戰鬥截圖）鐘 N 721～903、高 252～260 px；
+    /// 火盆的光最多 N 539、高 160 px。鐘旁邊有技能的火焰特效時會連成一塊（寬 328、填滿只有 0.17），所以這裡填滿只要 0.12。
+    /// 「沒讀到公告、看到鐘就躲」只認這種，免得跑去火盆底下
+    /// </summary>
+    public static bool IsBigBell(BellBlob b, double dpr)
+        => b.N >= BigMinN && b.Height >= BigMinHeight * dpr && b.Fill >= BigMinFill && b.Width <= MaxWidth * dpr;
+
+    private const int BigMinN = 650;
+    private const int BigMinHeight = 220;
+    private const double BigMinFill = 0.12;
+
+    /// <summary>
+    /// 被畫面邊緣切掉一半的鐘（只看得到底座）：貼著畫面上下左右任一邊、寬高都 ≥ 100 px、N ≥ 100，填滿只要 0.1。
+    /// 實測（2026-11-26 斐揚洞穴）喊躲鐘時鐘在畫面最上緣（y 0～124），又被閃電特效切開，填滿只有 0.11～0.18，原本的規則認不出來，原地等了 4.5 秒被秒殺。
+    /// 火盆、地上的火焰特效都沒有貼邊又這麼大的
+    /// </summary>
+    private static bool IsEdgeBell(BellBlob b, double dpr, Frame? f)
     {
+        if (f is null)
+            return false;
+        var edge = (int)(8 * dpr);
+        var touches = b.Y0 <= edge || b.X0 <= edge || b.X1 >= f.Width - edge || b.Y1 >= f.Height - edge;
+        if (touches && b.N >= 100 && b.Width >= 100 * dpr && b.Height >= 100 * dpr && b.Fill >= 0.1 && b.Width <= MaxWidth * dpr)
+            return true;
+        // 被下方技能列擋住的鐘（技能列那塊不掃，見 Excluded）：實測（2026-11-26 第 3 局）鐘在畫面正下方，
+        // 只露出鐘頂 96×72～76 px、N 269～309、填滿 0.57～0.62，被「暗金色塊至少 90 px 高」排除，原地等了 4.5 秒
+        var hud = Excluded(f, dpr)[^1];
+        var onHud = b.Y1 >= hud.Top - edge && b.X1 >= hud.Left && b.X0 <= hud.Right;
+        return onHud && b.N >= 150 && b.Width >= 60 * dpr && b.Height >= 50 * dpr && b.Fill >= 0.3 && b.Width <= MaxWidth * dpr;
+    }
+
+    /// <summary>大鐘、被邊緣（含技能列）切掉的鐘：比一般的金色色塊可靠，Find 優先選它們（不然火盆的光比較大塊時會被選走）</summary>
+    private static bool IsSureBell(BellBlob b, double dpr, Frame? f) => IsBigBell(b, dpr) || IsEdgeBell(b, dpr, f);
+
+    private static bool IsBell(BellBlob b, double dpr, BellBlob? last, Frame? f = null)
+    {
+        if (IsSureBell(b, dpr, f))
+            return true;
         if (b.N < MinN || b.Fill < MinFill || b.Width > MaxWidth * dpr)
             return false;
         // 暗金色為主的色塊要夠高才算：實測洞穴的鐘身 148 px 高；洛陽的燈籠、地面被暗金規則誤認的色塊最高 72 px
@@ -105,6 +153,14 @@ public static class BellFinder
             }
         }
 
+        // 前綴和：找鐘身用（見下面）
+        var sum = new int[(gw + 1) * (gh + 1)];
+        for (var gy = 0; gy < gh; gy++)
+            for (var gx = 0; gx < gw; gx++)
+                sum[(gy + 1) * (gw + 1) + gx + 1] = (hits[gy * gw + gx] != 0 ? 1 : 0) + sum[gy * (gw + 1) + gx + 1] + sum[(gy + 1) * (gw + 1) + gx] - sum[gy * (gw + 1) + gx];
+        int Count(int ax, int ay, int bx, int by) => sum[by * (gw + 1) + bx] - sum[ay * (gw + 1) + bx] - sum[by * (gw + 1) + ax] + sum[ay * (gw + 1) + ax];
+        int bodyW = Math.Max(1, (int)Math.Round(BodyW * dpr / step)), bodyH = Math.Max(1, (int)Math.Round(BodyH * dpr / step));
+
         var found = new List<BellBlob>();
         var seen = new bool[hits.Length];
         var stack = new Stack<int>();
@@ -141,7 +197,22 @@ public static class BellFinder
                     }
             }
             found.Add(new BellBlob((x0 + x1) * step / 2, y1 * step, x0 * step, x1 * step, y0 * step, y1 * step, n,
-                (x1 - x0) * step, (y1 - y0) * step, gold, red, (double)n / ((x1 - x0 + 1) * (y1 - y0 + 1)), dim));
+                (x1 - x0) * step, (y1 - y0) * step, gold, red, (double)n / ((x1 - x0 + 1) * (y1 - y0 + 1)), dim,
+                0, 0) is var blob && n >= MinN ? Body(blob, x0, y0, x1, y1) : blob);
+            BellBlob Body(BellBlob blob, int x0, int y0, int x1, int y1)
+            {
+                int best = -1, bx = x0, by = y0;
+                for (var wy = y0; wy <= Math.Min(y0 + bodyH / 3, Math.Max(y0, y1 + 1 - bodyH)); wy++)
+                    for (var wx = x0; wx <= Math.Max(x0, x1 + 1 - bodyW); wx++)
+                    {
+                        var c = Count(wx, wy, Math.Min(wx + bodyW, x1 + 1), Math.Min(wy + bodyH, y1 + 1));
+                        if (c > best)
+                            (best, bx, by) = (c, wx, wy);
+                    }
+                var mx = (bx + Math.Min(bx + bodyW, x1 + 1)) * step / 2;
+                var my = Math.Min(by + bodyH, y1 + 1) * step;
+                return blob with { BX = mx, BY = my };
+            }
         }
         return found;
     }

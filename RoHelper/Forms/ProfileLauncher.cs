@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 using RoHelper.DevApi;
+using RoHelper.Storage;
 
 namespace RoHelper.Forms;
 
@@ -76,27 +77,77 @@ public static class ProfileLauncher
         return path;
     }
 
-    /// <summary>把某個分身的遊戲視窗切到前面（在螢幕外的會由它自己的 OnActivated 移回來）。找不到回 false</summary>
-    public static bool Focus(int pid)
+    /// <summary>
+    /// 切到某個分身：先把其他在螢幕上的分身遊戲視窗移到螢幕外（送 SC_MINIMIZE，GameForm 會攔下來移走、照常掛機），
+    /// 再把這個分身的遊戲視窗切到前面（在螢幕外的會移回來）。找不到這個分身的視窗回 false。
+    /// </summary>
+    /// <param name="others">其他還在執行的分身</param>
+    public static bool SwitchTo(InstanceStatus target, IEnumerable<InstanceStatus> others)
+    {
+        if (GameWindow(target) is not { } h)
+            return false;
+        var parking = others.Where(o => o.Pid != target.Pid).Select(GameWindow).OfType<IntPtr>().Where(OnScreen).ToList();
+        foreach (var o in parking)
+            NativeMethods.PostMessage(o, WmSysCommand, ScMinimize, IntPtr.Zero);
+        // 等它們移走（各自的 UI 執行緒處理，通常幾十毫秒）；移走時會把前景交給後面的視窗，所以要等完再切，免得被搶走
+        for (var i = 0; i < 20 && parking.Any(OnScreen); i++)
+            Thread.Sleep(50);
+        if (NativeMethods.IsIconic(h))
+            NativeMethods.ShowWindow(h, NativeMethods.SwRestore);
+        // 在螢幕外：再送一次 SC_MINIMIZE 就是移回來（GameForm.WndProc 的切換）；不靠 OnActivated，跨程序切前景可能被系統擋掉
+        else if (!OnScreen(h))
+            NativeMethods.PostMessage(h, WmSysCommand, ScMinimize, IntPtr.Zero);
+        NativeMethods.SetForegroundWindow(h);
+        return true;
+    }
+
+    private const int WmSysCommand = 0x0112;
+    private static readonly IntPtr ScMinimize = 0xF020;
+
+    /// <summary>分身的遊戲視窗：status.json 有寫 Hwnd 而且還是那個程序的就用它，舊版沒寫才用程序的主視窗（可能是面板）</summary>
+    private static IntPtr? GameWindow(InstanceStatus st)
     {
         try
         {
-            using var p = Process.GetProcessById(pid);
-            if (p.ProcessName != Process.GetCurrentProcess().ProcessName || p.MainWindowHandle == IntPtr.Zero)
-                return false;
-            if (NativeMethods.IsIconic(p.MainWindowHandle))
-                NativeMethods.ShowWindow(p.MainWindowHandle, NativeMethods.SwRestore);
-            return NativeMethods.SetForegroundWindow(p.MainWindowHandle);
+            using var p = Process.GetProcessById(st.Pid);
+            if (p.ProcessName != Process.GetCurrentProcess().ProcessName)
+                return null;
+            var h = (IntPtr)st.Hwnd;
+            if (h != IntPtr.Zero && NativeMethods.GetWindowThreadProcessId(h, out var pid) != 0 && pid == st.Pid)
+                return h;
+            return p.MainWindowHandle == IntPtr.Zero ? null : p.MainWindowHandle;
         }
         catch (ArgumentException)
         {
-            return false;
+            return null;
         }
     }
+
+    /// <summary>視窗在螢幕上（沒有最小化、也沒被移到螢幕外）</summary>
+    private static bool OnScreen(IntPtr h)
+        => !NativeMethods.IsIconic(h) && NativeMethods.GetWindowRect(h, out var r)
+            && Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom).IntersectsWith(SystemInformation.VirtualScreen);
 
     private static class NativeMethods
     {
         public const int SwRestore = 9;
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct Rect
+        {
+            public int Left, Top, Right, Bottom;
+        }
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool PostMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool GetWindowRect(IntPtr hWnd, out Rect rect);
+
+        [DllImport("user32.dll")]
+        public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]

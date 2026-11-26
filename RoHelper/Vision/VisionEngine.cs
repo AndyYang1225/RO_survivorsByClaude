@@ -76,6 +76,13 @@ public sealed class VisionEngine : IAutomation, IDisposable
     /// </summary>
     private const long BannerEvery = 1000;
     private long _bannerAt = long.MinValue / 2;
+    private string _lastBanner = "";
+    private const long BannerEveryMvp = 400;
+    private int _bellSeenRow;
+
+    /// <summary>MVP 中沒在躲鐘時存診斷截圖的間隔（見 MvpEvidence）</summary>
+    private const long MvpShotEvery = 3000;
+    private long _mvpShotAt = long.MinValue / 2;
     private BannerReader? _bannerReader;
 
     /// <summary>
@@ -179,6 +186,9 @@ public sealed class VisionEngine : IAutomation, IDisposable
 
     /// <summary>最近一次讀道具欄的結果與時間（給開發介面看；null＝這局還沒讀到）</summary>
     public TreasureRead? LastTreasure { get; private set; }
+
+    /// <summary>最近一輪看到的王攻擊警示範圍（給開發介面看；躲鐘中是 null）</summary>
+    public DangerView? LastDanger { get; private set; }
     public long LastTreasureAt => _treasureAt;
 
     /// <summary>引擎推算的遊戲時間（秒；null＝還沒讀到或計時器已經變成倒數）與這一局讀到的地名（給開發介面看）</summary>
@@ -275,6 +285,14 @@ public sealed class VisionEngine : IAutomation, IDisposable
             }
             else
                 _picker.Gone();
+
+            // 躲鐘中：跳過範本比對、大廳流程，直接走位（躲鐘最優先），一輪越短越好。
+            // 實測（2026-11-26 斐揚洞穴）一般一輪 1.2～1.8 秒，喊躲鐘後約 7 秒就被秒殺，反應太慢走不到鐘下
+            if (_gate.InField && unreadable is null && _planner.Bell.Active(Environment.TickCount64))
+            {
+                Report(await FieldStepAsync(frame, dpr, Environment.TickCount64));
+                return;
+            }
 
             // 步驟 2：辨識。在野外時只找返回角色，每 FullReadEvery 才完整辨識一次（看到大廳的東西後就每輪完整辨識，見 _lobbySeen）
             var readAt = Environment.TickCount64;
@@ -373,14 +391,17 @@ public sealed class VisionEngine : IAutomation, IDisposable
             // 組隊模式下連續 3 輪看到野外的計時器、畫面上沒有大廳的東西，就算進了野外
             var fieldTimer = !_gate.InField && !decision.StartsRun && FieldGate.LobbyVisible(screen) is false && TimerReader.Read(frame, dpr) is not null;
             _fieldTimerHits = fieldTimer ? _fieldTimerHits + 1 : 0;
-            if (fieldTimer && (_flow.AwaitingField(now) || settings.Party && _fieldTimerHits >= 3))
+            // 單人也一樣：沒經過「前往野外」就在野外（使用者手動點進去、重開小幫手後接著打上一局）也要開始這一局，否則不走位、不躲鐘。
+            // 實測（2026-11-26）：手動點進洛陽，整局待機不走位，選卡還用了遠征的道具排名。是不是活動等讀到地名再改（見 ReadInfoAsync）
+            if (fieldTimer && (_flow.AwaitingField(now) || _fieldTimerHits >= 3))
             {
                 _fieldTimerHits = 0;
+                var awaited = _flow.AwaitingField(now);
                 _flow.FieldEntered();
                 Watch.Progress(now);
-                StartRun(expe: true);
+                StartRun(expe: settings.Party || settings.AutoExpe);
                 _gate.Enter(now);
-                decision = decision with { Action = "組隊：全隊進入野外" };
+                decision = decision with { Action = awaited || settings.Party ? "組隊：全隊進入野外" : "已在野外，開始這一局" };
             }
             if (decision.Click is { } p)
             {
@@ -550,9 +571,11 @@ public sealed class VisionEngine : IAutomation, IDisposable
                 await kit.Input.WheelAsync(cx, cy, ZoomDelta);
             _zoomed = true;
         }
-        if (now - _gate.Since >= ZoomDelay)
+        // 躲鐘中不做 OCR（地名、金錢、時間）：每個 OCR 約 100 ms，躲鐘要一輪越短越好
+        var dodging = _planner.Bell.Active(now);
+        if (now - _gate.Since >= ZoomDelay && !dodging)
             await ReadInfoAsync(frame, dpr, now);
-        if (s.ChestMoney && _hudReader is not null && now - _hudAt >= HudEvery)
+        if (s.ChestMoney && _hudReader is not null && now - _hudAt >= HudEvery && !dodging)
         {
             _hud = await _hudReader.ReadAsync(frame, dpr);
             _hudAt = now;
@@ -562,8 +585,15 @@ public sealed class VisionEngine : IAutomation, IDisposable
         // 單格誤判成撿取倒數會把剛開始的躲鐘取消（真的撿取倒數有 15 秒，晚 1.5 秒沒差）
         _lootSince = timer == TimerPhase.Loot ? _lootSince ?? now : null;
         var lootPhase = _lootSince is { } ls && now - ls >= LootConfirm;
-        await ClockAsync(frame, dpr, now, timer);
-        var bell = await BellAsync(frame, dpr, now, s, lootPhase);
+        if (!dodging)
+            await ClockAsync(frame, dpr, now, timer);
+        var bell = await BellAsync(frame, dpr, now, s, timer);
+        // 公告喊躲鐘＝MVP 還活著（鐘只在 MVP 戰鬥中出現）：計時器判成撿取倒數一定是誤判（鐘開啟後畫面染紅光，MVP 血條讀不到），照樣躲。
+        // 實測（2026-11-26 斐揚洞穴）整局沒有躲鐘紀錄、14:02 跑去「王死掉的地方」、14:15 被鐘打死
+        if (bell is not null)
+            lootPhase = false;
+        else
+            MvpEvidence(frame, timer, lootPhase, now);
         var note = "";
         if (bell is null)
             TraceBell(frame, null, "", null, now);
@@ -589,7 +619,10 @@ public sealed class VisionEngine : IAutomation, IDisposable
         }
         // 躲鐘中不做別的走位，不用找扭蛋
         var balls = s.SeekBall && !lootPhase && bell is null ? BallFinder.Find(frame, dpr) : null;
-        var d = _planner.Step(MinimapReader.Read(frame, dpr), s, now, s.CanAffordChest(_hud), hp, lootPhase, balls, bell);
+        // 王的攻擊警示範圍：躲鐘中不找（鐘的紅圈是要站進去的）
+        var danger = bell is null ? new DangerView(DangerFinder.Find(frame, dpr), frame.Width, frame.Height, dpr) : null;
+        LastDanger = danger;
+        var d = _planner.Step(MinimapReader.Read(frame, dpr), s, now, s.CanAffordChest(_hud), hp, lootPhase, balls, bell, danger);
         if (bell is not null)
             TraceBell(frame, bell, d.Status, hp, now);
         if (d.Click is { } c)
@@ -697,23 +730,67 @@ public sealed class VisionEngine : IAutomation, IDisposable
 
     /// <summary>
     /// 躲鐘：每 <see cref="BannerEvery"/> OCR 一次公告交給走位決策（沒有繁中 OCR 時讀不到公告，不會躲鐘）；
-    /// 躲鐘中掃畫面找鐘，回傳這一輪看到的鐘（沒在躲鐘回 null）。撿取倒數中（MVP 死了）不讀，走位決策會結束躲鐘。
+    /// 躲鐘中掃畫面找鐘，回傳這一輪看到的鐘（沒在躲鐘回 null）。
+    /// 撿取倒數中也照樣讀公告：計時器的判讀會被鐘的紅光騙（見 FieldStepAsync），真的撿取倒數時不會有躲鐘公告，讀了也沒差。
     /// </summary>
-    private async Task<BellView?> BellAsync(Frame frame, double dpr, long now, FieldSettings s, bool lootPhase)
+    private async Task<BellView?> BellAsync(Frame frame, double dpr, long now, FieldSettings s, TimerPhase? timer)
     {
-        if (!s.BellDodge || lootPhase)
+        if (!s.BellDodge)
             return null;
-        if (_bannerReader is not null && now - _bannerAt >= BannerEvery)
+        // MVP 戰鬥中公告讀快一點：「躲到鐘下！」只出現 2～3 秒（實測 2026-11-26），每秒讀一次只讀到殘缺的字
+        var mvp = timer == TimerPhase.Mvp;
+        // 躲鐘中公告照舊每秒讀（只為了「太遲」），省下時間給找鐘、走位
+        var every = _planner.Bell.Active(now) ? BannerEvery : mvp ? BannerEveryMvp : BannerEvery;
+        if (_bannerReader is not null && now - _bannerAt >= every)
         {
             _bannerAt = now;
             var text = await _bannerReader.ReadAsync(frame, dpr);
+            _lastBanner = text;
             if (BannerReader.DodgeMs(text) is not null)
                 _bellBanner = text;
             _planner.Bell.Announce(text, now);
         }
+        // 備援：MVP 戰鬥中連續 2 輪在畫面上看到鐘 → 公告沒讀到也開始躲（找鐘約 1 ms，每輪掃）
+        if (mvp && !_planner.Bell.Active(now))
+        {
+            _bellSeenRow = BellFinder.Find(frame, dpr) is { } seen && BellFinder.IsBigBell(seen, dpr) ? _bellSeenRow + 1 : 0;
+            if (_bellSeenRow >= 2)
+            {
+                _bellBanner = "（畫面上看到鐘）" + _lastBanner;
+                _planner.Bell.Spotted(now);
+            }
+        }
+        else
+            _bellSeenRow = 0;
         if (!_planner.Bell.Active(now))
             return null;
         return new BellView(BellFinder.Find(frame, dpr, _planner.Bell.Seen), frame.Width, frame.Height, dpr);
+    }
+
+    /// <summary>
+    /// 診斷用：計時器是紅字（MVP 戰鬥或撿取倒數）但沒在躲鐘時，每 <see cref="MvpShotEvery"/> 存一張到 shots/bell，
+    /// 附上計時器判讀和最近一次讀到的公告，躲鐘失敗時才查得到是公告沒讀到還是被當成撿取倒數（2026-11-26 那局什麼都沒留下）。
+    /// </summary>
+    private void MvpEvidence(Frame frame, TimerPhase? timer, bool lootPhase, long now)
+    {
+        if (timer is not (TimerPhase.Mvp or TimerPhase.Loot) || now - _mvpShotAt < MvpShotEvery)
+            return;
+        _mvpShotAt = now;
+        try
+        {
+            var t = _clock.Now(now);
+            _bellShots.Save(frame, $"MVP中{(lootPhase ? "-撿取倒數" : "")}", DateTime.Now, new JsonObject
+            {
+                ["timer"] = timer.ToString(),
+                ["lootPhase"] = lootPhase,
+                ["clock"] = t is { } c ? $"{c / 60}:{c % 60:00}" : "",
+                ["banner"] = _lastBanner,
+            });
+        }
+        catch
+        {
+            // 為什麼吞掉：診斷截圖存不了不能影響走位
+        }
     }
 
     /// <summary>
@@ -763,7 +840,13 @@ public sealed class VisionEngine : IAutomation, IDisposable
         _infoTries++;
         var info = await _infoReader.ReadAsync(frame, dpr);
         if (info.Stage.Length > 0)
+        {
             _stage = info.Stage;
+            // 地名不在遠征地圖清單（洛陽等）＝活動：選卡改用活動的道具排名、不選尋寶卡。不只靠按了哪個按鈕判斷（手動進野外、接著打上一局時不知道）
+            var isEvent = !Schema.Stages.Contains(info.Stage);
+            _picker.State.IsEvent = isEvent;
+            _recorder.SetMode(isEvent ? "event" : "expe");
+        }
         if (info.Job.Length > 0)
         {
             _jobRead = true;
@@ -827,7 +910,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
         }
         if (action.Decision is { } d)
         {
-            _recorder.Pick(d, info, _clock.Text(Environment.TickCount64));
+            _recorder.Pick(d, info, _clock.Text(Environment.TickCount64), _picker.State.Treasure);
             if (s.DebugLog)
                 LogPick(info, s, action.Status, d);
         }

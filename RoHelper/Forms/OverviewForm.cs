@@ -109,9 +109,13 @@ public sealed class OverviewForm : Form
         if (SelectedProfile is not { } profile)
             return;
         var st = InstanceStatus.Load(AppPaths.ProfileDirOf(profile));
-        if (st is not null && st.IsAlive(DateTime.Now))
+        var now = DateTime.Now;
+        if (st is not null && st.IsAlive(now))
         {
-            if (!ProfileLauncher.Focus(st.Pid))
+            // 切到這個分身時，其他分身的遊戲視窗移到螢幕外（照常掛機），畫面上只留一隻，不會看錯是哪個帳號
+            var others = AppPaths.AllProfiles().Where(p => p != profile)
+                .Select(p => InstanceStatus.Load(AppPaths.ProfileDirOf(p))).OfType<InstanceStatus>().Where(o => o.IsAlive(now));
+            if (!ProfileLauncher.SwitchTo(st, others))
                 MessageBox.Show(this, $"找不到 {AppPaths.DisplayName(profile)} 的視窗。", Text);
             return;
         }

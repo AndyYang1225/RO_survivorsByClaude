@@ -13,6 +13,8 @@ public class BannerReaderTests
     [InlineData("鐘被封印了！", 15_000)]
     [InlineData("太遲了，鐘已經響了", 4000)]
     [InlineData("躲到鐘下！太遲了", 4000)]
+    [InlineData("月夜 、到鐘下 ,", 15_000)]
+    [InlineData("月夜 躲到鐘", 15_000)]
     public void DodgeMs_Announcements(string text, int ms)
         => Assert.Equal(ms, BannerReader.DodgeMs(text));
 

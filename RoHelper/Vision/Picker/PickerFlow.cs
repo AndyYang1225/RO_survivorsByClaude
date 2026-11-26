@@ -45,6 +45,9 @@ public sealed class PickerFlow(Func<int, int>? random = null)
     /// <summary>技能神祇選擇畫面出現後至少等多久才選（卡片淡入動畫，見 Act 裡的註解）</summary>
     private const long DeitySettle = 2_000;
 
+    /// <summary>技能神祇畫面卡名一直讀不出來時最多等多久才照現有資訊選</summary>
+    private const long DeityMaxWait = 6_000;
+
     private long? _seenAt;
     private long _readyAt;
     private (int Index, string Name, Rectangle Card)? _pendingPick;
@@ -99,6 +102,9 @@ public sealed class PickerFlow(Func<int, int>? random = null)
             if (now - (_seenAt ?? now) < DeitySettle)
                 return new("等技能神祇卡片出現…");
             var dd = CardDecider.DecideDeity(p, s);
+            // 神祇清單的都沒對上、又有卡名讀不出來（還在淡入）：再等，最多等到 DeityMaxWait，免得照技能順序／第一張選錯（實測 2026-11-26 選成火箭術）
+            if (!dd.Why.StartsWith("技能神祇優先") && p.Cards.Any(c => c.Name.Length < 2) && now - (_seenAt ?? now) < DeityMaxWait)
+                return new("等技能神祇卡名讀出來…");
             State.DeityPicked = true;
             var chosen = p.Cards[dd.Index!.Value];
             _pendingPick = (dd.Index.Value, chosen.Name, chosen.Bounds);
@@ -161,6 +167,10 @@ public sealed class PickerFlow(Func<int, int>? random = null)
         // 寶箱卡：記下拿過的道具，之後再出現（強化它）算要的卡，不會為它單張重抽
         if (p.IsChest && picked.Name.Length > 0)
             State.Owned.Add(CardDecider.SkillKey(picked.Name));
+        // 選了尋寶卡：先把卡上的「+N% 尋寶率」加進尋寶率（使用者 2026-11-27：1229 已超過 300% 還連選 4 次驚奇秘藥）。
+        // 寶箱常連開好幾個，中間沒機會移滑鼠重讀道具欄，不先加的話每次都用同一個舊值判斷上限。
+        // 卡上寫的是這次增加的量（百科：每次精煉 +10～20%），下次讀道具欄會用實際值蓋掉
+        State.Treasure += CardDecider.TreasureGain(picked);
         if (CardDecider.SkillOf(picked, s.Skills.After) is { } w)
             State.Picked.Add(w);
         // 不得已學了清單外的新技能（重抽、放逐都用完）：記下來，之後再出現就放逐

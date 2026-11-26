@@ -42,6 +42,9 @@ public sealed class DevApiHost(Control ui, VisionKit kit, VisionEngine engine, P
         });
     });
 
+    /// <summary>shots/api 最多留幾張（約 2.5 MB 一張），超過刪最舊的</summary>
+    private const int ApiShotsMax = 100;
+
     public Task<JsonObject> ShotAsync(string? name) => OnUi(async () =>
     {
         var frame = await kit.Grabber.CaptureAsync();
@@ -49,6 +52,7 @@ public sealed class DevApiHost(Control ui, VisionKit kit, VisionEngine engine, P
         var path = Path.Combine(AppPaths.ApiShotsDir, (name ?? DateTime.Now.ToString("yyyyMMdd-HHmmss")) + ".png");
         using (var bmp = frame.ToBitmap())
             bmp.Save(path, ImageFormat.Png);
+        EvidenceStore.PruneOldest(AppPaths.ApiShotsDir, ApiShotsMax);
         return new JsonObject
         {
             ["path"] = path,
@@ -189,9 +193,24 @@ public sealed class DevApiHost(Control ui, VisionKit kit, VisionEngine engine, P
         var now = Environment.TickCount64;
         var s = FieldSettings.From(config);
         // 只預覽：用一個新的走位決策（沒有上次移動時間、卡住紀錄），不動引擎的走位狀態（也不會在躲鐘），也不點
-        var d = new FieldPlanner(Random.Shared.NextDouble).Step(mm, s, now, s.CanAffordChest(hud), hp, timer == TimerPhase.Loot, balls);
+        var shapes = DangerFinder.Shapes(frame, dpr);
+        var danger = new DangerView(DangerFinder.Find(frame, dpr), frame.Width, frame.Height, dpr);
+        var d = new FieldPlanner(Random.Shared.NextDouble).Step(mm, s, now, s.CanAffordChest(hud), hp, timer == TimerPhase.Loot, balls, danger: danger);
         return new JsonObject
         {
+            // 王的攻擊警示範圍：zones＝判定成警示的橢圓（已含安全距離）；candidates＝所有夠大的紅／粉紅色塊與形狀數字（校正用，見 DangerFinder.IsZone）
+            ["danger"] = new JsonObject
+            {
+                ["zones"] = new JsonArray(danger.Zones.Select(z => (JsonNode?)new JsonObject
+                {
+                    ["kind"] = z.Kind, ["x"] = Math.Round(z.X), ["y"] = Math.Round(z.Y), ["rx"] = Math.Round(z.Rx), ["ry"] = Math.Round(z.Ry),
+                }).ToArray()),
+                ["candidates"] = new JsonArray(shapes.Select(c => (JsonNode?)new JsonObject
+                {
+                    ["box"] = Rect(c.Box), ["red"] = c.Red, ["pink"] = c.Pink, ["ring"] = Math.Round(c.RedRing, 2),
+                    ["center"] = Math.Round(c.RedCenter, 2), ["sectors"] = c.Sectors, ["pinkFill"] = Math.Round(c.PinkFill, 2), ["zone"] = DangerFinder.IsZone(c),
+                }).ToArray()),
+            },
             ["width"] = frame.Width,
             ["height"] = frame.Height,
             ["dpr"] = dpr,

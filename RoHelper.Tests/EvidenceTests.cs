@@ -73,4 +73,32 @@ public class EvidenceTests
                 Directory.Delete(dir, true);
         }
     }
+
+    /// <summary>開發介面 /shot 的檔名可以自訂：照修改時間留最新的 max 張，不是照檔名</summary>
+    [Fact]
+    public void PruneOldest_ByWriteTime()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "rohelper-ev-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(dir);
+            var t = new DateTime(2026, 11, 27, 1, 0, 0, DateTimeKind.Utc);
+            foreach (var (name, min) in new[] { ("a", 3), ("z", 0), ("m", 2), ("b", 1) })
+            {
+                var p = Path.Combine(dir, name + ".png");
+                File.WriteAllBytes(p, [1]);
+                File.SetLastWriteTimeUtc(p, t.AddMinutes(min));
+            }
+            File.WriteAllText(Path.Combine(dir, "note.txt"), "不是 png，不刪");
+
+            EvidenceStore.PruneOldest(dir, 2);
+
+            Assert.Equal(["a.png", "m.png", "note.txt"], Directory.GetFiles(dir).Select(Path.GetFileName).Order());
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+                Directory.Delete(dir, true);
+        }
+    }
 }

@@ -62,6 +62,7 @@ public sealed class FieldPlanner(Func<double> random, bool learnMapFeatures = tr
         _bossArrive = 0;
         _mapFeatures.Clear();
         _runFirstStep = 0;
+        _bellBoss = null;
         _bell.End();
     }
 
@@ -72,9 +73,10 @@ public sealed class FieldPlanner(Func<double> random, bool learnMapFeatures = tr
     /// lootPhase＝MVP 死後的撿取倒數中（計時器變紅字，見 <see cref="TimerReader"/>）：只撿掉落物，不追扭蛋、寶箱、磁鐵（同 JS 1126～1148 行）。
     /// balls＝畫面上像扭蛋的色塊（<see cref="BallFinder.Find"/>，離畫面中心近的在前面；null 或空＝沒看到）。
     /// bell＝躲鐘中這一輪掃到的鐘（<see cref="BellFinder.Find"/>；null＝沒掃）。公告由呼叫端交給 <see cref="Bell"/>。
+    /// danger＝畫面上王的攻擊警示範圍（<see cref="DangerFinder.Find"/>；null＝沒掃）。躲鐘優先：躲鐘中不看（鐘的紅圈是要站進去的）。
     /// </summary>
     public FieldDecision Step(MinimapInfo? mm, FieldSettings s, long now, bool chestAffordable = true, double? hp = null, bool lootPhase = false,
-        IReadOnlyList<BallBlob>? balls = null, BellView? bell = null)
+        IReadOnlyList<BallBlob>? balls = null, BellView? bell = null, DangerView? danger = null)
     {
         // 刻意每輪都追蹤王（JS 只在 SeekEvery 之後才追蹤）：王的標記會閃，視覺模式一輪又比較久，
         // 被 SeekEvery 跳過的那幾輪也要記到「最後看到的時間」，才不會把閃爍誤判成死掉。
@@ -89,10 +91,105 @@ public sealed class FieldPlanner(Func<double> random, bool learnMapFeatures = tr
             _bell.End();
         if (_bell.Step(bell, now) is { } dodge)
         {
+            // 畫面上找不到鐘：離王太遠、鐘不在畫面裡（使用者 2026-11-27）→ 往小地圖上的王走過去找，鐘出現在畫面上就照常躲到鐘下
+            if (dodge.Status == BellDodger.Searching && mm is not null && BellBoss(mm, now) is { } boss)
+            {
+                var (dx, dy, len) = Delta(mm.Me, boss);
+                if (len < BellBossNear)
+                    return new("躲鐘：在王旁邊找鐘", null);
+                return Go("躲鐘：往王那邊找鐘", dx, dy, len, now);
+            }
             if (dodge.Click is not null)
                 _lastMove = now;
             return dodge;
         }
+        // 王的攻擊警示範圍（使用者 2026-11-27：不要踏在上面）：站在裡面就先逃出去（不等 SeekEvery），要走的路線穿過範圍就繞開
+        if (danger is { Zones.Count: > 0 } dv)
+        {
+            if (DangerEscape(dv, now) is { } esc)
+                return esc;
+            return Reroute(Plan(mm, s, now, chestAffordable, hp, lootPhase, balls), dv);
+        }
+        return Plan(mm, s, now, chestAffordable, hp, lootPhase, balls);
+    }
+
+    /// <summary>腳下（畫面中心往下 15 px，同 <see cref="BellDodger"/>）</summary>
+    private static (double X, double Y) Feet(DangerView v) => (v.Width / 2.0, v.Height / 2.0 + 15 * v.Dpr);
+
+    private static bool InDanger(DangerView v, double x, double y) => v.Zones.Any(z => z.Contains(x, y));
+
+    /// <summary>從 a 走到 b 的直線（取 12 點，不含起點）有沒有經過警示範圍</summary>
+    private static bool PathHits(DangerView v, (double X, double Y) a, double bx, double by)
+    {
+        for (var i = 1; i <= 12; i++)
+        {
+            var t = i / 12.0;
+            if (InDanger(v, a.X + (bx - a.X) * t, a.Y + (by - a.Y) * t))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>點擊點在畫面 5%～95% 內（同 <see cref="Click"/> 的夾住範圍，夾住會改變方向）</summary>
+    private static bool OnScreen(DangerView v, double x, double y)
+        => x >= v.Width * 0.05 && x <= v.Width * 0.95 && y >= v.Height * 0.05 && y <= v.Height * 0.95;
+
+    /// <summary>
+    /// 腳下在警示範圍裡：從「背離範圍中心」的方向開始，左右各轉 30° 試，找最近一個走得到範圍外面（不經過別的範圍）的點，點那裡。
+    /// 不在範圍裡回 null。
+    /// </summary>
+    private FieldDecision? DangerEscape(DangerView v, long now)
+    {
+        var feet = Feet(v);
+        var inside = v.Zones.Where(z => z.Contains(feet.X, feet.Y)).ToList();
+        if (inside.Count == 0)
+            return null;
+        double ax = inside.Average(z => feet.X - z.X), ay = inside.Average(z => feet.Y - z.Y);
+        var away = ax == 0 && ay == 0 ? random() * 2 * Math.PI : Math.Atan2(ay, ax);
+        foreach (var turn in new[] { 0, 30, -30, 60, -60, 90, -90, 120, -120, 150, -150, 180 })
+        {
+            var a = away + turn * Math.PI / 180;
+            for (var d = 60.0; d <= 420; d += 30)
+            {
+                double x = feet.X + Math.Cos(a) * d * v.Dpr, y = feet.Y + Math.Sin(a) * d * v.Dpr;
+                if (!OnScreen(v, x, y))
+                    break;
+                if (InDanger(v, x, y))
+                    continue;
+                _lastMove = now;
+                return Click(_lastAct = "避開王的攻擊範圍", x / v.Width, y / v.Height);
+            }
+        }
+        return new(_lastAct = "在攻擊範圍裡，找不到出路", null);
+    }
+
+    /// <summary>
+    /// 這一輪要點的地方：終點或路線碰到警示範圍 → 同樣的距離左右各轉 30° 試，找第一個不碰到的方向；都不行就這輪不走。
+    /// 沒有要點、或路線沒碰到就原樣回傳。
+    /// </summary>
+    private FieldDecision Reroute(FieldDecision plan, DangerView v)
+    {
+        if (plan.Click is not { } c)
+            return plan;
+        var feet = Feet(v);
+        double tx = c.X * v.Width, ty = c.Y * v.Height;
+        if (!PathHits(v, feet, tx, ty))
+            return plan;
+        double dx = tx - feet.X, dy = ty - feet.Y;
+        var len = Math.Max(Math.Sqrt(dx * dx + dy * dy), 120 * v.Dpr);
+        var a0 = Math.Atan2(dy, dx);
+        foreach (var turn in new[] { 30, -30, 60, -60, 90, -90, 120, -120, 150, -150 })
+        {
+            var a = a0 + turn * Math.PI / 180;
+            double x = feet.X + Math.Cos(a) * len, y = feet.Y + Math.Sin(a) * len;
+            if (OnScreen(v, x, y) && !PathHits(v, feet, x, y))
+                return Click(plan.Status + "（繞開攻擊範圍）", x / v.Width, y / v.Height);
+        }
+        return new(plan.Status + "（攻擊範圍擋路，先不走）", null);
+    }
+
+    private FieldDecision Plan(MinimapInfo? mm, FieldSettings s, long now, bool chestAffordable, double? hp, bool lootPhase, IReadOnlyList<BallBlob>? balls)
+    {
         // 同 JS：在「走位開關都關了」和 SeekEvery 之前檢查
         if (s.LowHpStop && hp < s.LowHpStopN / 100.0)
             return new("HP 過低，停止走位", null);
@@ -110,7 +207,7 @@ public sealed class FieldPlanner(Func<double> random, bool learnMapFeatures = tr
         // 讀不到小地圖：倒數中照樣小範圍繞圈；扭蛋是看畫面找的，不需要小地圖（只是沒辦法做卡住偵測）
         if (mm is null)
         {
-            if (lootPhase)
+            if (lootPhase && s.SeekLoot)
                 return LootWander(s, now);
             return BallStep(null, balls, s, now) ?? Wander(null, s, now);
         }
@@ -158,8 +255,9 @@ public sealed class FieldPlanner(Func<double> random, bool learnMapFeatures = tr
             return Go(lootPhase ? "倒數中！撿王的掉落物" : "撿王的掉落物", dx, dy, len, now);
         }
 
-        // 倒數中只撿掉落物（不去撿寶箱、磁鐵）；沒有掉落物就繞圈找
-        if (lootPhase)
+        // 倒數中只撿掉落物（不去撿寶箱、磁鐵）；沒有掉落物就繞圈找。
+        // 沒開撿掉落物時照平常走位：遊戲改版後王的掉落物直接在結算給（使用者 2026-11-26）
+        if (lootPhase && s.SeekLoot)
             return LootWander(s, now);
 
         // 節慶扭蛋：直接點球所在的位置
@@ -332,6 +430,26 @@ public sealed class FieldPlanner(Func<double> random, bool learnMapFeatures = tr
         var k = Math.Min(StepRadius, 0.06 + len * 0.03);
         return Click(_lastAct = status, 0.5 + dx / len * k, 0.5 + dy / len * k);
     }
+
+    /// <summary>躲鐘找鐘時離王這麼近（小地圖像素，同王死掉地點的「到了」）就不再往王走，原地等鐘出現在畫面上</summary>
+    private const double BellBossNear = 2;
+
+    /// <summary>
+    /// 躲鐘找鐘要往哪隻王走：最近的 MVP（鐘是 MVP 放的）；小地圖上沒有 MVP 時用最近的王。
+    /// 王的標記會閃：這輪沒看到就用 1.5 秒內最後看到的位置（同 <see cref="BossTracker"/> 的 Gone）
+    /// </summary>
+    private MinimapBlob? BellBoss(MinimapInfo mm, long now)
+    {
+        var list = mm.Mvps.Count > 0 ? mm.Mvps : mm.Bosses;
+        if (list.OrderBy(b => Delta(mm.Me, b).Len).FirstOrDefault() is { } b)
+        {
+            _bellBoss = (b, now);
+            return b;
+        }
+        return _bellBoss is { } last && now - last.At < 1500 ? last.B : null;
+    }
+
+    private (MinimapBlob B, long At)? _bellBoss;
 
     /// <summary>點擊座標夾在 0.05～0.95（同 JS clickWorld），避免點到畫面邊緣的 UI</summary>
     private static FieldDecision Click(string status, double fx, double fy)

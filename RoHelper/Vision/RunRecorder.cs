@@ -65,6 +65,13 @@ public sealed class RunRecorder
             _rec["job"] = job;
     }
 
+    /// <summary>讀到地名後更正這一局是活動還是遠征（開局時可能猜錯，見 VisionEngine.ReadInfoAsync）</summary>
+    public void SetMode(string mode)
+    {
+        if (_rec is not null)
+            _rec["mode"] = mode;
+    }
+
     /// <summary>讀到道具欄：累計尋寶率（%）與每個道具說明框的第一行（同 JS st.treasure、st.items）</summary>
     public void SetTreasure(double treasure, IReadOnlyList<string> items)
     {
@@ -79,8 +86,11 @@ public sealed class RunRecorder
             _bells.Add(b);
     }
 
-    /// <summary>一次選卡動作（同 JS recPick）：kind＝pick／banish／reroll／focus／gameAuto，有卡片時附卡片資訊；gt＝遊戲時間「mm:ss」</summary>
-    public void Pick(PickDecision d, PickerInfo info, string gt = "")
+    /// <summary>
+    /// 一次選卡動作（同 JS recPick）：kind＝pick／banish／reroll／focus／gameAuto，有卡片時附卡片資訊；gt＝遊戲時間「mm:ss」；
+    /// treasure＝這次選完後的尋寶率（含選尋寶卡的估算），查「超過上限還選尋寶卡」用
+    /// </summary>
+    public void Pick(PickDecision d, PickerInfo info, string gt = "", double? treasure = null)
     {
         if (_rec is null)
             return;
@@ -99,6 +109,8 @@ public sealed class RunRecorder
             p["deity"] = CardDecider.IsDeity(c);
         }
         p["why"] = d.Why;
+        if (treasure is { } t)
+            p["treasure"] = (int)Math.Round(t);
         _picks.Add(p);
     }
 
