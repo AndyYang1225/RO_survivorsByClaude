@@ -34,6 +34,19 @@ public sealed class BellDodger
     /// <summary>鐘消失結束躲鐘後這麼久內，公告的殘影不重新開始躲（公告會在畫面上多留 2～3 秒）</summary>
     private const long GoneMute = 5000;
 
+    /// <summary>
+    /// 一次躲鐘最久多久（從開始躲算，延長也不能超過）。鐘實測持續 36 秒左右。
+    /// 實測（2026-11-27 sabc1229 斐揚洞穴）：角色死掉、結算畫面出現後，畫面後面的火盆（37 點）被當成腳下的鐘一直延長，
+    /// 躲鐘中又不看大廳畫面、不按「返回角色」，卡了 29 分鐘
+    /// </summary>
+    private const long MaxDodge = 90_000;
+
+    /// <summary>「站在鐘下就延長」要求鐘至少這麼多點（實測洞穴暗處的真鐘 439～641 點；卡住那次的火盆 37 點）</summary>
+    private const int ParkMinN = 200;
+
+    private long? _startedAt;
+    private bool _sawBig;
+
     /// <summary>躲鐘中但畫面上找不到鐘（沒站好、1.5 秒內也沒看過）：<see cref="FieldPlanner"/> 看到這個狀態就往小地圖上的王走過去找鐘</summary>
     public const string Searching = "躲鐘：找鐘中，原地等";
 
@@ -94,8 +107,21 @@ public sealed class BellDodger
             Reset();
             return null;
         }
+        _startedAt ??= now;
+        if (now - _startedAt >= MaxDodge)
+        {
+            End();
+            _goneAt = now;
+            return null;
+        }
         var b = view?.Bell;
+        // 看到大鐘就延長；這次躲鐘看過大鐘之後，中等大小的鐘（IsHoldBell）也延長：鐘開啟後畫面染紅、鐘只剩 500 多點，
+        // 不延長的話一兩張畫面沒找到就判定鐘消失（實測 2026-11-27 sabc1228 走出紅圈被秒殺）。
+        // 沒看過大鐘時不用中等的：火盆（火＋地上的金光）也有 429～1092 點、160～188 高，大小分不開
+        var hold = b is not null && (BellFinder.IsBigBell(b, view!.Dpr) || _sawBig && BellFinder.IsHoldBell(b, view.Dpr));
         if (b is not null && BellFinder.IsBigBell(b, view!.Dpr))
+            _sawBig = true;
+        if (hold)
         {
             _bigAt = now;
             _until = Math.Max(_until, now + BigHold);
@@ -135,8 +161,11 @@ public sealed class BellDodger
             // 站在鐘下、還看得到這口鐘 → 不管大小都延長（同大鐘）。站好表示這塊就在腳下，不會是遠處的燈籠、火盆。
             // 實測（2026-11-27 C 斐揚洞穴第二次躲鐘）：洞穴光線暗只找到鐘身（n 439～641 < 大鐘門檻 650），
             // 一次都沒延長，公告 15 秒到就去繞圈，鐘和紅圈都還在，2 秒後被秒殺
-            _bigAt = now;
-            _until = Math.Max(_until, now + BigHold);
+            if (b.N >= ParkMinN)
+            {
+                _bigAt = now;
+                _until = Math.Max(_until, now + BigHold);
+            }
             _parked = true;
             return new("在鐘下等待", null);
         }
@@ -147,6 +176,8 @@ public sealed class BellDodger
     private void Reset()
     {
         _parked = false;
+        _startedAt = null;
+        _sawBig = false;
         _last = null;
         _w = 0;
         _bigAt = null;

@@ -12,6 +12,9 @@
   `-Set runLimit=true,runLimitN=5`：關掉後、重開前改三隻的 `config.json`（`tools/set-config.js`，備份到 `history\`）。
   切換活動／遠征、局數上限只能這樣改（`config.pending.json` 會濾掉玩法選擇的鍵）：活動＝`autoEvent=true,autoExpe=false`。
   局數上限到了會停在大廳不開新局。
+  重開完會在背景啟動看門狗（`tools\watchdog.ps1`，`-NoWatchdog` 不啟動）：某一隻開發介面 3 分鐘沒回應、或動作紀錄 10 分鐘沒變
+  （暫停、局數上限、待機不算）就只重開那一隻，每隻每小時最多 3 次，紀錄在 `%AppData%\RoHelper\watchdog.log`。
+  restart.ps1 執行中有 `restarting.lock`，看門狗不動作。程式內的 `Vision/StallWatch.cs` 只會重新整理網頁（最多 2 次）。
 - **編譯**：`dotnet build RoHelper`（小幫手在跑時 bin 會被鎖住，先用上面的腳本或關掉）
 - **測試**（小幫手在跑時也能測）：`dotnet test RoHelper.Tests --artifacts-path <scratchpad>/art < /dev/null`
   `BellFinderTests.Scan_IsCheap` 是速度測試，三隻同時在跑時偶爾會失敗，單獨重跑會過。
@@ -54,12 +57,25 @@
 ## 走位規則的位置（`Vision/Field/`）
 
 - `FieldPlanner.cs`：優先順序（躲鐘 → 攻擊警示 → 王死掉地點 → 掉落物 → 扭蛋 → 磁鐵 → 寶箱 → 繞圈）
-- `BellDodger.cs`：躲鐘；畫面上找不到鐘時 FieldPlanner 往小地圖上的 MVP 走去找（`MinimapInfo.Mvps`）
-- `DangerFinder.cs`：王的攻擊警示（紅圈、粉紅圓、扇形）。站在裡面就逃、路線穿過就繞；躲鐘時不看。
-  鐘的紅圈長得一樣：畫面上有鐘時包住鐘的圈不算、被切成半邊的大弧用寬高比排除。只用斐揚洞穴月夜貓校正過
+- `BellDodger.cs`：躲鐘；畫面上找不到鐘時先看上方計時器那一塊有沒有底座圓盤（`BellFinder.FindBehindHud`，往那邊走到 MVP 血條下），
+  再不行 FieldPlanner 往小地圖上的 MVP 走去找（`MinimapInfo.Mvps`）。躲鐘最長 90 秒（`MaxDodge`）；
+  站在 < 200 點的小色塊上不延長（`ParkMinN`，火盆）；看過大鐘之後中等的鐘（`IsHoldBell`）也延長（鐘開啟後變暗）
+- `DangerFinder.cs`：王的攻擊警示。`Find`＝紅圈、粉紅圓、扇形（只用斐揚洞穴月夜貓校正）；`FindStripes`＝洛陽的條紋（直、斜、橫、格子，
+  格子遮罩＋安全距離 20 px，角色本身那塊不取樣）。站在裡面就逃（條紋：找最近的空地）、路線穿過就繞；躲鐘時不看。
+  鐘的紅圈長得一樣：畫面上有鐘時包住鐘的圈不算、被切成半邊的大弧用寬高比／填滿比例排除
+- 尋寶率：`TreasureReader.Sanity`（一局只增不減、暴增 > 200 要連續兩次差不多才採用）；道具欄讀到 0 格但已經有道具時不歸零
 - 面板：新版是網頁（`Panel/web/panel.js`，C# 端 `Forms/PanelForm.Web.cs`），舊版 WinForms（`Forms/PanelForm*.cs`）
 
+## 查證用的證據截圖（各帳號 `shots\`）
+
+`bell`（躲鐘、MVP 戰鬥）、`party`（不明對話框等）、`auto`（定時）、`deity`（2026-11-27 起：點神祇「!」後 15 秒每秒一張、
+4 張卡的選卡畫面，查技能神祇被選錯——B、C 拿到屬性附加 Deity，紀錄裡卻沒有小幫手選神祇的動作，原因未明）、`api`（`/shot`）。
+`debugLog=true` 時選卡紀錄在 `picklog.json`（300 筆）。
+
 ## 陷阱
+
+- 不要用 `/move` 移滑鼠叫出說明框來查東西：小幫手會把說明框當成對話框，按「確認結算畫面」。
+- 新寫的 `.ps1` 有中文要存成 UTF-8 BOM（Windows PowerShell 5.1 不認無 BOM 的 UTF-8）。
 
 - Bash 指令一律加 `< /dev/null`；不要執行 `python`／`python3`（會等輸入卡住），用 node。
 - 原始碼是 CRLF：多行的 sed 取代常對不上，改用 Edit 工具。

@@ -219,3 +219,40 @@ public class BellFinderTests
         Assert.True(sw.Elapsed.TotalMilliseconds / 20 < 10, $"{sw.Elapsed.TotalMilliseconds / 20} ms");
     }
 }
+
+/// <summary>鐘在上方計時器後面（實測 2026-11-27 sabc1228 斐揚洞穴：只露出底座圓盤下半圈，x 816～1030、y 0～132）</summary>
+public class BellBehindHudTests
+{
+    [Theory]
+    [InlineData("鐘在計時器後0s", 937)]
+    [InlineData("鐘在計時器後4s", 911)]
+    [InlineData("鐘在計時器後7s", 910)]
+    public void FindBehindHud_DiscAboveTimer_WalkUpBelowMvpBar(string fixture, int x)
+    {
+        var f = CardLayoutTests.Fixture(fixture);
+
+        Assert.Null(BellFinder.Find(f, 1.0));
+        var b = BellFinder.FindBehindHud(f, 1.0);
+
+        Assert.NotNull(b);
+        Assert.InRange(b.Mouth.X, x - 15, x + 15);
+        Assert.Equal(165, b.Mouth.Y);
+    }
+
+    /// <summary>沒有鐘：大廳的隊伍面板、野外草地、洛陽上方的土牆都不算</summary>
+    [Theory]
+    [InlineData("隊伍面板3人")]
+    [InlineData("大廳遠征隊長")]
+    [InlineData("野外1")]
+    [InlineData("野外2寶箱")]
+    [InlineData("野外4")]
+    [InlineData("洛陽白天地板")]
+    [InlineData("洛陽夜晚MVP")]
+    [InlineData("躲到鐘下")]
+    [InlineData("MVP鐘-015215")]
+    [InlineData("升級累積0")]
+    public void FindBehindHud_NoDisc_Null(string fixture)
+    {
+        Assert.Null(BellFinder.FindBehindHud(CardLayoutTests.Fixture(fixture), 1.0));
+    }
+}

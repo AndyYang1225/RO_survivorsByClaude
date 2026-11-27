@@ -81,6 +81,19 @@ public static class BellFinder
     public static bool IsBigBell(BellBlob b, double dpr)
         => b.N >= BigMinN && b.Height >= BigMinHeight * dpr && b.Fill >= BigMinFill && b.Width <= MaxWidth * dpr;
 
+    /// <summary>
+    /// 中等大小的鐘：大鐘，或 ≥ 400 點、≥ 150 px 高。只在「這次躲鐘看過大鐘之後」拿來延長躲鐘（<see cref="BellDodger"/>）：
+    /// 火盆（火＋地上的金光）也有 429～1092 點、160～188 高，單獨用會誤認，所以不拿來「看到就開始躲」。
+    /// 實測（2026-11-27 sabc1228 斐揚洞穴）：鐘開啟後畫面染紅，鐘只剩 563～586 點、高 216～240（不到大鐘的 650），
+    /// 中間一兩張畫面被特效蓋住沒找到，4 秒後就判定鐘消失、恢復繞圈，鐘還在畫面上卻不再躲，走出紅圈被秒殺。
+    /// 火盆、雜訊遠小於這個（卡住那次的火盆 37 點）
+    /// </summary>
+    public static bool IsHoldBell(BellBlob b, double dpr)
+        => IsBigBell(b, dpr) || b.N >= HoldMinN && b.Height >= HoldMinHeight * dpr && b.Width <= MaxWidth * dpr;
+
+    private const int HoldMinN = 400;
+    private const int HoldMinHeight = 150;
+
     private const int BigMinN = 650;
     private const int BigMinHeight = 220;
     private const double BigMinFill = 0.12;
@@ -215,6 +228,38 @@ public static class BellFinder
             }
         }
         return found;
+    }
+
+    /// <summary>
+    /// 底座圓盤的橄欖金色（實測 2026-11-27 sabc1228 斐揚洞穴，鐘在計時器後0s／4s／7s：(131～159, 116～142, 80～97)）。
+    /// 比 <see cref="Match"/> 的暗金色藍一點（b &gt; 75），所以另外一條
+    /// </summary>
+    public static bool IsDisc(byte r, byte g, byte b)
+        => r >= 115 && r <= 180 && g >= 100 && g <= 155 && b >= 65 && b <= 110 && r - b >= 35 && r - b <= 75 && g - b >= 22 && g - b <= 52 && r >= g;
+
+    /// <summary>
+    /// 被上方計時器、金錢擋住的鐘（<see cref="Excluded"/> 不掃那一塊）：在計時器附近（畫面中間 ±260、上方 160 px）找底座圓盤的橄欖金色。
+    /// 實測（2026-11-27 sabc1228 斐揚洞穴）喊躲鐘時鐘在畫面最上方、鐘身在畫面外，只露出圓盤的下半圈（x 816～1030、y 0～132），
+    /// 原地等到被秒殺。圓盤是貼著畫面頂端、120～240 px 寬的一塊（實測 136～192）；野外草地、洛陽上方的土牆顏色接近，但整片散開（寬 &gt; 260）或零碎。
+    /// 回傳的色塊：鐘口（要走去的地方）放在圓盤可見部分的正下方、MVP 血條下面。只在躲鐘中、畫面上找不到鐘時用
+    /// </summary>
+    public static BellBlob? FindBehindHud(Frame f, double dpr)
+    {
+        int S(double v) => (int)Math.Round(v * dpr);
+        var region = new Rectangle(f.Width / 2 - S(260), 0, S(520), S(160));
+        var step = Math.Max(1, S(2));
+        // 圓盤被計時器、金錢的白底切成好幾塊：把夠大的碎塊合起來看（實測 3 張：合起來 818～1030 寬、262～578 點）
+        var parts = ColorBlobs.Find(f, region, IsDisc, step, 4).Where(b => b.Count >= 40).ToList();
+        if (parts.Count == 0)
+            return null;
+        int x0 = parts.Min(b => b.X0), x1 = parts.Max(b => b.X1), y0 = parts.Min(b => b.Y0), y1 = parts.Max(b => b.Y1), n = parts.Sum(b => b.Count);
+        int w = x1 - x0, h = y1 - y0;
+        if (y0 > S(14) || w < S(120) || w > S(240) || h < S(60) || n < 200)
+            return null;
+        // 圓盤中心在計時器、MVP 血條那一帶，點那裡會點到 UI（角色不動）：目標放在同一條直線、MVP 血條正下方（y 165），走過去鏡頭跟著往上，鐘就露出來給 Find 接手
+        int cx = (x0 + x1) / 2, my = S(165);
+        var fill = (double)n / ((w / step + 1) * (h / step + 1));
+        return new BellBlob(cx, y1, x0, x1, y0, y1, n, w, h, n, 0, fill, 0, cx, my);
     }
 
     /// <summary>顏色規則（同 JS scanBell）：1＝金色、2＝封印中的紅色、3＝洞穴裡的暗金色（exe 新增，算金色）、0＝都不是</summary>

@@ -194,7 +194,7 @@ public sealed class DevApiHost(Control ui, VisionKit kit, VisionEngine engine, P
         var s = FieldSettings.From(config);
         // 只預覽：用一個新的走位決策（沒有上次移動時間、卡住紀錄），不動引擎的走位狀態（也不會在躲鐘），也不點
         var shapes = DangerFinder.Shapes(frame, dpr);
-        var danger = new DangerView(DangerFinder.Find(frame, dpr), frame.Width, frame.Height, dpr);
+        var danger = new DangerView(DangerFinder.Find(frame, dpr), frame.Width, frame.Height, dpr, DangerFinder.FindStripes(frame, dpr));
         var d = new FieldPlanner(Random.Shared.NextDouble).Step(mm, s, now, s.CanAffordChest(hud), hp, timer == TimerPhase.Loot, balls, danger: danger);
         return new JsonObject
         {
@@ -210,6 +210,9 @@ public sealed class DevApiHost(Control ui, VisionKit kit, VisionEngine engine, P
                     ["box"] = Rect(c.Box), ["red"] = c.Red, ["pink"] = c.Pink, ["ring"] = Math.Round(c.RedRing, 2),
                     ["center"] = Math.Round(c.RedCenter, 2), ["sectors"] = c.Sectors, ["pinkFill"] = Math.Round(c.PinkFill, 2), ["zone"] = DangerFinder.IsZone(c),
                 }).ToArray()),
+                // 條紋警示：幾條帶子、腳下在不在條紋上
+                ["stripes"] = danger.Stripes?.Bands ?? 0,
+                ["feetOnStripe"] = danger.Stripes?.Hit(frame.Width / 2.0, frame.Height / 2.0 + 15 * dpr) == true,
             },
             ["width"] = frame.Width,
             ["height"] = frame.Height,

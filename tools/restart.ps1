@@ -6,7 +6,8 @@
 #   加 -NoBuild：不重新編譯（只重開）
 #   編譯成功（＝改版）時會清空戰績、局數、完整對戰紀錄（tools\reset-stats.js，舊的搬到 history\）；加 -KeepStats 不清
 #   加 -Set runLimit=true,runLimitN=5：關掉之後、重開之前改三隻的 config.json（tools\set-config.js；玩法選擇只能這樣改）
-param([switch]$Now, [switch]$NoBuild, [switch]$KeepStats, [string[]]$Set = @(), [int]$WaitMinutes = 60)
+#   重開後會在背景啟動看門狗（tools\watchdog.ps1：沒動靜自己重開那一隻）；加 -NoWatchdog 不啟動
+param([switch]$Now, [switch]$NoBuild, [switch]$KeepStats, [switch]$NoWatchdog, [string[]]$Set = @(), [int]$WaitMinutes = 60)
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
@@ -24,6 +25,11 @@ function Send-Post($port, $path) {
     try { [void](Invoke-WebRequest "http://127.0.0.1:$port/$path" -Method Post -Body '' -UseBasicParsing -TimeoutSec 5) } catch { }
 }
 function Write-Step($text) { Write-Host "$(Get-Date -Format HH:mm:ss) $text" }
+
+# 看門狗（tools\watchdog.ps1）看到這個檔就不動作，免得重開到一半被它當成沒回應又重開一次
+$lock = Join-Path $env:APPDATA 'RoHelper\restarting.lock'
+Set-Content $lock "$PID"
+trap { Remove-Item $lock -ErrorAction SilentlyContinue; break }
 
 # 1. 等這局打完（局數 +1）就暫停；沒在執行的跳過
 if (-not $Now) {
@@ -58,6 +64,7 @@ if (-not $NoBuild) {
     if ($LASTEXITCODE -ne 0) {
         $out | Select-String ' error ' | Select-Object -First 10 | % { Write-Host $_ }
         Write-Step '編譯失敗，沒有重開'
+        Remove-Item $lock -ErrorAction SilentlyContinue
         exit 1
     }
     Write-Step '編譯完成'
@@ -74,7 +81,7 @@ $Set = @($Set | % { $_ -split ',' } | ? { $_ })  # 用 -File 執行時 a,b 不�
 if ($Set.Count -gt 0) {
     Write-Step "改設定：$($Set -join ' ')"
     & node (Join-Path $PSScriptRoot 'set-config.js') @Set
-    if ($LASTEXITCODE -ne 0) { Write-Step '改設定失敗，沒有重開'; exit 1 }
+    if ($LASTEXITCODE -ne 0) { Write-Step '改設定失敗，沒有重開'; Remove-Item $lock -ErrorAction SilentlyContinue; exit 1 }
 }
 
 # 4. 重開（用 cmd start 開成獨立的程序，不會跟著這個腳本結束）
@@ -98,6 +105,13 @@ Add-Type -Namespace RoRestart -Name Win -MemberDefinition '[DllImport("user32.dl
 foreach ($dir in 'profiles\B', 'profiles\C') {
     $st = Get-Content (Join-Path $env:APPDATA "RoHelper\$dir\status.json") -Raw -Encoding UTF8 -ErrorAction SilentlyContinue | ConvertFrom-Json
     if ($st -and $st.hwnd) { [void][RoRestart.Win]::PostMessage([IntPtr][long]$st.hwnd, 0x0112, [IntPtr]0xF020, [IntPtr]0) }
+}
+
+Remove-Item $lock -ErrorAction SilentlyContinue
+
+# 6. 看門狗：沒在跑就在背景啟動（腳本自己會檢查只跑一隻）
+if (-not $NoWatchdog) {
+    Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $PSScriptRoot 'watchdog.ps1')
 }
 
 $actions | % { Write-Host "  $_" }

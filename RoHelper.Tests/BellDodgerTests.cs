@@ -133,6 +133,63 @@ public class BellDodgerTests
     }
 
     /// <summary>使用者 2026-11-27：離王太遠、畫面上沒有鐘 → 往小地圖上的 MVP 走過去找鐘（MVP 優先於比較近的小頭目）</summary>
+    /// <summary>實測（2026-11-27 sabc1229）：死掉後結算畫面後面的火盆被當成腳下的鐘一直延長，卡了 29 分鐘 → 一次躲鐘最多 90 秒</summary>
+    [Fact]
+    public void Step_ParkedForever_EndsAfterMax()
+    {
+        var d = Announced();
+        var under = View(Bell(952, 371 + 30));
+        for (long t = 10_000; t < 99_000; t += 1000)
+            Assert.NotNull(d.Step(under, t));
+
+        Assert.Null(d.Step(under, 100_100));
+        Assert.False(d.Active(100_100));
+        // 公告殘影不馬上重新開始
+        d.Announce("躲到鐘下！", 101_000);
+        Assert.False(d.Active(101_000));
+    }
+
+    /// <summary>腳下的小光點（37 點，不是鐘）不延長躲鐘：公告的 15 秒到了就結束</summary>
+    [Fact]
+    public void Step_ParkedOnTinyBlob_DoesNotExtend()
+    {
+        var d = Announced();
+        // 目標點＝底部往上 0.3 個鐘寬（12 px）＝腳下 (952,356)
+        var tiny = View(new BellBlob(952, 368, 932, 972, 328, 368, 37, 40, 40, 37, 0, 0.28));
+        for (long t = 10_100; t < 25_000; t += 1000)
+            Assert.Equal("在鐘下等待", d.Step(tiny, t)!.Status);
+
+        Assert.Null(d.Step(tiny, 25_100));
+    }
+
+    private static BellBlob Sized(int x, int bottom, int n, int w, int h)
+        => new(x, bottom, x - w / 2, x + w / 2, bottom - h, bottom, n, w, h, n, 0, 0.3);
+
+    /// <summary>
+    /// 實測（2026-11-27 sabc1228）：先看到大鐘（839 點），鐘開啟後畫面染紅只剩 560 多點；
+    /// 這些中等的鐘也要延長躲鐘，不然公告的時間一到就恢復繞圈、走出紅圈被秒殺
+    /// </summary>
+    [Fact]
+    public void Step_AfterBigBell_MidBellsKeepDodging()
+    {
+        var d = Announced();
+        d.Step(View(Sized(1400, 450, 839, 200, 240)), 10_100);
+        for (long t = 11_000; t < 40_000; t += 1500)
+            Assert.NotNull(d.Step(View(Sized(1400, 450, 570, 170, 230)), t));
+        Assert.True(d.Active(40_000));
+    }
+
+    /// <summary>沒看過大鐘：中等的金色色塊（可能是火盆）不延長，公告的 15 秒到了就結束</summary>
+    [Fact]
+    public void Step_MidBlobWithoutBigBell_DoesNotExtend()
+    {
+        var d = Announced();
+        for (long t = 10_100; t < 25_000; t += 1500)
+            Assert.NotNull(d.Step(View(Sized(1400, 450, 613, 172, 160)), t));
+
+        Assert.Null(d.Step(View(Sized(1400, 450, 613, 172, 160)), 25_100));
+    }
+
     [Fact]
     public void Planner_NoBellOnScreen_WalksToMvp()
     {
@@ -185,6 +242,22 @@ public class BellDodgerTests
 
         Assert.Equal("避開王的攻擊範圍", d.Status);
         Assert.True(d.Click!.Value.X * 1904 > 900 + 150);
+    }
+
+    /// <summary>站在條紋上（格子：直線穿過角色）：走到最近的條紋外</summary>
+    [Fact]
+    public void Planner_OnStripe_EscapesToNearestGap()
+    {
+        var p = new FieldPlanner(() => 0.5, learnMapFeatures: false);
+        var f = CardLayoutTests.Fixture("王攻擊格子");
+        var v = new DangerView([], f.Width, f.Height, 1.0, DangerFinder.FindStripes(f, 1.0));
+
+        var d = p.Step(Mm(), All, 10_000, danger: v);
+
+        Assert.Equal("避開王的攻擊範圍（條紋）", d.Status);
+        double x = d.Click!.Value.X * f.Width, y = d.Click.Value.Y * f.Height;
+        Assert.False(v.Hit(x, y));
+        Assert.True(Math.Abs(x - 952) + Math.Abs(y - 356) < 200, $"{x},{y}");
     }
 
     /// <summary>要去的寶箱在攻擊範圍後面：繞開，不直線穿過去</summary>

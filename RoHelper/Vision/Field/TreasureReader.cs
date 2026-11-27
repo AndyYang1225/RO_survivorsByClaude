@@ -195,6 +195,25 @@ public sealed partial class TreasureReader(OcrReader ocr)
         return new TreasureTip(name, body.Sum(SumTreasure));
     }
 
+    /// <summary>一次讀數比現在的值高出這麼多（%）就先不採用（每次精煉最多 +20%，兩次讀之間通常只選幾張卡）</summary>
+    public const double MaxJump = 200;
+
+    /// <summary>
+    /// 讀到的尋寶率合不合理（實測 2026-11-27：一局裡讀數 173 → 10 → 0 → 128 → 41 → 1213 → 0 → 230，OCR 漏讀或讀錯，上限判斷跟著錯）。
+    /// 尋寶率一局裡只會增加：比現在低 → 用現在的（漏讀了某一格）；高出 <see cref="MaxJump"/> 以上 → 先不採用（Accept＝null），
+    /// 記成 Suspect，下次又讀到差不多的值（±10%，至少 ±20）才採用（真的很高的話兩次都讀得到）。
+    /// </summary>
+    public static (double? Accept, double? Suspect) Sanity(double current, double read, double? suspect)
+    {
+        if (read <= current)
+            return (current, null);
+        if (read - current <= MaxJump)
+            return (read, null);
+        if (suspect is { } s && Math.Abs(read - s) <= Math.Max(20, read * 0.1))
+            return (read, null);
+        return (null, read);
+    }
+
     /// <summary>一行文字裡所有「N% 尋寶」的加總（規則同 <see cref="Parse"/>；選卡後估算尋寶率也用它）</summary>
     public static double SumTreasure(string line)
     {

@@ -121,6 +121,20 @@ public class TreasureReaderTests
         Assert.Equal("尋寶藥水 +3", tip.Head);
     }
 
+    /// <summary>尋寶率一局裡只會增加：讀低了用現在的、暴增先不採用、連續兩次差不多才採用</summary>
+    [Theory]
+    [InlineData(173, 10, null, 173.0, null)]
+    [InlineData(173, 0, null, 173.0, null)]
+    [InlineData(128, 230, null, 230.0, null)]
+    [InlineData(41, 1213, null, null, 1213.0)]
+    [InlineData(41, 1200, 1213.0, 1200.0, null)]
+    [InlineData(41, 241, 1213.0, 241.0, null)]
+    [InlineData(41, 800, 1213.0, null, 800.0)]
+    public void Sanity_MonotonicAndJumpCheck(double current, double read, double? suspect, double? accept, double? newSuspect)
+    {
+        Assert.Equal((accept, newSuspect), TreasureReader.Sanity(current, read, suspect));
+    }
+
     [Fact]
     public void Parse_Empty_HeadIsEmpty()
     {

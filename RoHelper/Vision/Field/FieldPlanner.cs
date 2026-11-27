@@ -104,7 +104,7 @@ public sealed class FieldPlanner(Func<double> random, bool learnMapFeatures = tr
             return dodge;
         }
         // 王的攻擊警示範圍（使用者 2026-11-27：不要踏在上面）：站在裡面就先逃出去（不等 SeekEvery），要走的路線穿過範圍就繞開
-        if (danger is { Zones.Count: > 0 } dv)
+        if (danger is { Any: true } dv)
         {
             if (DangerEscape(dv, now) is { } esc)
                 return esc;
@@ -116,7 +116,7 @@ public sealed class FieldPlanner(Func<double> random, bool learnMapFeatures = tr
     /// <summary>腳下（畫面中心往下 15 px，同 <see cref="BellDodger"/>）</summary>
     private static (double X, double Y) Feet(DangerView v) => (v.Width / 2.0, v.Height / 2.0 + 15 * v.Dpr);
 
-    private static bool InDanger(DangerView v, double x, double y) => v.Zones.Any(z => z.Contains(x, y));
+    private static bool InDanger(DangerView v, double x, double y) => v.Hit(x, y);
 
     /// <summary>從 a 走到 b 的直線（取 12 點，不含起點）有沒有經過警示範圍</summary>
     private static bool PathHits(DangerView v, (double X, double Y) a, double bx, double by)
@@ -136,6 +136,7 @@ public sealed class FieldPlanner(Func<double> random, bool learnMapFeatures = tr
 
     /// <summary>
     /// 腳下在警示範圍裡：從「背離範圍中心」的方向開始，左右各轉 30° 試，找最近一個走得到範圍外面（不經過別的範圍）的點，點那裡。
+    /// 只站在條紋上（沒有中心可背離）：由近到遠、每 15° 找最近一個條紋外的點（＝往帶子的垂直方向、走到兩條帶子中間的空地）。
     /// 不在範圍裡回 null。
     /// </summary>
     private FieldDecision? DangerEscape(DangerView v, long now)
@@ -143,7 +144,22 @@ public sealed class FieldPlanner(Func<double> random, bool learnMapFeatures = tr
         var feet = Feet(v);
         var inside = v.Zones.Where(z => z.Contains(feet.X, feet.Y)).ToList();
         if (inside.Count == 0)
-            return null;
+        {
+            if (v.Stripes?.Hit(feet.X, feet.Y) != true)
+                return null;
+            var a0 = random() * 2 * Math.PI;
+            for (var d = 30.0; d <= 420; d += 15)
+                for (var k = 0; k < 24; k++)
+                {
+                    var a = a0 + k * Math.PI / 12;
+                    double x = feet.X + Math.Cos(a) * d * v.Dpr, y = feet.Y + Math.Sin(a) * d * v.Dpr;
+                    if (!OnScreen(v, x, y) || InDanger(v, x, y))
+                        continue;
+                    _lastMove = now;
+                    return Click(_lastAct = "避開王的攻擊範圍（條紋）", x / v.Width, y / v.Height);
+                }
+            return new(_lastAct = "在攻擊範圍裡，找不到出路", null);
+        }
         double ax = inside.Average(z => feet.X - z.X), ay = inside.Average(z => feet.Y - z.Y);
         var away = ax == 0 && ay == 0 ? random() * 2 * Math.PI : Math.Atan2(ay, ax);
         foreach (var turn in new[] { 0, 30, -30, 60, -60, 90, -90, 120, -120, 150, -150, 180 })

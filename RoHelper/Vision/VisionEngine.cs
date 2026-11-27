@@ -119,6 +119,32 @@ public sealed class VisionEngine : IAutomation, IDisposable
     private const long DeityClickGap = 3000;
     private long _deityClickAt = long.MinValue / 2;
 
+    /// <summary>
+    /// 診斷（使用者 2026-11-27：B、C 的技能神祇選錯，紀錄裡卻沒有小幫手選神祇的動作）：
+    /// 點了「!」之後 <see cref="DeityTraceMs"/> 內每秒存一張到 shots/deity，看到神祇選擇畫面也存，查清楚是誰選的
+    /// </summary>
+    private const long DeityTraceMs = 15_000;
+    private long _deityTraceUntil = long.MinValue / 2;
+    private long _deityTraceAt = long.MinValue / 2;
+    private readonly EvidenceStore _deityShots = new(Path.Combine(AppPaths.ShotsDir, "deity"), 80);
+
+    private void DeityTrace(Frame frame, long now, string reason, JsonObject? info = null)
+    {
+        if (now - _deityTraceAt < 900 && info is null)
+            return;
+        _deityTraceAt = now;
+        try
+        {
+            info ??= new JsonObject();
+            info["action"] = History.Last;
+            _deityShots.Save(frame, reason, DateTime.Now, info);
+        }
+        catch
+        {
+            // 診斷存不了沒關係
+        }
+    }
+
     /// <summary>面板「下一隻」那一行（不在野外時空字串）</summary>
     private string _next = "";
     private VisionKit? _kit;
@@ -266,6 +292,8 @@ public sealed class VisionEngine : IAutomation, IDisposable
             frame = await _kit.Grabber.CaptureAsync();
             Watch.Frame(Environment.TickCount64, StallWatch.Signature(frame));
             var dpr = _kit.Viewport.Dpr;
+            if (Environment.TickCount64 < _deityTraceUntil)
+                DeityTrace(frame, Environment.TickCount64, $"點神祇後{(Environment.TickCount64 - _deityClickAt) / 1000}s");
 
             // 步驟 1：選卡畫面優先（選卡會擋住整局，大廳流程的按鈕這時也不會出現）
             // 讀不到任何卡名時（其實不是選卡畫面）不動作，這一輪照常走大廳流程
@@ -543,6 +571,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
         _treasureDue = long.MinValue / 2;
         _treasureAt = long.MinValue / 2;
         _treasureSlots = -1;
+        _treasureSuspect = null;
         LastTreasure = null;
         _next = "";
     }
@@ -620,7 +649,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
         // 躲鐘中不做別的走位，不用找扭蛋
         var balls = s.SeekBall && !lootPhase && bell is null ? BallFinder.Find(frame, dpr) : null;
         // 王的攻擊警示範圍：躲鐘中不找（鐘的紅圈是要站進去的）
-        var danger = bell is null ? new DangerView(DangerFinder.Find(frame, dpr), frame.Width, frame.Height, dpr) : null;
+        var danger = bell is null ? new DangerView(DangerFinder.Find(frame, dpr), frame.Width, frame.Height, dpr, DangerFinder.FindStripes(frame, dpr)) : null;
         LastDanger = danger;
         var d = _planner.Step(MinimapReader.Read(frame, dpr), s, now, s.CanAffordChest(_hud), hp, lootPhase, balls, bell, danger);
         if (bell is not null)
@@ -643,6 +672,8 @@ public sealed class VisionEngine : IAutomation, IDisposable
         if (!_config.GetBool("pickSkill") || now - _deityClickAt < DeityClickGap || DeityIconReader.Find(frame, dpr) is not { } icon)
             return false;
         _deityClickAt = now;
+        _deityTraceUntil = now + DeityTraceMs;
+        DeityTrace(frame, now, "點神祇前", new JsonObject { ["icon"] = $"{icon.X},{icon.Y}" });
         var (x, y) = _kit!.Viewport.ToCss(icon.X, icon.Y);
         await _kit.Input.ClickAsync(x, y);
         return true;
@@ -667,6 +698,12 @@ public sealed class VisionEngine : IAutomation, IDisposable
         _treasureAt = now;
         if (slots.Count == 0)
         {
+            // 這局已經拿過道具卻看到道具欄全空：道具欄被擋住或染色（實測 2026-11-27 尋寶率在一局裡掉回 0 好幾次），當成讀失敗，保留舊值
+            if (_picker.State.Owned.Count > 0)
+            {
+                _treasureDue = now + TreasureRetry;
+                return false;
+            }
             SetTreasure(new TreasureRead(0, [], 0));
             _treasureDue = TreasureIdle;
             return false;
@@ -683,10 +720,21 @@ public sealed class VisionEngine : IAutomation, IDisposable
             _treasureDue = end + TreasureRetry;
             return true;
         }
-        SetTreasure(r);
+        var (accept, suspect) = TreasureReader.Sanity(_picker.State.Treasure, r.Total, _treasureSuspect);
+        _treasureSuspect = suspect;
+        if (accept is not { } total)
+        {
+            // 暴增：先不採用，稍後重讀確認
+            _treasureDue = end + TreasureGap;
+            return true;
+        }
+        SetTreasure(r with { Total = total });
         _treasureDue = TreasureIdle;
         return true;
     }
+
+    /// <summary>上次讀到、但因為暴增先不採用的尋寶率（<see cref="TreasureReader.Sanity"/>）</summary>
+    private double? _treasureSuspect;
 
     private void SetTreasure(TreasureRead r)
     {
@@ -764,7 +812,9 @@ public sealed class VisionEngine : IAutomation, IDisposable
             _bellSeenRow = 0;
         if (!_planner.Bell.Active(now))
             return null;
-        return new BellView(BellFinder.Find(frame, dpr, _planner.Bell.Seen), frame.Width, frame.Height, dpr);
+        // 畫面上找不到鐘：鐘可能在上方計時器後面（那一塊不掃），看得到底座圓盤就往那邊走（使用者 2026-11-27）
+        var found = BellFinder.Find(frame, dpr, _planner.Bell.Seen) ?? BellFinder.FindBehindHud(frame, dpr);
+        return new BellView(found, frame.Width, frame.Height, dpr);
     }
 
     /// <summary>
@@ -908,6 +958,12 @@ public sealed class VisionEngine : IAutomation, IDisposable
             var (x, y) = _kit!.Viewport.ToCss(p.X, p.Y);
             await _kit.Input.ClickAsync(x, y);
         }
+        if (info.IsDeityPick || info.Cards.Count >= 4)
+            DeityTrace(frame, Environment.TickCount64, "神祇畫面", new JsonObject
+            {
+                ["status"] = action.Status,
+                ["cards"] = new JsonArray(info.Cards.Select(c => (JsonNode?)c.Name).ToArray()),
+            });
         if (action.Decision is { } d)
         {
             _recorder.Pick(d, info, _clock.Text(Environment.TickCount64), _picker.State.Treasure);
