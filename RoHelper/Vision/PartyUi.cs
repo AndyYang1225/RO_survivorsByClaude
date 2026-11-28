@@ -27,6 +27,20 @@ public static partial class PartyUi
     }
 
     /// <summary>
+    /// 隊伍面板上的隊長是不是自己的隊長。完整對上（<see cref="NameLike"/>）就是；像自己或其他分身（others）的名字就不是；
+    /// 其他情況只要跟隊長名字有 2 個字以上相同就當成讀錯（實測 2026-11-27 C：「紐西蘭鮭魚」連兩次讀成「西魚」，被當成別人的隊伍離開）
+    /// </summary>
+    public static bool IsOurLeader(string text, IReadOnlyList<string> leaders, IEnumerable<string> others)
+    {
+        if (leaders.Any(n => NameLike(text, n)))
+            return true;
+        if (others.Any(n => n.Length > 0 && NameLike(text, n)))
+            return false;
+        var t = Normalize(OcrReader.Compact(text));
+        return leaders.Any(n => JobNames.Lcs(t, Normalize(n)) >= 2);
+    }
+
+    /// <summary>
     /// 實測（2026-11-23 好友視窗，放大 2 倍）OCR 常把「鮭」讀成「銈」；名字的第一個字常被前面的綠點吃掉（「挪威鮭魚」→「威鮭魚」，
     /// 靠「讀錯一個字」的容許量吸收）。兩邊都換成同一個字再比
     /// </summary>
@@ -66,9 +80,13 @@ public static partial class PartyUi
     internal static Rectangle InviteTextArea(Frame f, double dpr, Rectangle accept)
         => Clip(f, Rectangle.FromLTRB(accept.Right - (int)(420 * dpr), accept.Y - (int)(80 * dpr), accept.Right, accept.Y - (int)(15 * dpr)));
 
-    /// <summary>按鈕上方對話框的文字（兩種倍數讀到的接在一起）</summary>
+    /// <summary>
+    /// 按鈕上方對話框的文字（兩種倍數讀到的接在一起）：按鈕上方 130～15 px、往左 420 px。
+    /// 比邀請的範圍高：活動的出發提議多一行「點香」勾選框，「想與隊伍一同出發」在按鈕上方約 87 px（實測 2026-11-27 C）
+    /// </summary>
     public static async Task<string> ReadDialogTextAsync(OcrReader ocr, Frame f, double dpr, Rectangle button)
-        => string.Join(" ", (await ReadBothAsync(ocr, f, InviteTextArea(f, dpr, button))).Select(l => l.Text));
+        => string.Join(" ", (await ReadBothAsync(ocr, f, Clip(f, Rectangle.FromLTRB(button.Right - (int)(420 * dpr), button.Y - (int)(130 * dpr),
+            button.Right, button.Y - (int)(15 * dpr))))).Select(l => l.Text));
 
     /// <summary>「X 想與隊伍一同出發：地圖 · 戰利品 ×2」（隊長的出發提議）</summary>
     public static bool IsDepartProposal(string text)

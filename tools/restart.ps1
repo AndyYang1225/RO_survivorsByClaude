@@ -6,17 +6,20 @@
 #   加 -NoBuild：不重新編譯（只重開）
 #   編譯成功（＝改版）時會清空戰績、局數、完整對戰紀錄（tools\reset-stats.js，舊的搬到 history\）；加 -KeepStats 不清
 #   加 -Set runLimit=true,runLimitN=5：關掉之後、重開之前改三隻的 config.json（tools\set-config.js；玩法選擇只能這樣改）
+#   加 -Only B,C：只關掉、重開這幾隻（A＝sabc1229），其他隻不動；要編譯時其他隻必須是關著的（開著會鎖住 bin）
 #   重開後會在背景啟動看門狗（tools\watchdog.ps1：沒動靜自己重開那一隻）；加 -NoWatchdog 不啟動
-param([switch]$Now, [switch]$NoBuild, [switch]$KeepStats, [switch]$NoWatchdog, [string[]]$Set = @(), [int]$WaitMinutes = 60)
+param([switch]$Now, [switch]$NoBuild, [switch]$KeepStats, [switch]$NoWatchdog, [string[]]$Set = @(), [string[]]$Only = @(), [int]$WaitMinutes = 60)
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $exeDir = Join-Path $root 'RoHelper\bin\Debug\net8.0-windows10.0.19041.0'
 $bots = @(
-    @{ Name = 'sabc1229'; Port = 8765; Args = '--dev-api=8765' },
-    @{ Name = 'sabc1227(B)'; Port = 8766; Args = '--profile=B --dev-api=8766' },
-    @{ Name = 'sabc1228(C)'; Port = 8767; Args = '--profile=C --dev-api=8767' }
+    @{ Key = 'A'; Name = 'sabc1229'; Port = 8765; Args = '--dev-api=8765' },
+    @{ Key = 'B'; Name = 'sabc1227(B)'; Port = 8766; Args = '--profile=B --dev-api=8766' },
+    @{ Key = 'C'; Name = 'sabc1228(C)'; Port = 8767; Args = '--profile=C --dev-api=8767' }
 )
+$Only = @($Only | % { $_ -split ',' } | ? { $_ } | % { $_.Trim().ToUpper() })  # 用 -File 執行時 B,C 不會變成陣列
+if ($Only.Count -gt 0) { $bots = @($bots | ? { $Only -contains $_.Key }) }
 
 function Get-Status($port) {
     try { (Invoke-WebRequest "http://127.0.0.1:$port/status?n=1" -UseBasicParsing -TimeoutSec 5).Content | ConvertFrom-Json } catch { $null }
@@ -51,12 +54,13 @@ if (-not $Now) {
     if ($start.Count -gt 0) { Write-Step "等了 $WaitMinutes 分鐘還沒打完，直接重開" }
 }
 
-# 2. 全部關掉（正常關閉，30 秒沒關才強制結束）
-Get-Process RoHelper -ErrorAction SilentlyContinue | % { [void]$_.CloseMainWindow() }
+# 2. 關掉要重開的那幾隻（正常關閉，30 秒沒關才強制結束）；用啟動參數的 --dev-api 認是哪一隻
+function Get-Mine { Get-CimInstance Win32_Process -Filter "Name='RoHelper.exe'" | ? { $cl = $_.CommandLine; $bots | ? { $cl -match "--dev-api=$($_.Port)\b" } } | % { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue } }
+Get-Mine | % { [void]$_.CloseMainWindow() }
 $end = (Get-Date).AddSeconds(30)
-while ((Get-Process RoHelper -ErrorAction SilentlyContinue) -and (Get-Date) -lt $end) { Start-Sleep 1 }
-Get-Process RoHelper -ErrorAction SilentlyContinue | Stop-Process -Force
-Write-Step '已全部關掉'
+while ((Get-Mine) -and (Get-Date) -lt $end) { Start-Sleep 1 }
+Get-Mine | Stop-Process -Force
+Write-Step "已關掉：$(($bots | % { $_.Name }) -join '、')"
 
 # 3. 編譯
 if (-not $NoBuild) {

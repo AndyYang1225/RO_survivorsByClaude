@@ -444,4 +444,53 @@ public class LobbyFlowTests
         Assert.Equal(new FlowDecision("關閉暫離通知", BtnCenter), afk);
         Assert.Equal(new FlowDecision("關閉中文頻道提示", BtnCenter), channel);
     }
+
+    // ---- 燈籠節視窗：九連抽 → 製作香 → 點香 → 開始遊戲 ----
+
+    private static readonly Point GachaTabAt = new(10, 10), IncenseTabAt = new(20, 10), NineAt = new(30, 30), CraftAt = new(40, 40), BoxAt = new(50, 50);
+
+    private static FestivalPanel Panel(bool gacha = true, bool nine = false, bool craft = false, bool ticked = false)
+        => new(gacha, !gacha, GachaTabAt, IncenseTabAt, nine ? [NineAt] : [], craft ? [CraftAt] : [], ticked, BoxAt);
+
+    private static FlowSettings FestCfg() => Cfg() with { FestGacha = true, FestCraft = true, FestIncense = true };
+
+    private static ScreenState Fest(FestivalPanel p) => Screen() with { Start = Btn, Festival = p };
+
+    [Fact]
+    public void Festival_PullsNine_WaitsAnimation_ThenCraftsTicksAndStarts()
+    {
+        var flow = new LobbyFlow();
+        var c = FestCfg();
+
+        Assert.Equal("燈籠節：等視窗打開", flow.Decide(Fest(Panel()), c, -2000).Action); // 視窗淡入中，先不看
+        Assert.Equal(NineAt, flow.Decide(Fest(Panel(nine: true)), c, 0).Click);
+        Assert.Null(flow.Decide(Fest(Panel()), c, 1000).Click);           // 剛按，等畫面
+        Assert.Equal("燈籠節：等扭蛋動畫", flow.Decide(Fest(Panel()), c, 5000).Action);
+        Assert.Equal(NineAt, flow.Decide(Fest(Panel(nine: true)), c, 7000).Click); // 抽完還夠 9 顆，再抽
+        Assert.Equal(IncenseTabAt, flow.Decide(Fest(Panel()), c, 20_000).Click); // 抽完了，去香分頁
+        Assert.Equal(CraftAt, flow.Decide(Fest(Panel(gacha: false, craft: true)), c, 22_000).Click);
+        Assert.Equal(BoxAt, flow.Decide(Fest(Panel(gacha: false)), c, 24_000).Click);
+        Assert.Equal("準備開始遊戲", flow.Decide(Fest(Panel(gacha: false, ticked: true)), c, 26_000).Action);
+        Assert.Equal(BtnCenter, flow.Decide(Fest(Panel(gacha: false, ticked: true)), c, 27_000).Click);
+    }
+
+    [Fact]
+    public void Festival_TicksIncenseOnlyOnce()
+    {
+        var flow = new LobbyFlow();
+        var c = Cfg() with { FestIncense = true };
+
+        flow.Decide(Fest(Panel()), c, -2000);
+        Assert.Equal(BoxAt, flow.Decide(Fest(Panel()), c, 0).Click);
+        Assert.Equal("準備開始遊戲", flow.Decide(Fest(Panel()), c, 2000).Action); // 勾不起來（沒有香）就不再按
+    }
+
+    [Fact]
+    public void Festival_Off_StartsDirectly()
+    {
+        var flow = new LobbyFlow();
+
+        flow.Decide(Fest(Panel(nine: true, craft: true)), Cfg(), 0);
+        Assert.Equal(BtnCenter, flow.Decide(Fest(Panel(nine: true)), Cfg(), 1000).Click);
+    }
 }

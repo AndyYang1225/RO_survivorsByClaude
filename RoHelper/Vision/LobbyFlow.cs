@@ -12,7 +12,8 @@ public sealed record FlowSettings(
     bool Paused, bool SoloLobby, bool AutoEvent, bool AutoExpe, bool AutoReturn,
     bool RunLimit, int RunLimitN, int Runs, int TStart, int TReturn, int TLobby,
     bool ExpeTalk = true, bool ExpePick = true, string ExpeStage = "斐揚洞穴", bool ExpeGo = true, string ExpeDiff = "keep", bool ExpeEnter = true,
-    string PartyRole = "off", string PartyLobby = "約頓海姆")
+    string PartyRole = "off", string PartyLobby = "約頓海姆",
+    bool FestGacha = false, bool FestCraft = false, bool FestIncense = false)
 {
     /// <summary>組隊模式（隊長或隊員）：大廳選多人大廳、不選單人大廳</summary>
     public bool Party => PartyRole is "leader" or "member";
@@ -31,7 +32,10 @@ public sealed record FlowSettings(
         c.GetString("expeDiff", "keep"),
         c.Current["expeEnter"] is null || c.GetBool("expeEnter"),
         c.GetString("partyRole", "off"),
-        c.GetString("partyLobby", "約頓海姆"));
+        c.GetString("partyLobby", "約頓海姆"),
+        c.Current["festGacha"] is null || c.GetBool("festGacha"),
+        c.Current["festCraft"] is null || c.GetBool("festCraft"),
+        c.Current["festIncense"] is null || c.GetBool("festIncense"));
 }
 
 /// <summary>
@@ -129,6 +133,28 @@ public sealed class LobbyFlow
     private long _lastWalk = long.MinValue / 2;
     private readonly ExpeditionFlow _expe = new();
 
+    /// <summary>燈籠節視窗：按了分頁／九連抽／製作／點香之後，這個時間之前不再按（等畫面更新）</summary>
+    private long _festBusyUntil = long.MinValue / 2;
+    /// <summary>上一次按九連抽的時間（動畫中按鈕全灰，看不出來是抽完了還是在轉）</summary>
+    private long _gachaAt = long.MinValue / 2;
+    private bool _gachaDone, _craftDone, _incenseTried;
+    /// <summary>這次開視窗按了幾下（認錯分頁一直切換時的保險）</summary>
+    private int _festClicks;
+    /// <summary>這次第一次看到燈籠節視窗的時間（視窗淡入中按鈕還沒變藍，太早看會當成扭蛋不夠）</summary>
+    private long? _festSeenAt;
+
+    /// <summary>
+    /// 視窗打開、切分頁後等多久再看。實測（2026-11-28 B、C）打開後 0.8 秒就看，扭蛋分頁的 ×9 和香分頁的製作都還沒變藍，
+    /// 當成不夠，沒抽也沒做香就開始遊戲
+    /// </summary>
+    private const long FestTabWait = 1_500;
+
+    /// <summary>按九連抽後多久內按鈕全灰都當成動畫還在跑（實測抽完約 6 秒按鈕恢復）</summary>
+    private const long GachaAnim = 12_000;
+
+    /// <summary>一次開視窗最多按幾下（實測 A 有 290 顆節慶扭蛋＝九連抽 32 次，加上其他兩種、製作香、切分頁）</summary>
+    private const int FestMaxClicks = 200;
+
     /// <summary>
     /// 只清等待中的計時（_soloAt／_discardAt／_titleAt／_charSelectAt／_startAt／_talkedAt／_lastWalk），改了設定或暫停後重新開始等待（同 JS：set 只重設 npcDone／npcTalked）。
     /// 刻意保留 _returnAt：結算畫面上暫停或切分頁就清掉的話，恢復後會把同一局再記一次（JS 的 returnSeenAt 也不清）。
@@ -138,6 +164,8 @@ public sealed class LobbyFlow
     {
         _soloAt = _readyAt = _discardAt = _titleAt = _charSelectAt = _startAt = _talkedAt = null;
         _lastWalk = long.MinValue / 2;
+        _festBusyUntil = long.MinValue / 2;
+        _festSeenAt = null;
         _expe.Reset();
     }
 
@@ -330,13 +358,24 @@ public sealed class LobbyFlow
         }
         if (button is { } b)
         {
+            // 燈籠節視窗：開始遊戲前先九連抽、製作香、勾點香（使用者 2026-11-28）
+            if (isStart && (c.FestGacha || c.FestCraft || c.FestIncense) && s.Festival is { } panel && Festival(panel, c, now) is { } fest)
+            {
+                _startAt = null;
+                return fest;
+            }
             var action = isStart ? "準備開始遊戲" : "準備前往野外";
             _startAt ??= now;
             if (now - _startAt <= c.TStart)
                 return new(action);
             _startAt = null;
             if (isStart)
+            {
                 _festAt = now;
+                _gachaDone = _craftDone = _incenseTried = false;
+                _festClicks = 0;
+                _festSeenAt = null;
+            }
             return new(action, Center(b), StartsRun: !isStart);
         }
         _startAt = null;
@@ -380,6 +419,55 @@ public sealed class LobbyFlow
             return new("走向" + name, WalkTarget(s, host));
         }
         return new(s.Missing.Count > 0 ? "缺少範本：" + string.Join("、", s.Missing) : "待機");
+    }
+
+    /// <summary>
+    /// 燈籠節視窗要先按的東西；null＝都做完了，照常按開始遊戲。順序：扭蛋九連抽（抽到重複的會給碎片）→ 碎片夠就製作香 → 有香就勾點香。
+    /// 九連抽和製作都是「按鈕藍色＝數量夠」，遊戲自己判斷夠不夠；點香只按一次（沒有香時勾不起來，不要一直按；認錯時也不會把勾掉的又勾回去）。
+    /// </summary>
+    private FlowDecision? Festival(FestivalPanel p, FlowSettings c, long now)
+    {
+        if (_festClicks >= FestMaxClicks)
+            return null;
+        _festSeenAt ??= now;
+        if (now - _festSeenAt < FestTabWait)
+            return new("燈籠節：等視窗打開");
+        if (now < _festBusyUntil)
+            return new("燈籠節：等待畫面更新");
+        if (c.FestGacha && !_gachaDone)
+        {
+            if (!p.GachaTab)
+                return FestClick("燈籠節：切到扭蛋分頁", p.GachaTabAt, now + FestTabWait);
+            if (p.Nine.Count > 0)
+            {
+                _gachaAt = now;
+                return FestClick("燈籠節：扭蛋九連抽", p.Nine[0], now + 3_000);
+            }
+            if (now - _gachaAt < GachaAnim)
+                return new("燈籠節：等扭蛋動畫");
+            _gachaDone = true;
+        }
+        if (c.FestCraft && !_craftDone)
+        {
+            if (!p.IncenseTab)
+                return FestClick("燈籠節：切到香分頁", p.IncenseTabAt, now + FestTabWait);
+            if (p.Craft.Count > 0)
+                return FestClick("燈籠節：製作香", p.Craft[0], now + 1_500);
+            _craftDone = true;
+        }
+        if (c.FestIncense && !p.IncenseChecked && !_incenseTried)
+        {
+            _incenseTried = true;
+            return FestClick("燈籠節：勾點香", p.IncenseBox, now + FestTabWait);
+        }
+        return null;
+    }
+
+    private FlowDecision FestClick(string action, Point at, long busyUntil)
+    {
+        _festClicks++;
+        _festBusyUntil = busyUntil;
+        return new(action, at);
     }
 
     /// <summary>

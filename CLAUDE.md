@@ -50,9 +50,18 @@
 
 - `Vision/Picker/CardDecider.cs`：判斷順序（檔頭註解）、技能優先（清單裡的技能先比稀有度、同稀有度照順序）、
   寶箱道具排名（`itemRankExpe`／`itemRankEvent`，各類第 1→2→3）、
-  尋寶率上限（`treasureCap`，野外到上限放逐尋寶道具）、技能神祇（`DecideDeity`，選完才按遊戲「自動技能」）
+  尋寶率上限（`treasureCap`，野外到上限放逐尋寶道具）、技能神祇（`DecideDeity`，選完才按遊戲「自動技能」）、
+  遊戲自動（`GameAutoWhy`；`autoSkillNow`／`autoChestNow`＝進場第一個畫面就按「自動技能」／「自動寶箱」）
 - `Vision/Picker/PickerFlow.cs`：一個選卡畫面的流程與等待時間；選了尋寶卡先把卡上的 % 加進尋寶率（`TreasureGain`，連開寶箱時沒機會重讀道具欄），
   下次讀道具欄（`Vision/Field/TreasureReader.cs`）再用實際值蓋掉；`PickSettings.cs`：從 config 讀設定
+
+## 大廳流程（`Vision/LobbyFlow.cs`）
+
+- 燈籠節視窗（開始遊戲之前，`festGacha`／`festCraft`／`festIncense`，預設開）：九連抽 → 製作香 → 勾點香。
+  `Vision/FestivalPanel.cs` 純看顏色（按鈕藍＝夠，數量由遊戲判斷），位置從「開始遊戲」範本往回推；抽完不跳視窗，動畫約 6 秒按鈕全灰。
+  視窗剛開、切分頁後等 1.5 秒再看（淡入中按鈕還沒變藍會當成不夠）；點香只按一次。證據截圖在 `shots\festival\`。
+  燈籠節視窗開著時不採用「單人大廳」（抽獎結果卡片會讓範本誤判到 0.90）。
+- 範本認不到節慶主持人時用 OCR 找（`Vision/FestivalOcr.cs`）。
 
 ## 走位規則的位置（`Vision/Field/`）
 

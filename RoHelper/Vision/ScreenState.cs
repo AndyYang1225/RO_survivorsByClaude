@@ -109,6 +109,9 @@ public sealed record ScreenState(Size FrameSize, double Dpr)
     /// <summary>難度對話框裡的「前往野外」（用「前往野外」範本在難度標題下方找，見 <see cref="ScreenReader"/>）</summary>
     public Rectangle? DiffGo { get; init; }
 
+    /// <summary>燈籠節視窗的分頁、九連抽／製作香按鈕、點香勾選框（有「開始遊戲」時才讀，見 <see cref="FestivalPanel"/>）</summary>
+    public FestivalPanel? Festival { get; init; }
+
     /// <summary>伺服器維護中的「再檢查一次」</summary>
     public Rectangle? MaintenanceRetry { get; init; }
 

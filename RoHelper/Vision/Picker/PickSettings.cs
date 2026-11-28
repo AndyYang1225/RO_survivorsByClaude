@@ -29,7 +29,7 @@ public sealed partial record PickSettings(
     bool TreasureCap = false, int TreasureCapN = 300, bool HpAfterCap = false, bool AutoChest = true,
     bool ChestReroll = false, bool Party = false,
     IReadOnlyList<IReadOnlyList<string>>? RankExpe = null, IReadOnlyList<IReadOnlyList<string>>? RankEvent = null,
-    bool ItemPrioRanked = false)
+    bool ItemPrioRanked = false, bool AutoSkillNow = false, bool AutoChestNow = false)
 {
     /// <summary>
     /// 這局用的設定：有設「道具排名」（cfg itemRankExpe／itemRankEvent：{類別: [第1, 第2, 第3]}）就照野外或活動換掉 ItemPrio，
@@ -73,7 +73,8 @@ public sealed partial record PickSettings(
             c.Current["autoChest"] is null || c.GetBool("autoChest"),
             c.Current["chestReroll"] is null || c.GetBool("chestReroll"),
             c.GetString("partyRole", "off") is "leader" or "member",
-            Ranks(c.Current["itemRankExpe"]), Ranks(c.Current["itemRankEvent"]));
+            Ranks(c.Current["itemRankExpe"]), Ranks(c.Current["itemRankEvent"]),
+            AutoSkillNow: c.GetBool("autoSkillNow"), AutoChestNow: c.GetBool("autoChestNow"));
     }
 
     private static List<string> List(JsonNode? node) => ConfigStore.ToStringList(node);

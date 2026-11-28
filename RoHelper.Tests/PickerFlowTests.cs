@@ -209,6 +209,23 @@ public class PickerFlowTests
         Assert.Equal(PickDo.GameAuto, after.Decision?.Do);
     }
 
+    /// <summary>進場就按：第一個畫面、欄位空的、沒放逐過也按；兩種分開設定</summary>
+    [Theory]
+    [InlineData(false, true, false, true)]
+    [InlineData(true, false, true, true)]
+    [InlineData(false, false, true, false)]
+    [InlineData(true, true, false, false)]
+    public void GameAuto_Now_PressedOnFirstScreen(bool chest, bool skillNow, bool chestNow, bool pressed)
+    {
+        var s = AutoSettings() with { AutoAfterBan = false, AutoSkillNow = skillNow, AutoChestNow = chestNow, DeityList = ["雷擊術"] };
+        var flow = new PickerFlow();
+        flow.Waiting(0, 350);
+
+        var a = flow.Act(WithSlots(chest, chest ? (0, 6) : (1, 4), Card(0, "火箭術"), Card(1, "冰箭術")), s, 400);
+
+        Assert.Equal(pressed, a.Decision?.Do == PickDo.GameAuto);
+    }
+
     [Fact]
     public void GameAuto_SkillSlotsNotFull_NotYetEvenAfterBans()
     {

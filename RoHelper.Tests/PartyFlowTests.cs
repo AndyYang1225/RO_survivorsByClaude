@@ -247,4 +247,14 @@ public class PartyFlowTests
         Assert.Equal(new Rectangle(760, 410, 50, 16), LobbyList.Match(lines, "約頓海姆"));
         Assert.Null(LobbyList.Match(lines, "尼達維勒"));
     }
+
+    /// <summary>實測 2026-11-27 C：隊長「紐西蘭鮭魚」連兩次讀成「西魚」被當成別人的隊伍；但面板上是自己或別的分身時要認得出來</summary>
+    [Theory]
+    [InlineData("西魚", true)]
+    [InlineData("紐西蕄鮏魚", true)]
+    [InlineData("鮭魚生魚片", false)]
+    [InlineData("挪威鮭魚", false)]
+    [InlineData("路人甲", false)]
+    public void IsOurLeader_ToleratesTruncatedName(string text, bool ours)
+        => Assert.Equal(ours, PartyUi.IsOurLeader(text, ["紐西蘭鮭魚"], ["鮭魚生魚片", "挪威鮭魚"]));
 }

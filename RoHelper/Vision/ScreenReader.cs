@@ -67,6 +67,9 @@ public sealed class ScreenReader
             buttons.Add((ScreenTemplates.StageList, StageListArea(frame, dpr)));
             buttons.Add((ScreenTemplates.DiffTitle, DiffTitleArea(frame, dpr)));
         }
+        else
+            // 活動組隊（使用者 2026-11-27）：隊長按「開始遊戲」後的設定框，單人時的「前往野外」換成「向隊伍提議」（同一個位置），當成前往野外按
+            buttons.Add((ScreenTemplates.PartyPropose, null));
         var hit = FindAll(frame, dpr, buttons);
         var greed = hit[ScreenTemplates.LootGreed];
         var s = new ScreenState(new Size(frame.Width, frame.Height), dpr)
@@ -74,7 +77,7 @@ public sealed class ScreenReader
             Solo = hit[ScreenTemplates.Solo],
             Return = hit[ScreenTemplates.Return],
             Start = hit[ScreenTemplates.Start],
-            GoField = hit[ScreenTemplates.GoField],
+            GoField = hit[ScreenTemplates.GoField] ?? (hit.TryGetValue(ScreenTemplates.PartyPropose, out var eventPropose) ? eventPropose : null),
             Discard = hit[ScreenTemplates.Discard],
             DiscardOk = hit[ScreenTemplates.DiscardOk],
             AfkOk = hit[ScreenTemplates.AfkOk],
@@ -104,6 +107,9 @@ public sealed class ScreenReader
                 DiffGoIsProposal = go is null && propose is not null,
             };
         }
+        if (s.Start is { } start && FestivalPanel.Read(frame, start, dpr) is { } festival)
+            // 燈籠節視窗開著就不會有「選擇大廳」：實測（2026-11-28 A）九連抽的結果卡片讓「單人大廳」範本到 0.9007，一直去按單人大廳、不按開始遊戲
+            s = s with { Festival = festival, Solo = null };
         if (s.Solo is not null || s.Return is not null || s.Start is not null || s.GoField is not null
             || s.Discard is not null || s.DiscardOk is not null || s.AfkOk is not null || s.ChannelNo is not null || s.Title is not null || s.CharSelect is not null
             || s.StageList is not null || s.DiffTitle is not null || s.PartyReady is not null || s.PartyChannel is not null || s.LootGreed is not null || s.MaintenanceRetry is not null)

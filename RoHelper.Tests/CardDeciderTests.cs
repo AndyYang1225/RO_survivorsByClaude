@@ -57,6 +57,28 @@ public class CardDeciderTests
         Assert.Equal(new PickDecision(PickDo.Pick, 1, "技能優先（稀有度 > 順序）"), d);
     }
 
+    /// <summary>使用者 2026-11-27：加目標數的卡最優先，不管稀有度（文字照實測 OCR）</summary>
+    [Fact]
+    public void PrioritySkills_AddTargetsBeatsRarity()
+    {
+        var d = CardDecider.Decide(Picker(false, Card(0, "冰箭術", rarity: 3, text: "1 冰箭術 Lv 21 + 91.2 一 + 92.2 冷"),
+                Card(1, "雷擊術", text: "3 雷擊術 Lv 12 + 11 + 2 目"), Card(2, "火箭術", rarity: 2, text: "火箭術 Lv 9 + 62 一 + 67.6")),
+            Settings(Skills(order: ["冰箭術", "火箭術", "雷擊術"])), new RunPickState());
+
+        Assert.Equal(new PickDecision(PickDo.Pick, 1, "技能優先：增加目標"), d);
+    }
+
+    /// <summary>好幾張加目標：照稀有度、順序；清單外的技能加目標也不選</summary>
+    [Fact]
+    public void PrioritySkills_SeveralAddTargets_RarityThenOrder()
+    {
+        var d = CardDecider.Decide(Picker(false, Card(0, "雷擊術", text: "雷擊術 Lv 12 + 1— + 2 目"), Card(1, "火箭術", text: "火箭術 Lv 7 + 31 + 4 目檷"),
+                Card(2, "雷爆術", rarity: 4, text: "雷爆術 Lv 3 + 0 一 + 1 目")),
+            Settings(Skills(order: ["冰箭術", "火箭術", "雷擊術"])), new RunPickState());
+
+        Assert.Equal(new PickDecision(PickDo.Pick, 1, "技能優先：增加目標"), d);
+    }
+
     /// <summary>選了尋寶卡：卡上的「+N% 尋寶率」先加進尋寶率（連開寶箱中間沒機會重讀道具欄）；數字讀不到時估 10</summary>
     [Theory]
     [InlineData("驚奇秘藥 + 18", "+14% 尋寶率", 14)]

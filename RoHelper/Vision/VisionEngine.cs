@@ -390,6 +390,8 @@ public sealed class VisionEngine : IAutomation, IDisposable
                 if (!words.Contains("其餘") && !words.Contains("其馀") && !words.Contains("餘全"))
                     screen = screen with { LootGreed = null, LootReady = null };
             }
+            if (settings.AutoEvent && !settings.AutoExpe && !_gate.InField && !FieldGate.LobbyVisible(screen))
+                screen = await FestivalByOcrAsync(frame, screen, now);
             // 組隊的隊長：在大廳、隊員還沒到齊時先邀請，到齊（或等太久）才往遠征隊長走
             if (settings.PartyRole == "leader" && !_gate.InField && await PartyLeaderAsync(frame, dpr, screen, settings, now) is { } partyAction)
             {
@@ -403,9 +405,26 @@ public sealed class VisionEngine : IAutomation, IDisposable
                 return;
             }
             var decision = _flow.Decide(screen, settings, now, stages);
+            // 燈籠節視窗的證據截圖（查有沒有抽扭蛋、做香、點香；2026-11-28 B、C 沒抽也沒做香）
+            if (screen.Festival is { } fp && decision.Action != _lastFestShot
+                && (decision.Action is "燈籠節：等視窗打開" or "準備開始遊戲" || decision.Click is not null && decision.Action.StartsWith("燈籠節")))
+                _festShots.Save(frame, decision.Action.Replace("：", "-"), DateTime.Now, new JsonObject
+                {
+                    ["gachaTab"] = fp.GachaTab, ["incenseTab"] = fp.IncenseTab, ["nine"] = fp.Nine.Count, ["craft"] = fp.Craft.Count, ["incense"] = fp.IncenseChecked,
+                });
+            if (screen.Festival is not null)
+                _lastFestShot = decision.Action;
             // 隊員防暫離的那一步在野外時不點（野外有自己的走位）
             if (_gate.InField && decision.Action == LobbyFlow.AntiAfkAction)
                 decision = decision with { Click = null, Action = "組隊：等隊長提議出發" };
+            // 隊員在大廳等隊長時，每 15 秒看一次有沒有 NPC 視窗擋著（實測 2026-11-27：剛進大廳誤判進了野外、走位點到「事蹟記錄者」，
+            // 視窗一直開著，隊長提議時看不到對話框）
+            if (settings.Member && !_gate.InField && decision.Action == "組隊：等隊長提議出發" && now - _strayCheckAt >= 15_000)
+            {
+                _strayCheckAt = now;
+                if (await CloseStrayWindowAsync(tries: 1, delayMs: 0))
+                    decision = decision with { Action = "組隊：關掉擋住大廳的視窗" };
+            }
             // 結算：先讀結算畫面再記錄（同一輪；第一次確認結算的這一輪不會按返回角色，要等 tReturn，結算畫面還在）
             if (decision.CountRun || decision.StartsRun)
                 Watch.Progress(now);
@@ -421,6 +440,11 @@ public sealed class VisionEngine : IAutomation, IDisposable
             _fieldTimerHits = fieldTimer ? _fieldTimerHits + 1 : 0;
             // 單人也一樣：沒經過「前往野外」就在野外（使用者手動點進去、重開小幫手後接著打上一局）也要開始這一局，否則不走位、不躲鐘。
             // 實測（2026-11-26）：手動點進洛陽，整局待機不走位，選卡還用了遠征的道具排名。是不是活動等讀到地名再改（見 ReadInfoAsync）
+            // 沒等著進野外時要 OCR 讀得到「mm:ss」才算：大廳廣場上方的地名框（普隆德拉／噴泉廣場，白底深藍字）像素上跟計時器一樣，
+            // 看不到 NPC 標籤時會被當成野外（實測 2026-11-27：A 剛進廣場就「全隊進入野外」，走位點開事蹟記錄者）
+            if (fieldTimer && !_flow.AwaitingField(now) && _fieldTimerHits >= 3 && _kit.Ocr is { } clockOcr
+                && await TimerReader.ReadClockAsync(clockOcr, frame, dpr) is null)
+                fieldTimer = false;
             if (fieldTimer && (_flow.AwaitingField(now) || _fieldTimerHits >= 3))
             {
                 _fieldTimerHits = 0;
@@ -435,6 +459,8 @@ public sealed class VisionEngine : IAutomation, IDisposable
             {
                 var (x, y) = _kit.Viewport.ToCss(p.X, p.Y);
                 await _kit.Input.ClickAsync(x, y);
+                if (decision.Action == LobbyFlow.AntiAfkAction && await CloseStrayWindowAsync())
+                    decision = decision with { Action = LobbyFlow.AntiAfkAction + "：點到 NPC，關掉視窗" };
             }
             if (decision.WheelAt is { } w)
             {
@@ -656,6 +682,10 @@ public sealed class VisionEngine : IAutomation, IDisposable
             TraceBell(frame, bell, d.Status, hp, now);
         if (d.Click is { } c)
         {
+            // 點地面前重新截一張確認沒有跳出選卡畫面（實測 2026-11-27 A：這一輪的截圖到點下去中間升級了，
+            // 「回地圖中間」點在畫面中央，正好點到卡片，雷爆術沒被小幫手選卻學到、升級；B、C 憑空拿到屬性附加 Deity 也是同一個原因）
+            if (CardLayout.FindCards(await kit.Grabber.CaptureAsync(), dpr).Count >= 2)
+                return "走位：跳出選卡畫面，這次不點";
             var (x, y) = kit.Viewport.ToCss(c.X * frame.Width, c.Y * frame.Height);
             await kit.Input.ClickAsync(x, y);
         }
@@ -957,6 +987,10 @@ public sealed class VisionEngine : IAutomation, IDisposable
         {
             var (x, y) = _kit!.Viewport.ToCss(p.X, p.Y);
             await _kit.Input.ClickAsync(x, y);
+            // 點完把滑鼠移開：「自動寶箱」等按鈕在畫面下方，選卡畫面關掉後滑鼠正好停在技能欄上，技能說明框一直開著，
+            // 蓋住畫面讓走位停擺（實測 2026-11-27 A：停了 2 分多鐘，移開滑鼠馬上恢復）。移到畫面中上（計時器下方、角色上方）
+            var (mx, my) = _kit.Viewport.ToCss(frame.Width / 2, frame.Height / 5);
+            await _kit.Input.MoveAsync(mx, my);
         }
         if (info.IsDeityPick || info.Cards.Count >= 4)
             DeityTrace(frame, Environment.TickCount64, "神祇畫面", new JsonObject
@@ -1003,6 +1037,7 @@ public sealed class VisionEngine : IAutomation, IDisposable
     private int _fieldTimerHits;
     private long _memberCheckAt = long.MinValue / 2;
     private int _foreignLeaderHits;
+    private long _strayCheckAt = long.MinValue / 2;
 
     /// <summary>
     /// 組隊的隊員：每 20 秒看一次隊伍面板，隊長（面板最上面那個名字）不是本機的隊長分身就按「離開隊伍」，回到可以被自己隊長邀請的狀態。
@@ -1017,10 +1052,13 @@ public sealed class VisionEngine : IAutomation, IDisposable
             || s.Return is not null || s.LootGreed is not null || s.AfkOk is not null || s.Discard is not null || s.DiscardOk is not null || s.StageList is not null || s.DiffTitle is not null)
             return null;
         _memberCheckAt = now;
-        var leaders = PartyRoster.LeaderNames(PartyRoster.Others(AppPaths.Profile, DateTime.Now));
+        var mates = PartyRoster.Others(AppPaths.Profile, DateTime.Now);
+        var leaders = PartyRoster.LeaderNames(mates);
         if (leaders.Count == 0 || await PartyUi.ReadPanelLinesAsync(ocr, frame, dpr) is not { } lines || PartyUi.PanelLeader(lines) is not { } leader)
             return null;
-        if (leaders.Any(n => PartyUi.NameLike(leader, n)))
+        // 自己和其他非隊長分身的名字：面板上的隊長像這些人就真的不是自己的隊伍
+        var others = mates.Where(m => m.Role != "leader").Select(m => m.Name).Append(_config.GetString("charName", ""));
+        if (PartyUi.IsOurLeader(leader, leaders, others))
         {
             _foreignLeaderHits = 0;
             return null;
@@ -1063,6 +1101,10 @@ public sealed class VisionEngine : IAutomation, IDisposable
     private const int PartyMaxWaits = 15;
 
     private readonly EvidenceStore _partyShots = new(Path.Combine(AppPaths.ShotsDir, "party"), 100);
+
+    /// <summary>燈籠節視窗的證據截圖（見 Tick 裡 _flow.Decide 之後）；_lastFestShot＝上一輪的動作，準備開始遊戲只存第一輪</summary>
+    private readonly EvidenceStore _festShots = new(Path.Combine(AppPaths.ShotsDir, "festival"), 100);
+    private string _lastFestShot = "";
     private long _partyCheckAt = long.MinValue / 2;
     private long _unknownDialogAt = long.MinValue / 2;
     private long _partyInviteAt = long.MinValue / 2;
@@ -1075,7 +1117,10 @@ public sealed class VisionEngine : IAutomation, IDisposable
     /// </summary>
     private async Task<string?> PartyLeaderAsync(Frame frame, double dpr, ScreenState screen, FlowSettings settings, long now)
     {
-        if (_kit?.Ocr is not { } ocr || (screen.ExpeLeader is null && screen.LeaderPrompt is null))
+        // 在大廳廣場：遠征看遠征隊長，活動看節慶主持人（使用者 2026-11-27 試活動組隊：只看遠征隊長時隊長沒邀請就自己出發）
+        var inPlaza = settings.AutoExpe ? screen.ExpeLeader is not null || screen.LeaderPrompt is not null
+            : screen.FestivalHost is not null || screen.TalkPrompt is not null;
+        if (_kit?.Ocr is not { } ocr || !inPlaza)
             return null;
         if (now - _partyCheckAt < PartyCheckEvery)
             return _partyHold ? "組隊：等隊員加入" : null;
@@ -1131,7 +1176,9 @@ public sealed class VisionEngine : IAutomation, IDisposable
             }
             return (f, lines);
         }
-        static bool IsFriends(IReadOnlyList<OcrLine> lines) => lines.Any(l => OcrReader.Compact(l.Text).StartsWith("好友", StringComparison.Ordinal));
+        // 標題「好友 4/40」貼著讀取範圍上緣，常被切到讀不出來（實測 2026-11-27 B）：搜尋框的「角色名稱」也算
+        static bool IsFriends(IReadOnlyList<OcrLine> lines) => lines.Any(l => OcrReader.Compact(l.Text) is var t
+            && (t.StartsWith("好友", StringComparison.Ordinal) || t.Replace(" ", "").Contains("角色名稱")));
 
         var first = await kit.Grabber.CaptureAsync();
         await Click(PartyUi.FriendsButton(first, dpr));
@@ -1182,6 +1229,45 @@ public sealed class VisionEngine : IAutomation, IDisposable
         else
             await Click(PartyUi.FriendsButton(friends, dpr));
         return invited;
+    }
+
+    /// <summary>
+    /// 隊員防暫離那一步可能點到 NPC（實測 2026-11-27：A 點到「塔之守護者」、C 點到寵物管理員），跳出的視窗蓋住大廳，
+    /// 小幫手看不到大廳又看得到計時器，就誤以為進了野外。點完等視窗動畫，在畫面右下半找「關閉」按掉。回有沒有關掉視窗。
+    /// </summary>
+    private long _festOcrAt = long.MinValue / 2;
+
+    /// <summary>
+    /// 範本找不到節慶主持人和交談提示時，改用 OCR 找字（每 3 秒最多一次，見 <see cref="FestivalOcr"/>）。
+    /// 不降門檻：「與隊長交談」也有 0.87，會認錯。
+    /// </summary>
+    private async Task<ScreenState> FestivalByOcrAsync(Frame frame, ScreenState screen, long now)
+    {
+        if (_kit?.Ocr is not { } ocr || now - _festOcrAt < 3000)
+            return screen;
+        _festOcrAt = now;
+        var (talk, host) = await FestivalOcr.FindAsync(ocr, frame, screen.Dpr);
+        return talk is null && host is null ? screen : screen with { TalkPrompt = talk, FestivalHost = host };
+    }
+
+    private async Task<bool> CloseStrayWindowAsync(int tries = 2, int delayMs = 800)
+    {
+        if (_kit?.Ocr is not { } ocr)
+            return false;
+        for (var i = 0; i < tries; i++)
+        {
+            if (delayMs > 0)
+                await Task.Delay(delayMs);
+            var f = await _kit.Grabber.CaptureAsync();
+            var area = new Rectangle(f.Width / 2, f.Height / 2, f.Width - f.Width / 2, f.Height - f.Height / 2);
+            if ((await ocr.ReadAsync(f, area)).FirstOrDefault(l => OcrReader.Compact(l.Text) == "關閉") is { } close)
+            {
+                var (x, y) = _kit.Viewport.ToCss(close.Bounds.X + close.Bounds.Width / 2, close.Bounds.Y + close.Bounds.Height / 2);
+                await _kit.Input.ClickAsync(x, y);
+                return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>送狀態給面板（格式同 JS 的 status 訊息；尋寶率見 <see cref="TreasureAsync"/>，下一隻王見 <see cref="ClockAsync"/>）</summary>

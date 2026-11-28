@@ -119,6 +119,9 @@ public static partial class CardDecider
             // 4. 技能優先：清單裡的技能一起比，先比稀有度、同稀有度照順序（使用者 2026-11-27：冰箭、火箭、雷擊同時出現選稀有度高的；
             // 以前是第 1 優先只要出現就選）。只有一張清單裡的技能、而且是第 1 優先時，理由照舊寫「技能第 1 優先」
             var hits = pool.Where(i => Rank(i) >= 0).OrderByDescending(i => cards[i].Rarity).ThenBy(Rank).ToList();
+            // 加目標數的卡（使用者 2026-11-27）：清單裡的技能只要有一張「+N → +M 目標」就先選它，不管稀有度；好幾張再照稀有度、順序
+            if (hits.FirstOrDefault(i => AddsTargets(cards[i]), -1) is var t and >= 0)
+                return new(PickDo.Pick, t, "技能優先：增加目標");
             if (hits.Count == 1 && Rank(hits[0]) == 0)
                 return new(PickDo.Pick, hits[0], "技能第 1 優先");
             if (hits.Count > 0)
@@ -302,6 +305,9 @@ public static partial class CardDecider
     /// </summary>
     public static string? GameAutoWhy(PickerInfo p, PickSettings s, RunPickState st)
     {
+        // 進場就交給遊戲（使用者 2026-11-28）：這局第一個升級卡／寶箱卡畫面就按，不看技能欄、放逐清單、技能神祇
+        if (p.IsChest ? s.AutoChestNow : s.AutoSkillNow)
+            return "進場就交給遊戲";
         if (!s.AutoAfterBan || p.SlotsFull != true)
             return null;
         var (used, max) = p.Slots!.Value;
@@ -327,6 +333,11 @@ public static partial class CardDecider
     }
 
     /// <summary>神祇卡（同 JS isDeity：卡片文字有 Deity／之神／神祇；2026.11.23 版起改名「神器」）</summary>
+    /// <summary>
+    /// 升級卡的效果是增加目標數：卡上寫「+3 → +4 目標」（實測 OCR 常只讀到「目」或「目檷」，所以只看「目」字；卡名不算）
+    /// </summary>
+    public static bool AddsTargets(CardInfo c) => c.Text.Replace(c.Name, "").Contains('目');
+
     public static bool IsDeity(CardInfo c) => DeityWord().IsMatch(c.Name + " " + c.Text);
 
     /// <summary>神祇名稱去掉精煉等級（「思想之神 +3」→「思想之神」），鎖定神祇時記這個</summary>
